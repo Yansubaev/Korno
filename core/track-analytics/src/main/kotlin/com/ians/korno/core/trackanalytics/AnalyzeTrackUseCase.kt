@@ -64,6 +64,10 @@ class AnalyzeTrackUseCase {
                 manualPauseMillis = track.manualPauseMillis,
                 segments = samples.stopSegments(config.minimumStopMillis),
             ),
+            peakSpeedMetersPerSecond = samples
+                .filter { !it.isPaused && !it.isStop }
+                .mapNotNull(TrackSample::speedMetersPerSecond)
+                .maxOrNull(),
             elevation = altitudes.toElevationAnalysis(config.elevationNoiseMeters),
             speedScale = samples.toSpeedScale(config),
             elevationScale = altitudes.toElevationScale(),

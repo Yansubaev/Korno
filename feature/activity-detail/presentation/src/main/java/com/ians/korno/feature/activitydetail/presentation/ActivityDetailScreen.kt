@@ -181,71 +181,71 @@ private fun ActivityDetailContent(
             }
         }
 
-        // Карта живёт над прокручиваемой частью, а не внутри неё: иначе её жесты
-        // конфликтуют с вертикальным скроллом экрана.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp)
-                .padding(horizontal = 20.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer),
-        ) {
-            // Жесты выключены: карточка живёт над прокруткой экрана, и карта
-            // перехватывала бы вертикальный скролл. Разглядывать трек можно
-            // на отдельном полноэкранном экране — туда и ведёт нажатие.
-            TrackMap(
-                points = route,
-                overlay = overlay,
-                modifier = Modifier.fillMaxSize(),
-                interactive = false,
-            )
-            Row(
-                modifier = Modifier
-                    .padding(12.dp)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(100))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(state.type.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(state.dateLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-            }
-
-            // Прозрачный слой поверх карты: MapView забирает касания себе даже с
-            // выключенными жестами, и без него нажатие на карточку не доходило бы
-            // до обработчика.
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable(
-                        onClickLabel = stringResource(R.string.activity_detail_open_map),
-                        onClick = onOpenMap,
-                    ),
-            )
-        }
-
-        // Переключатель линз и легенда стоят вплотную к карте: они объясняют именно её,
-        // а внутри прокрутки уехали бы от объекта, к которому относятся.
-        state.insights?.let { insights ->
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                MapLensSelector(
-                    lenses = insights.availableLenses,
-                    selected = state.lens,
-                    speedDisplay = insights.speedDisplay,
-                    onSelect = { onAction(ActivityDetailAction.SelectLens(it)) },
-                )
-                LensLegend(
-                    lens = state.lens,
-                    insights = insights,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-        }
-
         Column(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
         ) {
+            // Карта прокручивается вместе с содержимым: без неё на экране помещается
+            // ещё один график, а разглядывать трек всё равно уводит на полный экран.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp)
+                    .padding(horizontal = 20.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
+            ) {
+                // Жесты выключены: внутри прокрутки карта перехватывала бы вертикальный
+                // скролл. Разглядывать трек можно на отдельном полноэкранном экране —
+                // туда и ведёт нажатие.
+                TrackMap(
+                    points = route,
+                    overlay = overlay,
+                    modifier = Modifier.fillMaxSize(),
+                    interactive = false,
+                )
+                Row(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(100))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(state.type.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text(state.dateLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                }
+
+                // Прозрачный слой поверх карты: MapView забирает касания себе даже с
+                // выключенными жестами, и без него нажатие на карточку не доходило бы
+                // до обработчика.
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable(
+                            onClickLabel = stringResource(R.string.activity_detail_open_map),
+                            onClick = onOpenMap,
+                        ),
+                )
+            }
+
+            // Переключатель линз и легенда стоят вплотную к карте: они объясняют именно
+            // её, и уезжать за экран должны вместе с ней.
+            state.insights?.let { insights ->
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    MapLensSelector(
+                        lenses = insights.availableLenses,
+                        selected = state.lens,
+                        speedDisplay = insights.speedDisplay,
+                        onSelect = { onAction(ActivityDetailAction.SelectLens(it)) },
+                    )
+                    LensLegend(
+                        lens = state.lens,
+                        insights = insights,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                 state.selection?.let { selection ->
                     SelectionCard(

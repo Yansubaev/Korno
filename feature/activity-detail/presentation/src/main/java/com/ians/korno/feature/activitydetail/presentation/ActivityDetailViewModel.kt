@@ -282,8 +282,22 @@ internal class ActivityDetailViewModel(
             durationText = formatTimerDuration(elapsedTimeMillis),
             movingText = formatTimerDuration(movingTimeMillis),
             avgSpeedText = context.movementText(averageSpeedMetersPerSecond, display, measurementSystem),
-            maxSpeedText = context.movementText(maxSpeedMetersPerSecond, display, measurementSystem),
-            elevationText = context.formatElevation(elevationGainMeters, measurementSystem).text,
+            // Максимум тоже из разбора: сохранённый считается по одной паре точек и
+            // почти всегда оказывается GPS-скачком — на бегу он выдаёт темп, которого
+            // не бывает.
+            maxSpeedText = context.movementText(
+                track.analysis.peakSpeedMetersPerSecond ?: maxSpeedMetersPerSecond,
+                display,
+                measurementSystem,
+            ),
+            // Набор берётся из разбора трека, а не из сохранённого значения: в записи он
+            // считается порогом на каждый сегмент и теряет пологий подъём целиком, а
+            // разбор ведёт его по сглаженному профилю с гистерезисом. Показывать рядом
+            // два разных числа про одну и ту же высоту нельзя.
+            elevationText = context.formatElevation(
+                track.analysis.elevation?.gainMeters ?: elevationGainMeters,
+                measurementSystem,
+            ).text,
             routePoints = track.points.map {
                 MapPoint(
                     latitude = it.latitude,

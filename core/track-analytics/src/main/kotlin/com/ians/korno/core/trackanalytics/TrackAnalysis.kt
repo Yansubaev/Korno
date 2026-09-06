@@ -125,6 +125,13 @@ data class TrackAnalysis(
     /** Самый быстрый полный сплит; `null` — полных сплитов нет. */
     val fastestSplit: TrackSplit?,
     val stops: StopAnalysis,
+    /**
+     * Наибольшая скорость по сглаженному окну.
+     *
+     * Не совпадает с максимумом одного сегмента: тот берётся по паре точек и почти всегда
+     * оказывается GPS-скачком. `null` — движения в треке нет.
+     */
+    val peakSpeedMetersPerSecond: Double?,
     /** `null` — высота в треке не записана. */
     val elevation: ElevationAnalysis?,
     /** `null` — движения в треке нет, шкалу строить не из чего. */
@@ -146,6 +153,7 @@ data class TrackAnalysis(
                 manualPauseMillis = 0L,
                 segments = emptyList(),
             ),
+            peakSpeedMetersPerSecond = null,
             elevation = null,
             speedScale = null,
             elevationScale = null,

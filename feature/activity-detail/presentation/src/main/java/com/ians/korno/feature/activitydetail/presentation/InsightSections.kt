@@ -29,6 +29,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+private val SplitNumberColumn = 76.dp
+
 /** Заголовок раздела экрана. */
 @Composable
 internal fun SectionTitle(text: String, modifier: Modifier = Modifier) {
@@ -131,7 +133,7 @@ internal fun SplitsSection(
         ) {
             SplitHeader(
                 text = stringResource(R.string.activity_detail_splits_number),
-                modifier = Modifier.width(56.dp),
+                modifier = Modifier.width(SplitNumberColumn),
             )
             SplitHeader(
                 text = stringResource(
@@ -213,10 +215,13 @@ private fun SplitRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
+                // В этой колонке живёт номер сплита, а у последнего — его длина,
+                // поэтому ширина рассчитана на «0.33 km», а не на одну цифру.
                 text = split.label,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.width(56.dp),
+                maxLines = 1,
+                modifier = Modifier.width(SplitNumberColumn),
             )
             Text(
                 text = split.valueText,

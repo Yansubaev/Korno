@@ -11,6 +11,7 @@ import com.ians.korno.core.presentation.formatElevation
 import com.ians.korno.core.presentation.formatPace
 import com.ians.korno.core.presentation.formatSpeed
 import com.ians.korno.core.presentation.formatTimerDuration
+import com.ians.korno.core.trackanalytics.SpeedScale
 import com.ians.korno.core.trackanalytics.TrackAnalysis
 import com.ians.korno.core.trackanalytics.TrackSample
 import com.ians.korno.core.trackanalytics.TrackSplit
@@ -31,6 +32,7 @@ private const val MAX_DISTANCE_MARKERS = 30
 private const val CHART_LOW_PERCENTILE = 0.02
 private const val CHART_HIGH_PERCENTILE = 0.98
 
+/** Полоска сплита не исчезает совсем: пустая строка читалась бы как ошибка вёрстки. */
 private const val MINIMUM_SPLIT_BAR = 0.15f
 
 internal fun Context.toInsightsUi(
@@ -175,7 +177,9 @@ private fun Context.toSpeedChart(
     }.downsampled()
     if (values.none { it.y != null }) return null
 
-    val range = values.mapNotNull(ChartValueUi::y).percentileRange() ?: return null
+    val range = analysis.speedScale.toChartRange(display, system)
+        ?: values.mapNotNull(ChartValueUi::y).percentileRange()
+        ?: return null
     val averageSpeed = analysis.stops.movingMillis
         .takeIf { it > 0L }
         ?.let { total / (it / 1_000.0) }
@@ -238,10 +242,7 @@ private fun Context.toSplitsUi(
     system: MeasurementSystem,
 ): List<SplitUi> {
     if (analysis.splits.isEmpty()) return emptyList()
-    val speeds = analysis.splits.map(TrackSplit::speedMetersPerSecond)
-    val slowest = speeds.min()
-    val fastest = speeds.max()
-    val span = fastest - slowest
+    val fastest = analysis.splits.maxOf(TrackSplit::speedMetersPerSecond)
 
     return analysis.splits.map { split ->
         SplitUi(
@@ -257,12 +258,13 @@ private fun Context.toSplitsUi(
             elevationText = split.elevationDeltaMeters
                 ?.takeIf { abs(it) >= 1.0 }
                 ?.let { signedElevation(it, system) },
-            // Полоска всегда видна: сплит с нулевой длиной читался бы как ошибка вёрстки.
-            speedFraction = if (span <= 0.0) {
+            // Полоска — доля от самого быстрого сплита, а не растяжка между худшим и
+            // лучшим: при двух-трёх сплитах растяжка превращает разницу в пять секунд
+            // в пустую и полную строки, то есть врёт про масштаб.
+            speedFraction = if (fastest <= 0.0) {
                 1f
             } else {
-                MINIMUM_SPLIT_BAR + (1f - MINIMUM_SPLIT_BAR) *
-                    ((split.speedMetersPerSecond - slowest) / span).toFloat()
+                (split.speedMetersPerSecond / fastest).toFloat().coerceIn(MINIMUM_SPLIT_BAR, 1f)
             },
             isFastest = split.number == analysis.fastestSplit?.number,
             isPartial = split.isPartial,
@@ -387,6 +389,30 @@ private fun List<ChartValueUi>.downsampled(): List<ChartValueUi> {
             y = if (present.isEmpty()) null else present.average().toFloat(),
         )
     }
+}
+
+/**
+ * Ось строится по той же шкале, что и цвет линзы, — по 5-му и 95-му процентилям скорости
+ * в движении.
+ *
+ * Считать процентили по темпу нельзя: у него длинный односторонний хвост. Полминуты на
+ * светофоре дают темп в десятки минут на километр, и ось растягивается настолько, что весь
+ * остальной бег ложится в верхнюю грань графика. Значения за пределами шкалы прижимаются
+ * к краю — ось подписана, и это честнее, чем терять различимость всей тренировки.
+ */
+private fun SpeedScale?.toChartRange(
+    display: SpeedDisplay,
+    system: MeasurementSystem,
+): ClosedFloatingPointRange<Float>? {
+    val scale = this ?: return null
+    val slow = chartSpeedValue(scale.slowestMetersPerSecond, display, system) ?: return null
+    val fast = chartSpeedValue(scale.fastestMetersPerSecond, display, system) ?: return null
+    val low = minOf(slow, fast)
+    val high = maxOf(slow, fast)
+    if (high - low < 0.001f) return (low - 1f)..(high + 1f)
+    // Небольшой запас, чтобы линия не ехала по самой границе области.
+    val margin = (high - low) * 0.08f
+    return (low - margin)..(high + margin)
 }
 
 private fun List<Float>.percentileRange(): ClosedFloatingPointRange<Float>? {
