@@ -1,5 +1,7 @@
 package com.ians.korno.feature.activitydetail.presentation.di
 
+import com.ians.korno.core.trackanalytics.AnalyzeTrackUseCase
+import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.DeleteActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ExportActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivityUseCase
@@ -17,6 +19,8 @@ import org.koin.dsl.module
 
 val activityDetailPresentationModule = module {
     factoryOf(::ObserveActivityUseCase)
+    factoryOf(::AnalyzeTrackUseCase)
+    factoryOf(::AnalyzeActivityUseCase)
     factoryOf(::ObserveGeoPointsUseCase)
     factoryOf(::DeleteActivityUseCase)
     factoryOf(::ExportActivityUseCase)

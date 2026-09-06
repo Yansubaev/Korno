@@ -15,8 +15,17 @@ internal data class ActivityDetailState(
     val avgSpeedText: String = "",
     val maxSpeedText: String = "",
     val elevationText: String = "",
-    val paceBars: List<Float> = emptyList(),
     val routePoints: List<MapPoint> = emptyList(),
+    /**
+     * Всё, что посчитано по треку: линзы, графики, сплиты и остановки.
+     * `null` — данных для анализа не хватило, и разделы аналитики скрыты целиком.
+     * Показывать их с нулями значило бы утверждать то, чего в треке нет.
+     */
+    val insights: ActivityInsightsUi? = null,
+    val lens: MapLens = MapLens.ROUTE,
+    /** Точка, выбранная касанием графика или строкой сплита. */
+    val selection: TrackSelectionUi? = null,
+    val selectedSplitNumber: Int? = null,
     val snackbarMessageRes: Int? = null,
     val deleteDialogOpen: Boolean = false,
     val deleted: Boolean = false,
@@ -29,4 +38,6 @@ internal data class ActivityDetailState(
      */
     val activityLog: ActivityLogInfo? = null,
     val isPreparingLogArchive: Boolean = false,
-)
+) {
+    val speedDisplay: SpeedDisplay get() = insights?.speedDisplay ?: type.speedDisplay
+}

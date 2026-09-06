@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,7 +27,6 @@ import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -141,6 +139,15 @@ private fun ActivityDetailContent(
     onOpenMap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val route = rememberLensRoute(state)
+    val splitSection = rememberSplitSection(state.insights, state.selectedSplitNumber)
+    val overlay = lensOverlay(
+        insights = state.insights,
+        lens = state.lens,
+        selection = state.selection,
+        highlightedSection = splitSection,
+    )
+
     Column(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = null) }
@@ -188,7 +195,8 @@ private fun ActivityDetailContent(
             // перехватывала бы вертикальный скролл. Разглядывать трек можно
             // на отдельном полноэкранном экране — туда и ведёт нажатие.
             TrackMap(
-                points = state.routePoints,
+                points = route,
+                overlay = overlay,
                 modifier = Modifier.fillMaxSize(),
                 interactive = false,
             )
@@ -217,52 +225,45 @@ private fun ActivityDetailContent(
             )
         }
 
+        // Переключатель линз и легенда стоят вплотную к карте: они объясняют именно её,
+        // а внутри прокрутки уехали бы от объекта, к которому относятся.
+        state.insights?.let { insights ->
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                MapLensSelector(
+                    lenses = insights.availableLenses,
+                    selected = state.lens,
+                    speedDisplay = insights.speedDisplay,
+                    onSelect = { onAction(ActivityDetailAction.SelectLens(it)) },
+                )
+                LensLegend(
+                    lens = state.lens,
+                    insights = insights,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+        }
+
         Column(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                val stats = listOf(
-                    stringResource(R.string.activity_detail_distance) to state.distanceText,
-                    stringResource(R.string.activity_detail_duration) to state.durationText,
-                    stringResource(R.string.activity_detail_moving) to state.movingText,
-                    stringResource(R.string.activity_detail_avg_speed) to state.avgSpeedText,
-                    stringResource(R.string.activity_detail_max_speed) to state.maxSpeedText,
-                    stringResource(R.string.activity_detail_elevation) to state.elevationText,
-                )
-                stats.chunked(3).forEach { row ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                        row.forEach { (label, value) ->
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                    }
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                state.selection?.let { selection ->
+                    SelectionCard(
+                        selection = selection,
+                        speedDisplay = state.speedDisplay,
+                        onClear = { onAction(ActivityDetailAction.ClearSelection) },
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
                 }
 
-                Text(
-                    text = stringResource(R.string.activity_detail_pace_chart),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    state.paceBars.forEach { fraction ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(fraction)
-                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
-                        )
-                    }
+                SummaryGrid(state = state)
+
+                state.insights?.let { insights ->
+                    InsightsSections(
+                        state = state,
+                        insights = insights,
+                        onAction = onAction,
+                    )
                 }
 
                 OutlinedButton(
@@ -297,6 +298,90 @@ private fun ActivityDetailContent(
                 }
             },
         )
+    }
+}
+
+/** Итоговые показатели активности. Названия зависят от того, чем меряется эта активность. */
+@Composable
+private fun SummaryGrid(state: ActivityDetailState, modifier: Modifier = Modifier) {
+    val isPace = state.speedDisplay == SpeedDisplay.PACE
+    val stats = listOf(
+        stringResource(R.string.activity_detail_distance) to state.distanceText,
+        stringResource(R.string.activity_detail_duration) to state.durationText,
+        stringResource(R.string.activity_detail_moving) to state.movingText,
+        stringResource(
+            if (isPace) R.string.activity_detail_avg_pace else R.string.activity_detail_avg_speed,
+        ) to state.avgSpeedText,
+        stringResource(
+            if (isPace) R.string.activity_detail_best_pace else R.string.activity_detail_max_speed,
+        ) to state.maxSpeedText,
+        stringResource(R.string.activity_detail_elevation) to state.elevationText,
+    )
+    Column(modifier = modifier.padding(top = 20.dp)) {
+        stats.chunked(3).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                row.forEach { (label, value) ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Графики, сплиты и остановки. Каждый раздел появляется только там, где для него есть данные. */
+@Composable
+private fun InsightsSections(
+    state: ActivityDetailState,
+    insights: ActivityInsightsUi,
+    onAction: (ActivityDetailAction) -> Unit,
+) {
+    insights.speedChart?.let { chart ->
+        InsightChart(
+            chart = chart,
+            title = stringResource(
+                if (insights.speedDisplay == SpeedDisplay.PACE) {
+                    R.string.activity_detail_pace_chart
+                } else {
+                    R.string.activity_detail_speed_chart
+                },
+            ),
+            selectionX = state.selection?.x,
+            onSelect = { onAction(ActivityDetailAction.SelectTrackPosition(it)) },
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+
+    insights.elevationChart?.let { chart ->
+        InsightChart(
+            chart = chart,
+            title = stringResource(R.string.activity_detail_elevation_chart),
+            filled = true,
+            selectionX = state.selection?.x,
+            onSelect = { onAction(ActivityDetailAction.SelectTrackPosition(it)) },
+            modifier = Modifier.padding(top = 20.dp),
+        )
+    }
+
+    insights.elevation?.let { elevation ->
+        ElevationSummary(elevation = elevation, modifier = Modifier.padding(top = 16.dp))
+    }
+
+    if (insights.splits.isNotEmpty()) {
+        SectionTitle(stringResource(R.string.activity_detail_splits))
+        SplitsSection(
+            splits = insights.splits,
+            selectedSplitNumber = state.selectedSplitNumber,
+            speedDisplay = insights.speedDisplay,
+            onSplitClick = { onAction(ActivityDetailAction.ToggleSplit(it)) },
+        )
+    }
+
+    insights.stops?.let { stops ->
+        SectionTitle(stringResource(R.string.activity_detail_stops))
+        StopsSection(stops = stops)
     }
 }
 
@@ -375,16 +460,11 @@ private fun ActivityDetailContentPreview() {
                 distanceText = "5.18 km",
                 durationText = "29:40",
                 movingText = "28:14",
-                avgSpeedText = "11.0 km/h",
-                maxSpeedText = "14.8 km/h",
+                avgSpeedText = "5:27",
+                maxSpeedText = "4:48",
                 elevationText = "42 m",
-                paceBars = listOf(0.4f, 0.55f, 0.48f, 0.62f, 0.58f, 0.7f, 0.64f, 0.52f, 0.6f, 0.66f),
-                routePoints = listOf(
-                    MapPoint(55.7512, 37.6175),
-                    MapPoint(55.7534, 37.6212),
-                    MapPoint(55.7560, 37.6198),
-                    MapPoint(55.7578, 37.6240),
-                ),
+                insights = previewInsights(),
+                routePoints = previewRoute,
             ),
             onAction = {},
             onBack = {},
@@ -392,4 +472,65 @@ private fun ActivityDetailContentPreview() {
             onOpenMap = {},
         )
     }
+}
+
+private val previewRoute = listOf(
+    MapPoint(55.7512, 37.6175),
+    MapPoint(55.7534, 37.6212),
+    MapPoint(55.7560, 37.6198),
+    MapPoint(55.7578, 37.6240),
+)
+
+private fun previewInsights(): ActivityInsightsUi {
+    val samples = previewRoute.mapIndexed { index, point ->
+        RouteSampleUi(
+            point = point,
+            distanceMeters = index * 1_300.0,
+            speedFraction = index / 3f,
+            elevationFraction = 1f - index / 3f,
+        )
+    }
+    val chart = InsightChartUi(
+        values = List(40) { step ->
+            ChartValueUi(x = step / 39f, y = 320f + 30f * kotlin.math.sin(step / 4f))
+        },
+        minY = 280f,
+        maxY = 370f,
+        averageY = 327f,
+        invertY = true,
+        topLabel = "4:40 min/km",
+        bottomLabel = "6:10 min/km",
+        averageLabel = "5:27 min/km",
+        stopMarks = listOf(0.35f, 0.72f),
+    )
+    return ActivityInsightsUi(
+        samples = samples,
+        totalDistanceMeters = 5_180.0,
+        speedDisplay = SpeedDisplay.PACE,
+        availableLenses = listOf(MapLens.ROUTE, MapLens.SPEED, MapLens.ELEVATION, MapLens.STOPS),
+        speedChart = chart,
+        elevationChart = chart.copy(invertY = false, averageY = null, averageLabel = null),
+        speedLegend = LensLegendUi("6:10 min/km", "4:40 min/km"),
+        elevationLegend = LensLegendUi("128 m", "171 m"),
+        stopMarkers = emptyList(),
+        distanceMarkers = emptyList(),
+        splits = listOf(
+            SplitUi(1, "1", "5:34 min/km", "5:34", "+8 m", 0.6f, false, false, 0.0, 1_000.0),
+            SplitUi(2, "2", "5:21 min/km", "5:21", "−3 m", 1f, true, false, 1_000.0, 2_000.0),
+            SplitUi(3, "0.18 km", "5:48 min/km", "1:03", "+19 m", 0.3f, false, true, 2_000.0, 5_180.0),
+        ),
+        fastestSplitNumber = 2,
+        stops = StopsUi(
+            movingText = "28:14",
+            stoppedText = "1:26",
+            countText = "3",
+            longestText = "0:48",
+            movingShareText = "95%",
+            movingFraction = 0.95f,
+            autoStopFraction = 0.04f,
+            pauseFraction = 0.01f,
+            hasManualPause = true,
+        ),
+        elevation = ElevationSummaryUi("42 m", "39 m", "128 – 171 m"),
+    )
 }

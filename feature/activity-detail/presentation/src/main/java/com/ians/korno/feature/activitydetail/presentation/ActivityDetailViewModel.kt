@@ -18,8 +18,12 @@ import com.ians.korno.core.logging.LogManager
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatElevation
+import com.ians.korno.core.presentation.formatPace
 import com.ians.korno.core.presentation.formatSpeed
+import com.ians.korno.core.presentation.formatTimerDuration
 import com.ians.korno.core.presentation.R as CoreR
+import com.ians.korno.core.trackanalytics.TrackAnalysis
+import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.DeleteActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ExportActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivityUseCase
@@ -29,23 +33,25 @@ import com.ians.korno.feature.activitydetail.domain.usecase.PrepareActivityExpor
 import com.ians.korno.feature.activitydetail.domain.usecase.PrepareActivityShareUseCase
 import java.util.Calendar
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-private const val PACE_BUCKET_COUNT = 10
 
 internal class ActivityDetailViewModel(
     private val context: Context,
     private val activityId: Long,
     observeActivity: ObserveActivityUseCase,
     observeGeoPoints: ObserveGeoPointsUseCase,
+    private val analyzeActivity: AnalyzeActivityUseCase,
     private val deleteActivity: DeleteActivityUseCase,
     private val exportActivity: ExportActivityUseCase,
     private val prepareActivityExport: PrepareActivityExportUseCase,
@@ -56,6 +62,10 @@ internal class ActivityDetailViewModel(
 ) : ViewModel() {
 
     private data class LocalUi(
+        val lens: MapLens = MapLens.ROUTE,
+        /** Доля дистанции, выбранная касанием графика; `null` — ничего не выбрано. */
+        val selectedFraction: Float? = null,
+        val selectedSplitNumber: Int? = null,
         val snackbarMessageRes: Int? = null,
         val deleteDialogOpen: Boolean = false,
         val deleted: Boolean = false,
@@ -65,6 +75,12 @@ internal class ActivityDetailViewModel(
         val isPreparingLogArchive: Boolean = false,
     )
 
+    /** Точки трека вместе с их разбором: считаются вместе и устаревают вместе. */
+    private data class TrackData(
+        val points: List<GeoPoint>,
+        val analysis: TrackAnalysis,
+    )
+
     private val local = MutableStateFlow(LocalUi())
     private val eventChannel = Channel<ActivityDetailEvent>()
     val events = eventChannel.receiveAsFlow()
@@ -72,21 +88,33 @@ internal class ActivityDetailViewModel(
     /** Формат, выбранный в диалоге, нужен ещё раз — когда вернётся системный выбор файла. */
     private var pendingExportFormat: TrackFileFormat? = null
 
+    /**
+     * Разбор трека живёт отдельным потоком и на фоновом диспетчере: он проходит по тысячам
+     * точек, и делать это в общем `combine` значило бы пересчитывать всё при каждом
+     * открытии диалога или показе снекбара.
+     */
+    private val trackData: Flow<TrackData> = combine(
+        observeGeoPoints(activityId),
+        preferencesRepository.observePreferences(),
+    ) { pointsResult, preferences ->
+        val points = (pointsResult as? Result.Success)?.data.orEmpty()
+        TrackData(points, analyzeActivity(points, preferences.measurementSystem))
+    }.flowOn(Dispatchers.Default)
+
     val state: StateFlow<ActivityDetailState> = combine(
         observeActivity(activityId),
-        observeGeoPoints(activityId),
+        trackData,
         local,
         preferencesRepository.observePreferences(),
-    ) { activityResult, pointsResult, localUi, preferences ->
+    ) { activityResult, track, localUi, preferences ->
         val activity = (activityResult as? Result.Success)?.data
-        val points = (pointsResult as? Result.Success)?.data.orEmpty()
         if (activity == null) {
             // Флаг удаления переживает исчезновение активности из БД: Room успевает
             // сообщить о пропаже раньше, чем UI прочитает состояние, и без переноса
             // флага экран остался бы висеть на пустых данных вместо возврата назад.
             ActivityDetailState(isLoading = true, deleted = localUi.deleted)
         } else {
-            activity.toUiState(points, localUi, preferences.measurementSystem)
+            activity.toUiState(track, localUi, preferences.measurementSystem)
         }
     }.stateIn(
         scope = viewModelScope,
@@ -125,6 +153,20 @@ internal class ActivityDetailViewModel(
                 exportActivity(activityId, action.uri, format)
             }
             ActivityDetailAction.ExportDestinationCancelled -> pendingExportFormat = null
+            is ActivityDetailAction.SelectLens -> local.update { it.copy(lens = action.lens) }
+            is ActivityDetailAction.SelectTrackPosition -> local.update {
+                // Точка и сплит — два способа сказать «вот это место», и одновременно
+                // подсвечивать оба значило бы показывать два ответа на один вопрос.
+                it.copy(selectedFraction = action.fraction.coerceIn(0f, 1f), selectedSplitNumber = null)
+            }
+            ActivityDetailAction.ClearSelection ->
+                local.update { it.copy(selectedFraction = null, selectedSplitNumber = null) }
+            is ActivityDetailAction.ToggleSplit -> local.update {
+                it.copy(
+                    selectedSplitNumber = action.number.takeIf { number -> number != it.selectedSplitNumber },
+                    selectedFraction = null,
+                )
+            }
             ActivityDetailAction.RequestDelete -> local.update { it.copy(deleteDialogOpen = true) }
             ActivityDetailAction.CancelDelete -> local.update { it.copy(deleteDialogOpen = false) }
             ActivityDetailAction.ConfirmDelete -> viewModelScope.launch {
@@ -225,45 +267,47 @@ internal class ActivityDetailViewModel(
     }
 
     private fun Activity.toUiState(
-        points: List<GeoPoint>,
+        track: TrackData,
         localUi: LocalUi,
         measurementSystem: MeasurementSystem,
-    ): ActivityDetailState = ActivityDetailState(
-        isLoading = false,
-        title = title ?: activityType.name,
-        dateLabel = dateLabel(startTimeEpochMillis),
-        type = activityType,
-        distanceText = context.formatDistance(distanceMeters, measurementSystem).text,
-        durationText = formatDuration(elapsedTimeMillis),
-        movingText = formatDuration(movingTimeMillis),
-        avgSpeedText = context.formatSpeed(averageSpeedMetersPerSecond, measurementSystem).text,
-        maxSpeedText = context.formatSpeed(maxSpeedMetersPerSecond, measurementSystem).text,
-        elevationText = context.formatElevation(elevationGainMeters, measurementSystem).text,
-        paceBars = paceBars(points),
-        routePoints = points.map {
-            MapPoint(
-                latitude = it.latitude,
-                longitude = it.longitude,
-                isPaused = it.isStop || it.recordingStatus.isPause,
-            )
-        },
-        snackbarMessageRes = localUi.snackbarMessageRes,
-        deleteDialogOpen = localUi.deleteDialogOpen,
-        deleted = localUi.deleted,
-        formatChoice = localUi.formatChoice,
-        isExporting = localUi.isExporting,
-        activityLog = localUi.activityLog,
-        isPreparingLogArchive = localUi.isPreparingLogArchive,
-    )
-
-    private fun paceBars(points: List<GeoPoint>): List<Float> {
-        if (points.isEmpty()) return List(PACE_BUCKET_COUNT) { 0.5f }
-        val bucketSize = (points.size / PACE_BUCKET_COUNT).coerceAtLeast(1)
-        val speeds = points.chunked(bucketSize).take(PACE_BUCKET_COUNT).map { bucket ->
-            bucket.mapNotNull { it.speedMetersPerSecond }.average().let { if (it.isNaN()) 0.0 else it }
-        }
-        val max = speeds.maxOrNull()?.takeIf { it > 0 } ?: return List(PACE_BUCKET_COUNT) { 0.5f }
-        return speeds.map { (0.2f + 0.8f * (it / max)).toFloat() }
+    ): ActivityDetailState {
+        val insights = context.toInsightsUi(track.analysis, activityType, measurementSystem)
+        val display = activityType.speedDisplay
+        return ActivityDetailState(
+            isLoading = false,
+            title = title ?: activityType.name,
+            dateLabel = dateLabel(startTimeEpochMillis),
+            type = activityType,
+            distanceText = context.formatDistance(distanceMeters, measurementSystem).text,
+            durationText = formatTimerDuration(elapsedTimeMillis),
+            movingText = formatTimerDuration(movingTimeMillis),
+            avgSpeedText = context.movementText(averageSpeedMetersPerSecond, display, measurementSystem),
+            maxSpeedText = context.movementText(maxSpeedMetersPerSecond, display, measurementSystem),
+            elevationText = context.formatElevation(elevationGainMeters, measurementSystem).text,
+            routePoints = track.points.map {
+                MapPoint(
+                    latitude = it.latitude,
+                    longitude = it.longitude,
+                    isPaused = it.isStop || it.recordingStatus.isPause,
+                )
+            },
+            insights = insights,
+            // Линза может исчезнуть вместе с данными, на которых держалась: после
+            // ручной правки трека выбранной высоты или остановок может уже не быть.
+            lens = localUi.lens.takeIf { insights == null || it in insights.availableLenses }
+                ?: MapLens.ROUTE,
+            selection = localUi.selectedFraction?.let {
+                context.toSelectionUi(track.analysis, it, activityType, measurementSystem)
+            },
+            selectedSplitNumber = localUi.selectedSplitNumber,
+            snackbarMessageRes = localUi.snackbarMessageRes,
+            deleteDialogOpen = localUi.deleteDialogOpen,
+            deleted = localUi.deleted,
+            formatChoice = localUi.formatChoice,
+            isExporting = localUi.isExporting,
+            activityLog = localUi.activityLog,
+            isPreparingLogArchive = localUi.isPreparingLogArchive,
+        )
     }
 
     private fun dateLabel(epochMillis: Long): String {
@@ -279,18 +323,17 @@ internal class ActivityDetailViewModel(
 
     private fun isSameDay(a: Calendar, b: Calendar): Boolean =
         a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+}
 
-    private fun formatDuration(millis: Long): String {
-        val totalSeconds = millis / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.US, "%02d:%02d", minutes, seconds)
-        }
-    }
+/** Темп или скорость — смотря чем меряют эту активность. */
+private fun Context.movementText(
+    metersPerSecond: Double,
+    display: SpeedDisplay,
+    system: MeasurementSystem,
+): String = when (display) {
+    SpeedDisplay.PACE -> formatPace(metersPerSecond, system)?.text
+        ?: getString(R.string.activity_detail_value_unavailable)
+    SpeedDisplay.SPEED -> formatSpeed(metersPerSecond, system).text
 }
 
 private val RecordingStatus.isPause: Boolean

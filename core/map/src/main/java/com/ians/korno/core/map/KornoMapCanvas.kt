@@ -76,6 +76,7 @@ internal fun KornoMapCanvas(
     modifier: Modifier = Modifier,
     editablePoints: List<EditableMapPoint> = emptyList(),
     currentPoint: MapPoint? = null,
+    overlay: TrackOverlay = TrackOverlay.None,
     showEndpoints: Boolean = true,
     camera: TrackMapCamera = TrackMapCamera.FitTrack,
     interactive: Boolean = true,
@@ -155,13 +156,15 @@ internal fun KornoMapCanvas(
         }
     }
 
-    LaunchedEffect(loaded, route, currentPoint, showEndpoints) {
+    LaunchedEffect(loaded, route, currentPoint, overlay, showEndpoints) {
         val style = loaded?.style ?: return@LaunchedEffect
-        style.setRoute(route)
+        style.setRoute(route, defaultColor = colors.route)
+        style.setOverlay(overlay)
         style.setMarkers(
             start = route.firstOrNull().takeIf { showEndpoints },
             finish = route.lastOrNull().takeIf { showEndpoints && currentPoint == null },
             current = currentPoint,
+            highlight = overlay.highlight,
         )
     }
 
@@ -404,6 +407,9 @@ private fun trackMapColors(): TrackMapColors {
             point = scheme.primary.toArgb(),
             outlier = scheme.error.toArgb(),
             selected = scheme.tertiary.toArgb(),
+            stop = scheme.onSurfaceVariant.toArgb(),
+            highlight = scheme.tertiary.toArgb(),
+            label = scheme.onSurface.toArgb(),
         )
     }
 }

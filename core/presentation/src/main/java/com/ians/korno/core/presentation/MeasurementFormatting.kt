@@ -42,6 +42,38 @@ fun Context.formatSpeed(
 }
 
 /**
+ * Темп — время на километр или милю, `4:35`.
+ *
+ * Для ходьбы, бега и хайкинга он читается лучше скорости: «5:30 мин/км» человек соотносит
+ * со своим опытом, а «10,9 км/ч» — нет.
+ *
+ * Возвращает `null`, когда темпа нет: нулевая скорость даёт бесконечность, а очень малая —
+ * трёхзначные минуты, и то и другое лучше не показывать вовсе.
+ */
+fun Context.formatPace(
+    metersPerSecond: Double,
+    system: MeasurementSystem,
+): FormattedMeasurement? {
+    if (metersPerSecond <= 0.0 || !metersPerSecond.isFinite()) return null
+    val unitMeters = when (system) {
+        MeasurementSystem.METRIC -> 1_000.0
+        MeasurementSystem.IMPERIAL -> 1_609.344
+    }
+    val secondsPerUnit = (unitMeters / metersPerSecond).toLong()
+    if (secondsPerUnit >= MAXIMUM_PACE_SECONDS) return null
+    val unit = getString(
+        if (system == MeasurementSystem.METRIC) R.string.unit_pace_km else R.string.unit_pace_mi,
+    )
+    return FormattedMeasurement(
+        value = String.format(Locale.US, "%d:%02d", secondsPerUnit / 60, secondsPerUnit % 60),
+        unit = unit,
+    )
+}
+
+/** Темп медленнее часа на километр — это уже не движение, а стоянка с дрожащим GPS. */
+private const val MAXIMUM_PACE_SECONDS = 3_600L
+
+/**
  * Короткое расстояние — десятки и сотни метров, где километры бессмысленны.
  * Имперский вариант округляется до десятков футов: точнее исходных данных всё равно нет.
  */
