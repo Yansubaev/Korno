@@ -1,14 +1,65 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="GradleMigrationSettings" migrationVersion="1" />
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
+        <compositeConfiguration>
+          <compositeBuild compositeDefinitionSource="SCRIPT">
+            <builds>
+              <build path="$PROJECT_DIR$/build-logic" name="build-logic">
+                <projects>
+                  <project path="$PROJECT_DIR$/build-logic" />
+                </projects>
+              </build>
+            </builds>
+          </compositeBuild>
+        </compositeConfiguration>
         <option name="testRunner" value="CHOOSE_PER_TEST" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/app" />
+            <option value="$PROJECT_DIR$/build-logic" />
+            <option value="$PROJECT_DIR$/core" />
+            <option value="$PROJECT_DIR$/core/data" />
+            <option value="$PROJECT_DIR$/core/database" />
+            <option value="$PROJECT_DIR$/core/design-system" />
+            <option value="$PROJECT_DIR$/core/domain" />
+            <option value="$PROJECT_DIR$/core/logging" />
+            <option value="$PROJECT_DIR$/core/map" />
+            <option value="$PROJECT_DIR$/core/presentation" />
+            <option value="$PROJECT_DIR$/core/track-processing" />
+            <option value="$PROJECT_DIR$/data" />
+            <option value="$PROJECT_DIR$/data/gpx-export" />
+            <option value="$PROJECT_DIR$/data/location-tracking" />
+            <option value="$PROJECT_DIR$/data/remote" />
+            <option value="$PROJECT_DIR$/data/track-io" />
+            <option value="$PROJECT_DIR$/feature" />
+            <option value="$PROJECT_DIR$/feature/activity-detail" />
+            <option value="$PROJECT_DIR$/feature/activity-detail/data" />
+            <option value="$PROJECT_DIR$/feature/activity-detail/domain" />
+            <option value="$PROJECT_DIR$/feature/activity-detail/presentation" />
+            <option value="$PROJECT_DIR$/feature/activity-list" />
+            <option value="$PROJECT_DIR$/feature/activity-list/data" />
+            <option value="$PROJECT_DIR$/feature/activity-list/domain" />
+            <option value="$PROJECT_DIR$/feature/activity-list/presentation" />
+            <option value="$PROJECT_DIR$/feature/home" />
+            <option value="$PROJECT_DIR$/feature/home/domain" />
+            <option value="$PROJECT_DIR$/feature/home/presentation" />
+            <option value="$PROJECT_DIR$/feature/onboarding" />
+            <option value="$PROJECT_DIR$/feature/onboarding/data" />
+            <option value="$PROJECT_DIR$/feature/onboarding/domain" />
+            <option value="$PROJECT_DIR$/feature/onboarding/presentation" />
+            <option value="$PROJECT_DIR$/feature/settings" />
+            <option value="$PROJECT_DIR$/feature/settings/data" />
+            <option value="$PROJECT_DIR$/feature/settings/domain" />
+            <option value="$PROJECT_DIR$/feature/settings/presentation" />
+            <option value="$PROJECT_DIR$/feature/tracking" />
+            <option value="$PROJECT_DIR$/feature/tracking/data" />
+            <option value="$PROJECT_DIR$/feature/tracking/domain" />
+            <option value="$PROJECT_DIR$/feature/tracking/presentation" />
           </set>
         </option>
       </GradleProjectSettings>

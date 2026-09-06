@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_recenter">Вернуться к текущей позиции</string>
+    <string name="map_offline">Нет сети — показываем из кэша</string>
+    <string name="map_unavailable">Не удалось загрузить карту.</string>
+    <string name="map_retry">Повторить</string>
+</resources>

@@ -1,0 +1,73 @@
+<resources>
+    <string name="tracking_start">Начать</string>
+    <string name="tracking_pause">Пауза</string>
+    <string name="tracking_resume">Продолжить</string>
+    <string name="tracking_stop">Стоп</string>
+
+    <string name="tracking_type_run">Бег</string>
+    <string name="tracking_type_ride">Велосипед</string>
+    <string name="tracking_type_walk">Ходьба</string>
+    <string name="tracking_type_drive">Поездка</string>
+
+    <string name="tracking_setup_title">Новая активность</string>
+    <string name="tracking_setup_activity_type">Тип активности</string>
+    <string name="tracking_setup_autopause_title">Автопауза</string>
+    <string name="tracking_setup_autopause_subtitle">Приостанавливать запись, когда вы останавливаетесь</string>
+    <string name="tracking_setup_gps_accuracy">Точность GPS</string>
+    <string name="tracking_setup_gps_subtitle">Высокая точность расходует больше заряда</string>
+    <string name="tracking_gps_high">Высокая</string>
+    <string name="tracking_gps_balanced">Сбалансированная</string>
+    <string name="tracking_gps_saver">Экономия заряда</string>
+    <string name="tracking_setup_autopause_sensitivity">Чувствительность автопаузы</string>
+    <string name="tracking_autopause_sensitivity_low">Низкая</string>
+    <string name="tracking_autopause_sensitivity_medium">Средняя</string>
+    <string name="tracking_autopause_sensitivity_high">Высокая</string>
+    <string name="tracking_setup_start">Начать</string>
+
+    <string name="tracking_moving_value">В движении %1$s</string>
+    <string name="tracking_distance_label">Дистанция</string>
+    <string name="tracking_current_label">Сейчас</string>
+    <string name="tracking_avg_label">Средняя</string>
+    <string name="tracking_elevation_label">Набор высоты</string>
+    <!-- Единицы вынесены в подпись, чтобы само значение можно было показывать крупно. -->
+    <string name="tracking_current_label_kmh">Сейчас, км/ч</string>
+    <string name="tracking_avg_label_kmh">Средняя, км/ч</string>
+    <string name="tracking_distance_label_km">Дистанция, км</string>
+    <string name="tracking_elevation_label_m">Набор высоты, м</string>
+    <string name="tracking_gps_label">GPS</string>
+    <string name="tracking_cd_toggle_map">Переключить вид карты</string>
+    <string name="tracking_map_waiting_gps">Ждём сигнал GPS…</string>
+    <string name="tracking_status_waiting_gps">Ждём GPS</string>
+    <string name="tracking_status_recording">Запись</string>
+    <string name="tracking_status_paused">Пауза</string>
+    <string name="tracking_status_autopaused">Автопауза</string>
+    <string name="tracking_finish_dialog_title">Завершить запись?</string>
+    <string name="tracking_finish_dialog_body">Это остановит запись и сохранит маршрут.</string>
+    <string name="tracking_finish_dialog_keep_going">Продолжить</string>
+    <string name="tracking_finish_dialog_confirm">Завершить</string>
+
+    <string name="tracking_summary_title">Сохранить активность</string>
+    <string name="tracking_summary_map_empty">Точки маршрута не записаны</string>
+    <string name="tracking_summary_time_label">Время</string>
+    <string name="tracking_summary_pace_label">Темп</string>
+    <string name="tracking_summary_title_field">Название</string>
+    <string name="tracking_summary_note_field">Заметка</string>
+    <string name="tracking_summary_note_placeholder">Добавьте заметку (необязательно)</string>
+    <string name="tracking_summary_discard">Удалить</string>
+    <string name="tracking_summary_save">Сохранить</string>
+    <string name="tracking_summary_morning">утром</string>
+    <string name="tracking_summary_afternoon">днём</string>
+    <string name="tracking_summary_evening">вечером</string>
+
+    <!--
+      Название активности по умолчанию. %1$s — время суток, %2$s — тип активности;
+      порядок слов зависит от языка, поэтому название собирается позиционной строкой.
+    -->
+    <string name="tracking_summary_default_title">%2$s %1$s</string>
+    <string name="tracking_summary_activity_run">Пробежка</string>
+    <string name="tracking_summary_activity_ride">Заезд</string>
+    <string name="tracking_summary_activity_walk">Прогулка</string>
+    <string name="tracking_summary_activity_drive">Поездка</string>
+    <string name="tracking_summary_activity_hike">Поход</string>
+    <string name="tracking_summary_activity_other">Активность</string>
+</resources>

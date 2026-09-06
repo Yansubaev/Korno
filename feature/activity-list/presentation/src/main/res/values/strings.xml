@@ -1,0 +1,22 @@
+<resources>
+    <string name="activity_list_title">Activities</string>
+    <string name="activity_list_search_placeholder">Search activities</string>
+    <string name="activity_list_filter_all">All</string>
+    <string name="activity_list_period_all">All time</string>
+    <string name="activity_list_period_week">This week</string>
+    <string name="activity_list_period_month">This month</string>
+    <string name="activity_list_period_year">This year</string>
+    <string name="activity_list_empty">No activities found.</string>
+    <string name="activity_list_import">Import tracks</string>
+    <string name="activity_list_import_running">Importing tracks…</string>
+    <plurals name="activity_list_import_done">
+        <item quantity="one">Imported %1$d of %2$d file</item>
+        <item quantity="other">Imported %1$d of %2$d files</item>
+    </plurals>
+    <string name="activity_list_import_failed">Could not import the selected files.</string>
+
+    <string name="activity_list_type_run">Run</string>
+    <string name="activity_list_type_ride">Ride</string>
+    <string name="activity_list_type_walk">Walk</string>
+    <string name="activity_list_type_drive">Drive</string>
+</resources>

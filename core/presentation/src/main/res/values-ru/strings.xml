@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="unit_distance_km_value">%1$s км</string>
+    <string name="unit_speed_kmh_value">%1$s км/ч</string>
+    <string name="unit_elevation_m_value">%1$s м</string>
+    <string name="unit_km">км</string>
+    <string name="unit_mi">мили</string>
+    <string name="unit_kmh">км/ч</string>
+    <string name="unit_mph">миль/ч</string>
+    <string name="unit_m">м</string>
+    <string name="unit_ft">фт</string>
+
+    <string name="duration_hours_minutes">%1$d ч %2$d мин</string>
+    <string name="duration_minutes">%1$d мин</string>
+
+    <string name="date_label_today">Сегодня</string>
+    <string name="date_label_yesterday">Вчера</string>
+</resources>

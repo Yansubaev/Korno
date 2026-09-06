@@ -1,0 +1,41 @@
+<resources>
+    <string name="activity_detail_distance">Дистанция</string>
+    <string name="activity_detail_duration">Длительность</string>
+    <string name="activity_detail_moving">В движении</string>
+    <string name="activity_detail_avg_speed">Средняя скорость</string>
+    <string name="activity_detail_max_speed">Макс. скорость</string>
+    <string name="activity_detail_elevation">Набор высоты</string>
+    <string name="activity_detail_pace_chart">Темп по дистанции</string>
+    <string name="activity_detail_edit_track">Изменить трек</string>
+    <string name="activity_map_back">Назад к активности</string>
+    <string name="activity_detail_open_map">Открыть карту на весь экран</string>
+    <string name="activity_detail_share">Поделиться файлом трека</string>
+    <string name="activity_detail_export">Экспортировать файл трека</string>
+    <string name="activity_detail_export_done">Файл трека сохранён</string>
+    <string name="activity_detail_no_logs">По этой активности логов нет</string>
+    <string name="activity_detail_log_archive_failed">Не удалось подготовить архив диагностики</string>
+
+    <string name="track_file_export_title">Экспорт трека</string>
+    <string name="track_file_share_title">Поделиться треком</string>
+    <string name="track_file_format_prompt">Выберите формат файла.</string>
+    <string name="track_file_cancel">Отмена</string>
+    <string name="track_file_error_empty">В этой активности нет точек для записи.</string>
+    <string name="track_file_error_document">Не удалось открыть выбранный файл.</string>
+    <string name="track_file_error_generic">Не удалось выполнить операцию с файлом трека.</string>
+    <string name="activity_detail_delete_dialog_title">Удалить активность?</string>
+    <string name="activity_detail_delete_dialog_body">Это действие нельзя отменить.</string>
+    <string name="activity_detail_delete_dialog_cancel">Отмена</string>
+    <string name="activity_detail_delete_dialog_confirm">Удалить</string>
+
+    <string name="track_correction_title">Изменить трек</string>
+    <string name="track_correction_legend_point">Точка трека</string>
+    <string name="track_correction_legend_outlier">Помечена (возможная ошибка GPS)</string>
+    <string name="track_correction_delete_point">Удалить точку</string>
+    <string name="track_correction_undo">Отменить</string>
+    <string name="track_correction_reset">Сбросить</string>
+    <string name="track_correction_original">Исходно</string>
+    <string name="track_correction_current">Сейчас</string>
+    <string name="track_correction_removed">Удалено</string>
+    <string name="track_correction_save">Сохранить изменения</string>
+    <string name="track_correction_saved_snackbar">Трек обновлён</string>
+</resources>

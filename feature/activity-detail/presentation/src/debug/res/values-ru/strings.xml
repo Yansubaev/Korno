@@ -1,0 +1,13 @@
+<resources>
+    <string name="activity_detail_diagnostics">Диагностика</string>
+    <string name="activity_detail_share_logs_title">Поделиться логами активности</string>
+    <plurals name="activity_detail_share_logs_subtitle">
+        <item quantity="one">%1$s · %2$d запись</item>
+        <item quantity="few">%1$s · %2$d записи</item>
+        <item quantity="many">%1$s · %2$d записей</item>
+        <item quantity="other">%1$s · %2$d записи</item>
+    </plurals>
+    <string name="activity_detail_share_logs_empty">По этой активности ничего не записано</string>
+    <string name="activity_detail_share_logs_preparing">Готовим архив…</string>
+    <string name="activity_detail_share_logs_truncated"> · обрезано</string>
+</resources>

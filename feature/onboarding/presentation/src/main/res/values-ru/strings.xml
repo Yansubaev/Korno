@@ -1,0 +1,32 @@
+<resources>
+    <string name="onboarding_title">Korno</string>
+    <string name="onboarding_allow">Разрешить</string>
+    <string name="onboarding_skip">Не сейчас</string>
+    <string name="onboarding_next">Далее</string>
+    <string name="onboarding_get_started">Начать</string>
+    <string name="onboarding_continue">Продолжить</string>
+    <string name="onboarding_granted">Разрешено</string>
+    <string name="onboarding_foreground_location_required">Это разрешение обязательно для записи трека</string>
+
+    <string name="onboarding_intro_slide1_title">Записывайте каждый маршрут</string>
+    <string name="onboarding_intro_slide1_body">Бег, велосипед, прогулки и поездки — с точным GPS-треком.</string>
+    <string name="onboarding_intro_slide2_title">Чистый трек без лишнего</string>
+    <string name="onboarding_intro_slide2_body">Korno отфильтровывает скачки сигнала и «телепортации», а также определяет остановки, чтобы средняя скорость была честной.</string>
+    <string name="onboarding_intro_slide3_title">Ваши данные остаются у вас</string>
+    <string name="onboarding_intro_slide3_body">Все расчёты происходят на устройстве. Ничего не покидает телефон, пока вы сами не решите поделиться или синхронизировать.</string>
+
+    <string name="onboarding_permissions_title">Разрешения приложения</string>
+    <string name="onboarding_permissions_subtitle">Korno нужен доступ к геолокации, чтобы записывать маршруты. Вот что даёт каждое разрешение.</string>
+
+    <string name="onboarding_step_foreground_location_title">Доступ к геолокации</string>
+    <string name="onboarding_step_foreground_location_rationale">Korno использует GPS, чтобы записывать маршрут во время активности. Без этого разрешения запись невозможна.</string>
+
+    <string name="onboarding_step_background_location_title">Геолокация в фоне</string>
+    <string name="onboarding_step_background_location_rationale">Разрешите доступ к геолокации «Всегда», чтобы запись продолжалась, даже если экран выключен или вы свернули приложение.</string>
+
+    <string name="onboarding_step_activity_recognition_title">Распознавание активности</string>
+    <string name="onboarding_step_activity_recognition_rationale">Поможет Korno в будущем автоматически определять тип активности — ходьба, бег или велосипед.</string>
+
+    <string name="onboarding_step_notifications_title">Уведомления</string>
+    <string name="onboarding_step_notifications_rationale">Во время записи Korno показывает уведомление с текущим статусом трека и кнопками управления.</string>
+</resources>

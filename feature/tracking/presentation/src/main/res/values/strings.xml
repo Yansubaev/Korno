@@ -1,0 +1,73 @@
+<resources>
+    <string name="tracking_start">Start</string>
+    <string name="tracking_pause">Pause</string>
+    <string name="tracking_resume">Resume</string>
+    <string name="tracking_stop">Stop</string>
+
+    <string name="tracking_type_run">Run</string>
+    <string name="tracking_type_ride">Ride</string>
+    <string name="tracking_type_walk">Walk</string>
+    <string name="tracking_type_drive">Drive</string>
+
+    <string name="tracking_setup_title">New activity</string>
+    <string name="tracking_setup_activity_type">Activity type</string>
+    <string name="tracking_setup_autopause_title">Auto-pause</string>
+    <string name="tracking_setup_autopause_subtitle">Pause recording when you stop moving</string>
+    <string name="tracking_setup_autopause_sensitivity">Auto-pause sensitivity</string>
+    <string name="tracking_autopause_sensitivity_low">Low</string>
+    <string name="tracking_autopause_sensitivity_medium">Medium</string>
+    <string name="tracking_autopause_sensitivity_high">High</string>
+    <string name="tracking_setup_gps_accuracy">GPS accuracy</string>
+    <string name="tracking_setup_gps_subtitle">Higher accuracy uses more battery</string>
+    <string name="tracking_gps_high">High</string>
+    <string name="tracking_gps_balanced">Balanced</string>
+    <string name="tracking_gps_saver">Battery saver</string>
+    <string name="tracking_setup_start">Start</string>
+
+    <string name="tracking_moving_value">Moving %1$s</string>
+    <string name="tracking_distance_label">Distance</string>
+    <string name="tracking_current_label">Current</string>
+    <string name="tracking_avg_label">Average</string>
+    <string name="tracking_elevation_label">Elevation gain</string>
+    <!-- Units live in the label so the value itself can be rendered large. -->
+    <string name="tracking_current_label_kmh">Now, km/h</string>
+    <string name="tracking_avg_label_kmh">Avg, km/h</string>
+    <string name="tracking_distance_label_km">Distance, km</string>
+    <string name="tracking_elevation_label_m">Elevation gain, m</string>
+    <string name="tracking_gps_label">GPS</string>
+    <string name="tracking_cd_toggle_map">Toggle map view</string>
+    <string name="tracking_map_waiting_gps">Waiting for a GPS signal…</string>
+    <string name="tracking_status_waiting_gps">Waiting for GPS</string>
+    <string name="tracking_status_recording">Recording</string>
+    <string name="tracking_status_paused">Paused</string>
+    <string name="tracking_status_autopaused">Auto-paused</string>
+    <string name="tracking_finish_dialog_title">Finish recording?</string>
+    <string name="tracking_finish_dialog_body">This stops the recording and saves the route.</string>
+    <string name="tracking_finish_dialog_keep_going">Keep going</string>
+    <string name="tracking_finish_dialog_confirm">Finish</string>
+
+    <string name="tracking_summary_title">Save activity</string>
+    <string name="tracking_summary_map_empty">No route points recorded</string>
+    <string name="tracking_summary_time_label">Time</string>
+    <string name="tracking_summary_pace_label">Pace</string>
+    <string name="tracking_summary_title_field">Title</string>
+    <string name="tracking_summary_note_field">Note</string>
+    <string name="tracking_summary_note_placeholder">Add a note (optional)</string>
+    <string name="tracking_summary_discard">Discard</string>
+    <string name="tracking_summary_save">Save</string>
+    <string name="tracking_summary_morning">Morning</string>
+    <string name="tracking_summary_afternoon">Afternoon</string>
+    <string name="tracking_summary_evening">Evening</string>
+
+    <!--
+      Default activity title. %1$s is the time of day, %2$s is the activity noun;
+      the order differs per language, so the whole title is a positional format string.
+    -->
+    <string name="tracking_summary_default_title">%1$s %2$s</string>
+    <string name="tracking_summary_activity_run">run</string>
+    <string name="tracking_summary_activity_ride">ride</string>
+    <string name="tracking_summary_activity_walk">walk</string>
+    <string name="tracking_summary_activity_drive">drive</string>
+    <string name="tracking_summary_activity_hike">hike</string>
+    <string name="tracking_summary_activity_other">activity</string>
+</resources>

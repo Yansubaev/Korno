@@ -1,0 +1,24 @@
+<resources>
+    <string name="activity_list_title">Активности</string>
+    <string name="activity_list_search_placeholder">Поиск активностей</string>
+    <string name="activity_list_filter_all">Все</string>
+    <string name="activity_list_period_all">Всё время</string>
+    <string name="activity_list_period_week">На этой неделе</string>
+    <string name="activity_list_period_month">В этом месяце</string>
+    <string name="activity_list_period_year">В этом году</string>
+    <string name="activity_list_empty">Активности не найдены.</string>
+    <string name="activity_list_import">Импортировать треки</string>
+    <string name="activity_list_import_running">Импорт треков…</string>
+    <plurals name="activity_list_import_done">
+        <item quantity="one">Импортировано %1$d из %2$d файла</item>
+        <item quantity="few">Импортировано %1$d из %2$d файлов</item>
+        <item quantity="many">Импортировано %1$d из %2$d файлов</item>
+        <item quantity="other">Импортировано %1$d из %2$d файла</item>
+    </plurals>
+    <string name="activity_list_import_failed">Не удалось импортировать выбранные файлы.</string>
+
+    <string name="activity_list_type_run">Бег</string>
+    <string name="activity_list_type_ride">Велосипед</string>
+    <string name="activity_list_type_walk">Ходьба</string>
+    <string name="activity_list_type_drive">Поездка</string>
+</resources>

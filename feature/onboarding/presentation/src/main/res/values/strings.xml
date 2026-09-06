@@ -1,0 +1,32 @@
+<resources>
+    <string name="onboarding_title">Korno</string>
+    <string name="onboarding_allow">Allow</string>
+    <string name="onboarding_skip">Not now</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_get_started">Get started</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_granted">Granted</string>
+    <string name="onboarding_foreground_location_required">This permission is required to record a track</string>
+
+    <string name="onboarding_intro_slide1_title">Record every route</string>
+    <string name="onboarding_intro_slide1_body">Runs, rides, walks and drives — with a precise GPS track.</string>
+    <string name="onboarding_intro_slide2_title">A clean track, nothing extra</string>
+    <string name="onboarding_intro_slide2_body">Korno filters out signal spikes and “teleports”, and detects stops so your average speed stays honest.</string>
+    <string name="onboarding_intro_slide3_title">Your data stays with you</string>
+    <string name="onboarding_intro_slide3_body">Everything is computed on your device. Nothing leaves your phone until you choose to share or sync.</string>
+
+    <string name="onboarding_permissions_title">App permissions</string>
+    <string name="onboarding_permissions_subtitle">Korno needs location access to record your routes. Here is what each permission is for.</string>
+
+    <string name="onboarding_step_foreground_location_title">Location access</string>
+    <string name="onboarding_step_foreground_location_rationale">Korno uses GPS to record your route during an activity. Without this permission recording is not possible.</string>
+
+    <string name="onboarding_step_background_location_title">Background location</string>
+    <string name="onboarding_step_background_location_rationale">Allow location access “All the time” so recording continues even when the screen is off or the app is in the background.</string>
+
+    <string name="onboarding_step_activity_recognition_title">Activity recognition</string>
+    <string name="onboarding_step_activity_recognition_rationale">Lets Korno detect the activity type automatically in the future — walking, running or cycling.</string>
+
+    <string name="onboarding_step_notifications_title">Notifications</string>
+    <string name="onboarding_step_notifications_rationale">While recording, Korno shows a notification with the current track status and playback controls.</string>
+</resources>

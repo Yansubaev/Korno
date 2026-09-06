@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Тёмный вариант: иначе окно до старта Compose вспыхивает белым. -->
+    <style name="Theme.Korno" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/korno_window_background</item>
+    </style>
+</resources>

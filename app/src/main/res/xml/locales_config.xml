@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Языки, между которыми пользователь может переключаться в настройках системы.
+  Английский объявлен дефолтным и лежит в неквалифицированных values/.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android"
+    android:defaultLocale="en">
+    <locale android:name="en" />
+    <locale android:name="ru" />
+</locale-config>

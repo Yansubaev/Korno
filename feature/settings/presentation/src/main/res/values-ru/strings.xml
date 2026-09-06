@@ -1,0 +1,59 @@
+<resources>
+    <string name="settings_title">Настройки</string>
+    <string name="settings_units">Единицы</string>
+    <string name="settings_distance_units">Единицы измерения</string>
+    <string name="settings_unit_km">км</string>
+    <string name="settings_unit_mi">мили</string>
+
+    <string name="settings_appearance">Внешний вид</string>
+    <string name="settings_dynamic_color_title">Цвета устройства</string>
+    <string name="settings_dynamic_color_subtitle">Подбирать палитру под обои</string>
+
+    <string name="settings_recording">Запись</string>
+    <string name="settings_autopause_title">Автопауза</string>
+    <string name="settings_autopause_subtitle">Приостанавливать автоматически при остановке</string>
+    <string name="settings_gps_accuracy">Точность GPS</string>
+    <string name="settings_gps_high">Высокая</string>
+    <string name="settings_gps_balanced">Сбалансированная</string>
+    <string name="settings_gps_saver">Экономия заряда</string>
+    <string name="settings_stop_sensitivity">Чувствительность остановки</string>
+    <string name="settings_stop_low">Низкая</string>
+    <string name="settings_stop_medium">Средняя</string>
+    <string name="settings_stop_high">Высокая</string>
+
+    <string name="settings_data">Данные</string>
+    <string name="settings_export_all_title">Экспортировать все данные</string>
+    <string name="settings_export_all_subtitle">Сохранить каждый маршрут в формате GPX</string>
+    <string name="settings_export_all_running">Экспорт активностей…</string>
+    <plurals name="settings_export_all_done">
+        <item quantity="one">Экспортирована %1$d активность</item>
+        <item quantity="few">Экспортировано %1$d активности</item>
+        <item quantity="many">Экспортировано %1$d активностей</item>
+        <item quantity="other">Экспортировано %1$d активности</item>
+    </plurals>
+    <string name="settings_export_all_failed">Не удалось выполнить экспорт в выбранную папку.</string>
+    <string name="settings_clear_cache_title">Очистить кэш карт</string>
+    <string name="settings_clear_cache_subtitle">Освобождает место, занятое офлайн-тайлами карт</string>
+    <string name="settings_clear_cache_snackbar">Кэш карт очищен</string>
+    <string name="settings_clear_cache_failed">Не удалось очистить кэш карт</string>
+    <string name="settings_clear_cache_running">Очистка…</string>
+    <string name="settings_clear_cache_size">Тайлы карт занимают %1$s</string>
+
+    <string name="settings_privacy">Приватность</string>
+    <string name="settings_privacy_zone_off">Выкл.</string>
+    <string name="settings_privacy_zone_subtitle">Обрезать столько в начале и конце трека при экспорте и отправке файла. Сама запись остаётся целой.</string>
+
+    <string name="settings_permissions">Разрешения</string>
+    <string name="settings_location_access_title">Доступ к геолокации</string>
+    <string name="settings_location_access_subtitle">Просмотр разрешений приложения</string>
+
+    <string name="settings_about">О приложении</string>
+    <string name="settings_version">Версия</string>
+    <string name="settings_version_value">Korno 1.0.0 (MVP)</string>
+    <string name="settings_view_onboarding">Показать приветствие</string>
+
+    <string name="settings_logs_cleared">Диагностические логи очищены</string>
+    <string name="settings_logs_clear_failed">Не удалось очистить диагностические логи</string>
+    <string name="settings_log_archive_failed">Не удалось подготовить архив диагностики</string>
+    <string name="settings_no_logs_to_share">Нет диагностических логов для отправки</string>
+</resources>

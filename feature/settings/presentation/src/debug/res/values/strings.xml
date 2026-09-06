@@ -1,0 +1,22 @@
+<resources>
+    <string name="settings_diagnostics">Diagnostics</string>
+    <string name="settings_logging_enabled_title">Write diagnostic logs</string>
+    <string name="settings_logging_enabled_subtitle">Save app events to rotating files</string>
+    <string name="settings_log_level">Detail level</string>
+    <string name="settings_log_level_verbose">Verbose</string>
+    <string name="settings_log_level_debug">Debug</string>
+    <string name="settings_log_level_info">Info</string>
+    <string name="settings_log_level_warn">Warnings</string>
+    <string name="settings_log_level_error">Errors</string>
+    <string name="settings_location_samples_title">Include GPS samples</string>
+    <string name="settings_location_samples_subtitle">Contains exact coordinates and enables Verbose; use only while reproducing a problem</string>
+    <string name="settings_share_logs_title">Share diagnostics</string>
+    <plurals name="settings_share_logs_subtitle">
+        <item quantity="one">%1$s in %2$d file · session %3$s</item>
+        <item quantity="other">%1$s in %2$d files · session %3$s</item>
+    </plurals>
+    <string name="settings_share_logs_preparing">Preparing archive…</string>
+    <string name="settings_clear_logs_title">Clear diagnostic logs</string>
+    <string name="settings_clear_logs_subtitle">Delete all log files stored on this device</string>
+    <string name="settings_clear_logs_running">Clearing…</string>
+</resources>

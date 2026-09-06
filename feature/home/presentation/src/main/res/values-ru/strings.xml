@@ -1,0 +1,15 @@
+<resources>
+    <string name="home_title">Korno</string>
+    <string name="home_start_recording_label">Начать запись</string>
+    <string name="home_start_recording_button">Начать запись</string>
+    <string name="home_this_week">На этой неделе</string>
+    <string name="home_distance_label">Дистанция</string>
+    <string name="home_time_label">Время</string>
+    <string name="home_recent_activity">Недавняя активность</string>
+    <string name="home_see_all">Смотреть все</string>
+
+    <string name="home_type_run">Бег</string>
+    <string name="home_type_ride">Велосипед</string>
+    <string name="home_type_walk">Ходьба</string>
+    <string name="home_type_drive">Поездка</string>
+</resources>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+            Файл для «Поделиться» пишется во внутренний кэш, а наружу отдаётся только
+            через FileProvider: так стороннее приложение получает доступ ровно к одному
+            файлу и только на время обработки интента.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.trackfiles"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/korno_track_file_paths" />
+        </provider>
+    </application>
+
+</manifest>

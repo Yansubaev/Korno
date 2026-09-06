@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_recenter">Recenter on current position</string>
+    <string name="map_offline">Offline — showing cached areas</string>
+    <string name="map_unavailable">Could not load the map.</string>
+    <string name="map_retry">Retry</string>
+</resources>

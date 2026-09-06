@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Korno</string>
+    <string name="location_permission_required">Для записи активности нужен доступ к геолокации</string>
+    <string name="nav_home">Главная</string>
+    <string name="nav_activities">Активности</string>
+    <string name="nav_settings">Настройки</string>
+</resources>

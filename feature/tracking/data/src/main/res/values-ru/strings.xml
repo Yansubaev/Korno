@@ -1,0 +1,23 @@
+<resources>
+    <string name="tracking_notification_channel_name">Запись активности</string>
+    <string name="tracking_notification_title">Korno</string>
+    <string name="tracking_notification_preparing">Подготовка GPS…</string>
+    <string name="tracking_notification_status_waiting_gps">Ждём сигнал GPS…</string>
+    <string name="tracking_notification_status_recording">Запись — %1$s %2$s</string>
+    <string name="tracking_notification_status_paused">Пауза — %1$s %2$s</string>
+    <string name="tracking_notification_status_auto_paused">Автопауза — %1$s %2$s</string>
+    <string name="tracking_notification_unit_km">км</string>
+    <string name="tracking_notification_unit_mi">мили</string>
+    <string name="tracking_notification_pause">Пауза</string>
+    <string name="tracking_notification_resume">Продолжить</string>
+    <string name="tracking_notification_stop">Стоп</string>
+
+    <string name="pending_summary_notification_channel_name">Несохранённые активности</string>
+    <string name="pending_summary_notification_title">Активность не сохранена</string>
+    <plurals name="pending_summary_notification_text">
+        <item quantity="one">Есть %1$d незавершённая запись — откройте приложение, чтобы сохранить её</item>
+        <item quantity="few">Есть %1$d незавершённые записи — откройте приложение, чтобы сохранить их</item>
+        <item quantity="many">Есть %1$d незавершённых записей — откройте приложение, чтобы сохранить их</item>
+        <item quantity="other">Есть %1$d незавершённой записи — откройте приложение, чтобы сохранить её</item>
+    </plurals>
+</resources>

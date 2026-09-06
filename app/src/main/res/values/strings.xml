@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Korno</string>
+    <string name="location_permission_required">Location access is required to record an activity</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_activities">Activities</string>
+    <string name="nav_settings">Settings</string>
 </resources>
