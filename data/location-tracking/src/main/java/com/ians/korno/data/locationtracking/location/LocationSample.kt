@@ -24,6 +24,13 @@ data class LocationSample(
      */
     val verticalAccuracyMeters: Float? = null,
     val speedAccuracyMetersPerSecond: Float? = null,
+    /**
+     * Курс и его погрешность. Приёмник отдаёт направление движения напрямую, и вместе
+     * со скоростью это готовый вектор — единственное измерение скорости, которое не
+     * приходится вычислять из разницы шумных координат.
+     */
+    val bearingDegrees: Float? = null,
+    val bearingAccuracyDegrees: Float? = null,
     /** Число спутников, участвовавших в решении; у сетевых фиксов отсутствует. */
     val satelliteCount: Int? = null,
 )

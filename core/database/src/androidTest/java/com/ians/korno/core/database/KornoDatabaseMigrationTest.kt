@@ -68,13 +68,35 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
+    fun migration3To4KeepsGeoPointsAndLeavesVelocityColumnsEmpty() {
+        helper.createDatabase(TEST_DATABASE_NAME, 3).use { database ->
+            database.insertActivity(id = 1L, title = "City walk")
+            database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 4, true)
+
+        migrated.query(
+            "SELECT timestamp, speed_accuracy, bearing, bearing_accuracy FROM geo_points WHERE id = 1",
+        ).use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getLong(0)).isEqualTo(1_757_052_000_000L)
+            // Вектор скорости у старых треков взять неоткуда, и подставлять вместо него
+            // ноль нельзя: ноль — это утверждение «стоял на месте», а не «неизвестно».
+            assertThat(row.isNull(1)).isTrue()
+            assertThat(row.isNull(2)).isTrue()
+            assertThat(row.isNull(3)).isTrue()
+        }
+    }
+
+    @Test
     fun allMigrationsFromFirstVersionLeaveTheTrackReadableByRoom() = runTest {
         helper.createDatabase(TEST_DATABASE_NAME, 1).use { database ->
             database.insertActivity(id = 1L, title = "Hike")
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 3, true).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 4, true).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.
@@ -98,7 +120,7 @@ class KornoDatabaseMigrationTest {
     }
 }
 
-/** Колонки первой версии — те, что есть во всех трёх и вставляются одинаково. */
+/** Колонки первой версии — те, что есть во всех версиях и вставляются одинаково. */
 private fun SupportSQLiteDatabase.insertActivity(id: Long, title: String) {
     execSQL(
         """

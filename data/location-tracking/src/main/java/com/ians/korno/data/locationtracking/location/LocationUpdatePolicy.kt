@@ -75,9 +75,12 @@ object LocationUpdatePolicy {
         copy(accuracy = GpsAccuracy.HIGH)
 
     private fun baseConfig(accuracy: GpsAccuracy): LocationUpdateConfig = when (accuracy) {
+        // Секунда, а не две. GNSS-чип всё равно считает решение раз в секунду: просить
+        // реже — не выключить его, а лишь выбросить половину уже посчитанных фиксов.
+        // Экономия на этом невелика, а фильтру каждый лишний замер идёт в дело.
         GpsAccuracy.HIGH -> LocationUpdateConfig(
-            intervalMillis = 2_000L,
-            minIntervalMillis = 1_000L,
+            intervalMillis = 1_000L,
+            minIntervalMillis = 500L,
             accuracy = accuracy,
         )
         GpsAccuracy.BALANCED -> LocationUpdateConfig(

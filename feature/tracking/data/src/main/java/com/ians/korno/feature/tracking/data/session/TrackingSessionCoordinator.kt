@@ -55,6 +55,26 @@ private const val FIX_WAIT_RELAXATION_MILLIS = 30_000L
 private const val WARM_FIX_VALIDITY_MILLIS = 20_000L
 
 /**
+ * Насколько старым может быть фикс, чтобы описывать текущее положение.
+ *
+ * Fused Location Provider на первую подписку почти всегда отдаёт последнюю известную
+ * координату из кэша, и по времени получения она неотличима от свежей. Возраст ей
+ * может быть и час: точка ставится там, где телефон лежал до выхода, и трек
+ * открывается прыжком через весь город. Батчинг выключен
+ * (`setMaxUpdateDelayMillis(0)`), поэтому настоящий фикс при шаге опроса в секунду
+ * доходит заметно быстрее этого порога, и запас взят с избытком.
+ */
+private const val MAXIMUM_FIX_AGE_MILLIS = 5_000L
+
+/**
+ * Провайдер, координаты которого не описывают движение: сетевой фикс считается по
+ * вышкам и точкам доступа, его погрешность — сотни метров, и доплеровской скорости
+ * у него нет вовсе. Запрос идёт с точной гранулярностью и высоким приоритетом, но
+ * система вправе обслужить его чем угодно, и в разобранном логе прогулки обслуживала.
+ */
+private const val NETWORK_PROVIDER = "network"
+
+/**
  * Единственный держатель истины о текущей записи трека.
  * И [com.ians.korno.feature.tracking.data.service.LocationTrackingService], и
  * [com.ians.korno.feature.tracking.data.controller.DefaultTrackingController] читают/пишут
@@ -168,7 +188,10 @@ internal class TrackingSessionCoordinator(
         "stopRadiusMeters" to processingConfig.stopRadiusMeters.toString(),
         "maximumSpeedMetersPerSecond" to processingConfig.maximumSpeedMetersPerSecond.toString(),
         "maximumAccuracyMeters" to processingConfig.maximumAccuracyMeters.toString(),
-        "smoothingRadius" to processingConfig.smoothingRadius.toString(),
+        "processNoiseAcceleration" to
+            processingConfig.processNoiseAccelerationMetersPerSecondSquared.toString(),
+        "outlierGateChiSquare" to processingConfig.outlierGateChiSquare.toString(),
+        "positionNoiseFloorMeters" to processingConfig.positionNoiseFloorMeters.toString(),
     )
 
     suspend fun recoverActiveSessionIfNeeded(): Boolean {
@@ -223,6 +246,19 @@ internal class TrackingSessionCoordinator(
 
     suspend fun applySample(sample: LocationSample) {
         val now = nowMillis()
+        // Негодный фикс отбрасывается до всего остального, включая отметку о пойманном
+        // сигнале: по кэшированной координате нельзя ни начать запись, ни считать, что
+        // приёмник прогрелся.
+        val rejection = sample.usabilityRejection()
+        if (rejection != null) {
+            logger.debug(
+                category = LogCategory.GPS,
+                tag = TAG,
+                fields = sampleFields(sample) + mapOf("rejectedBecause" to rejection),
+            ) { "Location sample rejected before processing" }
+            return
+        }
+
         // Сэмплы приходят и до старта — на прогреве GPS с экрана настройки.
         // Записывать их некуда, но по ним видно, что приёмник уже поймал сигнал.
         val isReliableFix = sample.isReliableFixAt(now)
@@ -253,6 +289,9 @@ internal class TrackingSessionCoordinator(
             timestampEpochMillis = sample.timestampEpochMillis,
             accuracyMeters = sample.accuracyMeters,
             speedMetersPerSecond = sample.speedMetersPerSecond,
+            speedAccuracyMetersPerSecond = sample.speedAccuracyMetersPerSecond,
+            bearingDegrees = sample.bearingDegrees,
+            bearingAccuracyDegrees = sample.bearingAccuracyDegrees,
             recordingStatus = current.status,
         )
         // Координаты — отдельной записью и только с явного согласия. Всё остальное о точке
@@ -425,6 +464,8 @@ internal class TrackingSessionCoordinator(
         "ageMillis" to sample.ageMillis.toString(),
         "verticalAccuracyMeters" to sample.verticalAccuracyMeters.toString(),
         "speedAccuracyMetersPerSecond" to sample.speedAccuracyMetersPerSecond.toString(),
+        "bearingDegrees" to sample.bearingDegrees.toString(),
+        "bearingAccuracyDegrees" to sample.bearingAccuracyDegrees.toString(),
         "satelliteCount" to sample.satelliteCount.toString(),
     )
 
@@ -434,6 +475,21 @@ internal class TrackingSessionCoordinator(
      * а после [FIX_WAIT_RELAXATION_MILLIS] ожидания подходит любая точка: грубый трек
      * лучше, чем секундомер, который так и не тронулся с места.
      */
+    /**
+     * Почему сэмпл не годится даже как сырое измерение; `null` — годится.
+     *
+     * Проверки намеренно стоят до фильтров трека, а не внутри них. Фильтр рассуждает о
+     * правдоподобии движения и решает, верить ли измерению; здесь же отсекается то, что
+     * измерением текущего положения не является вовсе — устаревший кэш и координата,
+     * посчитанная не по спутникам. Такому фиксу нечего противопоставить: он выглядит
+     * совершенно правдоподобно, просто относится к другому месту или другому времени.
+     */
+    private fun LocationSample.usabilityRejection(): String? = when {
+        (ageMillis ?: 0L) > MAXIMUM_FIX_AGE_MILLIS -> "STALE"
+        provider == NETWORK_PROVIDER -> "PROVIDER"
+        else -> null
+    }
+
     private fun LocationSample.isReliableFixAt(now: Long): Boolean {
         val accuracy = accuracyMeters ?: return true
         if (accuracy <= RELIABLE_FIX_ACCURACY_METERS) return true

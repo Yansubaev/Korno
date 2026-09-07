@@ -107,6 +107,44 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `a cached fix neither starts the recording nor lands in the track`() = runTest {
+        // Первой эмиссией Fused Location Provider почти всегда отдаёт последнюю известную
+        // координату из кэша. По времени получения она неотличима от свежей, а относиться
+        // может к тому месту, где телефон лежал час назад.
+        coordinator.beginSession(ActivityType.RUNNING)
+
+        coordinator.applySample(
+            sample(
+                latitude = 55.0,
+                longitude = 37.0,
+                timestamp = 0L,
+                accuracyMeters = 5f,
+                ageMillis = 120_000L,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
+        assertThat(repository.insertedPoints).hasSize(0)
+    }
+
+    @Test
+    fun `a network fix is not treated as a position measurement`() = runTest {
+        coordinator.beginSession(ActivityType.RUNNING)
+
+        coordinator.applySample(
+            sample(
+                latitude = 55.0,
+                longitude = 37.0,
+                timestamp = 0L,
+                accuracyMeters = 5f,
+                provider = "network",
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
+    }
+
+    @Test
     fun `after a long wait even a rough point starts the recording`() = runTest {
         coordinator.beginSession(ActivityType.RUNNING)
         clockMillis += 31_000L
@@ -383,6 +421,8 @@ class TrackingSessionCoordinatorTest {
         timestamp: Long,
         speedMetersPerSecond: Float? = null,
         accuracyMeters: Float? = null,
+        provider: String? = null,
+        ageMillis: Long? = null,
     ) = LocationSample(
         latitude = latitude,
         longitude = longitude,
@@ -390,6 +430,8 @@ class TrackingSessionCoordinatorTest {
         timestampEpochMillis = timestamp,
         accuracyMeters = accuracyMeters,
         speedMetersPerSecond = speedMetersPerSecond,
+        provider = provider,
+        ageMillis = ageMillis,
     )
 
     private class FakeTrackRepository : TrackRepository {

@@ -50,7 +50,43 @@ data class TrackProcessingConfig(
      * успеть уйти и вернуться.
      */
     val maximumStopEvidenceGapMillis: Long = 300_000L,
-    val smoothingRadius: Int = 2,
+    /**
+     * Среднеквадратичное ускорение, которое модель движения считает обычным.
+     *
+     * Это единственный настоящий параметр фильтра Калмана и вся его «настройка»: он
+     * говорит, насколько человеку позволено отклоняться от постоянной скорости. Слишком
+     * малое значение делает трек упрямым — фильтр срезает повороты, потому что не верит,
+     * что вы могли так резко свернуть; слишком большое возвращает доверие каждому шумному
+     * фиксу, и дрожание проходит насквозь. Это не предельное ускорение
+     * ([maximumAccelerationMetersPerSecondSquared]), а типичное: предельное осталось
+     * грубой проверкой правдоподобия.
+     */
+    val processNoiseAccelerationMetersPerSecondSquared: Double,
+    /**
+     * Порог гейта невязки — квадрат махаланобисова расстояния при двух степенях свободы.
+     *
+     * 13.8 — это квантиль 99.9%: измерение отбрасывается, если при верной модели такое
+     * расхождение случалось бы реже одного раза на тысячу. Порог намеренно консервативен.
+     * Ошибки здесь несимметричны: пропущенный выброс фильтр переварит и следующей же
+     * точкой поправится, а ложный отказ выбрасывает настоящее измерение и тем самым
+     * подталкивает фильтр к расхождению.
+     */
+    val outlierGateChiSquare: Double = 13.816,
+    /**
+     * Сколько отказов подряд считать выбросами, прежде чем признать, что разошёлся сам
+     * фильтр. Приёмник действительно способен переехать разом — на выходе из здания или
+     * из тоннеля, — и тогда браковать он будет уже всё подряд.
+     */
+    val maximumConsecutiveGateRejections: Int = 3,
+    /**
+     * Нижняя граница погрешности фикса. Приёмник регулярно её занижает: заявленный метр
+     * в городе говорит о хорошей геометрии спутников, а не об отсутствии переотражений.
+     */
+    val positionNoiseFloorMeters: Double = 3.0,
+    /** Чем считать погрешность доплеровской скорости, когда провайдер её не сообщил. */
+    val defaultSpeedAccuracyMetersPerSecond: Double = 1.0,
+    /** То же для курса; сорок пять градусов — это «направление скорее известно, чем нет». */
+    val defaultBearingAccuracyDegrees: Double = 45.0,
     val stopWindowMillis: Long = 15_000L,
     val minimumStopDurationMillis: Long = 10_000L,
     val stopRadiusMeters: Double = 12.0,
@@ -67,7 +103,12 @@ data class TrackProcessingConfig(
         require(maximumSegmentDurationMillis > 0L)
         require(minimumSpeedWindowMillis in 1L..maximumSpeedWindowMillis)
         require(maximumStopEvidenceGapMillis >= minimumStopDurationMillis)
-        require(smoothingRadius >= 0)
+        require(processNoiseAccelerationMetersPerSecondSquared > 0.0)
+        require(outlierGateChiSquare > 0.0)
+        require(maximumConsecutiveGateRejections > 0)
+        require(positionNoiseFloorMeters >= 0.0)
+        require(defaultSpeedAccuracyMetersPerSecond > 0.0)
+        require(defaultBearingAccuracyDegrees > 0.0)
         require(stopWindowMillis >= minimumStopDurationMillis)
         require(minimumStopDurationMillis > 0L)
         require(stopRadiusMeters >= 0.0)
@@ -85,6 +126,7 @@ data class TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 5.5,
                 maximumAccelerationMetersPerSecondSquared = 4.0,
                 maximumAccuracyMeters = 40.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.4,
                 stopSpeedMetersPerSecond = 0.5,
                 resumeSpeedMetersPerSecond = 0.9,
             )
@@ -92,6 +134,7 @@ data class TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 10.0,
                 maximumAccelerationMetersPerSecondSquared = 6.0,
                 maximumAccuracyMeters = 40.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.7,
                 stopSpeedMetersPerSecond = 0.45,
                 resumeSpeedMetersPerSecond = 1.0,
             )
@@ -99,6 +142,7 @@ data class TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 25.0,
                 maximumAccelerationMetersPerSecondSquared = 10.0,
                 maximumAccuracyMeters = 50.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.9,
                 stopSpeedMetersPerSecond = 0.6,
                 resumeSpeedMetersPerSecond = 1.5,
             )
@@ -108,6 +152,7 @@ data class TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 70.0,
                 maximumAccelerationMetersPerSecondSquared = 15.0,
                 maximumAccuracyMeters = 100.0,
+                processNoiseAccelerationMetersPerSecondSquared = 1.5,
                 stopSpeedMetersPerSecond = 0.8,
                 resumeSpeedMetersPerSecond = 2.0,
             )
@@ -115,6 +160,7 @@ data class TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 55.0,
                 maximumAccelerationMetersPerSecondSquared = 12.0,
                 maximumAccuracyMeters = 75.0,
+                processNoiseAccelerationMetersPerSecondSquared = 1.0,
                 stopSpeedMetersPerSecond = 0.45,
                 resumeSpeedMetersPerSecond = 1.0,
             )

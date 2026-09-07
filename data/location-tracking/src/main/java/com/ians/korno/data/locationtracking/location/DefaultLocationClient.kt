@@ -69,6 +69,8 @@ private fun Location.toSample(): LocationSample = LocationSample(
     ageMillis = ageMillis(),
     verticalAccuracyMeters = verticalAccuracyOrNull(),
     speedAccuracyMetersPerSecond = speedAccuracyOrNull(),
+    bearingDegrees = bearing.takeIf { hasBearing() },
+    bearingAccuracyDegrees = bearingAccuracyOrNull(),
     satelliteCount = extras?.getInt(EXTRA_SATELLITES, -1)?.takeIf { it >= 0 },
 )
 
@@ -81,6 +83,11 @@ private fun Location.verticalAccuracyOrNull(): Float? {
 private fun Location.speedAccuracyOrNull(): Float? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !hasSpeedAccuracy()) return null
     return speedAccuracyMetersPerSecond
+}
+
+private fun Location.bearingAccuracyOrNull(): Float? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !hasBearingAccuracy()) return null
+    return bearingAccuracyDegrees
 }
 
 /**

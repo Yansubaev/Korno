@@ -19,7 +19,7 @@ class LocationUpdatePolicyTest {
 
         assertThat(config.intervalMillis).isEqualTo(
             when (accuracy) {
-                GpsAccuracy.HIGH -> 2_000L
+                GpsAccuracy.HIGH -> 1_000L
                 GpsAccuracy.BALANCED -> 4_000L
                 GpsAccuracy.BATTERY_SAVER -> 10_000L
             },
@@ -68,7 +68,7 @@ class LocationUpdatePolicyTest {
         // StopDetectionUseCase — остальные режимы набирают в окне несколько точек.
         assertThat(paused.intervalMillis).isEqualTo(
             when (accuracy) {
-                GpsAccuracy.HIGH -> 4_000L
+                GpsAccuracy.HIGH -> 2_000L
                 GpsAccuracy.BALANCED -> 8_000L
                 GpsAccuracy.BATTERY_SAVER -> 15_000L
             },
