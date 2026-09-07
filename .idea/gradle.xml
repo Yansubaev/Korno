@@ -30,6 +30,7 @@
             <option value="$PROJECT_DIR$/core/logging" />
             <option value="$PROJECT_DIR$/core/map" />
             <option value="$PROJECT_DIR$/core/presentation" />
+            <option value="$PROJECT_DIR$/core/track-analytics" />
             <option value="$PROJECT_DIR$/core/track-processing" />
             <option value="$PROJECT_DIR$/data" />
             <option value="$PROJECT_DIR$/data/gpx-export" />

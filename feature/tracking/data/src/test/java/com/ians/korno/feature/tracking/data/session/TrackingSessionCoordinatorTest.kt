@@ -130,14 +130,72 @@ class TrackingSessionCoordinatorTest {
     fun `consecutive samples accumulate distance and moving time`() = runTest {
         coordinator.beginSession(ActivityType.RUNNING)
 
+        // Живые значения отстают на нестабильный хвост: сглаживание ещё может сдвинуть
+        // последние точки, и засчитывать их в дистанцию рано — иначе она уезжала бы
+        // назад на каждом сэмпле. Поэтому здесь четыре точки, а проверяется вклад двух.
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.applySample(sample(latitude = 0.0005, longitude = 0.0, timestamp = 10_000L))
+        coordinator.applySample(sample(latitude = 0.0010, longitude = 0.0, timestamp = 20_000L))
+        coordinator.applySample(sample(latitude = 0.0015, longitude = 0.0, timestamp = 30_000L))
 
         val session = coordinator.session.value
         // ~0.0005 degree of latitude is ~56 meters.
         assertThat(session.distanceMeters).isGreaterThan(50.0)
         assertThat(session.distanceMeters).isLessThan(60.0)
         assertThat(session.movingTimeMillis).isEqualTo(10_000L)
+    }
+
+    @Test
+    fun `live distance never goes backwards between samples`() = runTest {
+        coordinator.beginSession(ActivityType.RUNNING)
+
+        var previousDistance = 0.0
+        repeat(20) { index ->
+            // Дрожание в пределах погрешности: именно на нём полный пересчёт трека
+            // и разворачивал дистанцию назад.
+            val jitter = if (index % 2 == 0) 0.000_02 else -0.000_02
+            coordinator.applySample(
+                sample(
+                    latitude = index * 0.0002 + jitter,
+                    longitude = 0.0,
+                    timestamp = index * 5_000L,
+                    accuracyMeters = 12f,
+                ),
+            )
+            val distance = coordinator.session.value.distanceMeters
+            assertThat(distance >= previousDistance).isEqualTo(true)
+            previousDistance = distance
+        }
+
+        assertThat(previousDistance).isGreaterThan(0.0)
+    }
+
+    @Test
+    fun `a long manual pause does not leak into moving time`() = runTest {
+        coordinator.beginSession(ActivityType.RUNNING)
+        repeat(4) { index ->
+            coordinator.applySample(
+                sample(latitude = index * 0.0001, longitude = 0.0, timestamp = index * 5_000L),
+            )
+        }
+
+        coordinator.pause()
+        coordinator.applySample(sample(latitude = 0.0003, longitude = 0.0, timestamp = 900_000L))
+        coordinator.applySample(sample(latitude = 0.0003, longitude = 0.0, timestamp = 1_800_000L))
+        coordinator.resume()
+        repeat(4) { index ->
+            coordinator.applySample(
+                sample(
+                    latitude = 0.0004 + index * 0.0001,
+                    longitude = 0.0,
+                    timestamp = 1_805_000L + index * 5_000L,
+                ),
+            )
+        }
+
+        // Полчаса паузы не должны попасть во время движения: обработчик обязан видеть
+        // паузные точки, иначе возобновление выглядит для него разрывом записи.
+        assertThat(coordinator.session.value.movingTimeMillis).isLessThan(60_000L)
     }
 
     @Test
@@ -201,6 +259,17 @@ class TrackingSessionCoordinatorTest {
                 timestamp = 15_000L,
                 speedMetersPerSecond = 1.4f,
             ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+
+        // Решение об автопаузе принимается мгновенно, а накопленное время движения
+        // отстаёт на нестабильный хвост — отсюда ещё два сэмпла до проверки.
+        coordinator.applySample(
+            sample(latitude = 0.0002, longitude = 0.0, timestamp = 20_000L, speedMetersPerSecond = 1.4f),
+        )
+        coordinator.applySample(
+            sample(latitude = 0.0003, longitude = 0.0, timestamp = 25_000L, speedMetersPerSecond = 1.4f),
         )
 
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)

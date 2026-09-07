@@ -36,6 +36,7 @@ include(":core:domain")
 include(":core:logging")
 include(":core:map")
 include(":core:presentation")
+include(":core:track-analytics")
 include(":core:track-processing")
 
 include(":data:gpx-export")

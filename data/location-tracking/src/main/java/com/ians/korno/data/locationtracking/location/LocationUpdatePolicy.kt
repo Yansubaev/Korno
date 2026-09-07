@@ -4,7 +4,7 @@ import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.RecordingStatus
 
 /**
- * Как часто спрашивать координаты в текущем состоянии записи.
+ * Как часто и с каким приоритетом спрашивать координаты в текущем состоянии записи.
  *
  * На паузе трек не растёт, а GPS продолжал бы работать в том же режиме и есть батарею.
  * Совсем отписываться нельзя: приёмник остынет, и после возобновления первые точки
@@ -31,10 +31,13 @@ object LocationUpdatePolicy {
     ): LocationUpdateConfig {
         val base = baseConfig(accuracy)
         return when (status) {
+            // На автопаузе приоритет тоже остаётся высоким: батарею экономит уже
+            // разрежённый интервал, а вот выход из автопаузы решается по координатам и
+            // доплеровской скорости — ровно тому, чего сетевой фикс не даёт.
             RecordingStatus.AUTO_PAUSE -> {
                 val interval = (base.intervalMillis * AUTO_PAUSE_FACTOR)
                     .coerceAtMost(AUTO_PAUSE_MAX_INTERVAL_MILLIS)
-                base.copy(
+                base.recordingQuality().copy(
                     intervalMillis = interval,
                     minIntervalMillis = interval / 2,
                 )
@@ -54,9 +57,22 @@ object LocationUpdatePolicy {
             RecordingStatus.WAITING_FOR_GPS,
             RecordingStatus.RECORDING,
             RecordingStatus.STOPPED,
-            -> base
+            -> base.recordingQuality()
         }
     }
+
+    /**
+     * Пока идёт запись, приоритет не опускается ниже высокого, какой бы ни была настройка
+     * точности.
+     *
+     * Настройка обязана управлять частотой опроса — это и есть основной расход батареи, —
+     * но не тем, включён ли вообще GNSS-чип. С BALANCED и LOW_POWER система вправе
+     * обслуживать запрос сетевыми фиксами: в разобранном логе прогулки это дало
+     * стометровую погрешность, отсутствие доплеровской скорости и провалы опроса
+     * до двух-трёх минут. Трек из таких точек не спасает никакая постобработка.
+     */
+    private fun LocationUpdateConfig.recordingQuality(): LocationUpdateConfig =
+        copy(accuracy = GpsAccuracy.HIGH)
 
     private fun baseConfig(accuracy: GpsAccuracy): LocationUpdateConfig = when (accuracy) {
         GpsAccuracy.HIGH -> LocationUpdateConfig(

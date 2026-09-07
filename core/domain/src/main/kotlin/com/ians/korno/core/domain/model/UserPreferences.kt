@@ -34,6 +34,18 @@ enum class MeasurementSystem {
     IMPERIAL,
 }
 
+/**
+ * Длина сплита и шаг отметок на карте: километр или миля.
+ *
+ * Живёт рядом с системой мер, а не в аналитике: делить трек на километры для человека,
+ * который меряет всё в милях, бессмысленно, даже если считать умеет любой модуль.
+ */
+val MeasurementSystem.splitLengthMeters: Double
+    get() = when (this) {
+        MeasurementSystem.METRIC -> 1_000.0
+        MeasurementSystem.IMPERIAL -> 1_609.344
+    }
+
 enum class GpsAccuracy {
     HIGH,
     BALANCED,

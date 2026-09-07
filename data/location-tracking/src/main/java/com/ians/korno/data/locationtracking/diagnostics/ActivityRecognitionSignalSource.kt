@@ -1,5 +1,6 @@
 package com.ians.korno.data.locationtracking.diagnostics
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -30,6 +31,9 @@ internal class ActivityRecognitionSignalSource(
     private val permissionChecker: LocationPermissionChecker,
 ) : TrackingSignalSource {
 
+    // Разрешение проверяется первой же строкой, но lint не видит проверку через
+    // собственный интерфейс и требует либо аннотации, либо подавления на месте вызова.
+    @SuppressLint("MissingPermission")
     override fun observeSignals(): Flow<TrackingSignal> {
         if (!permissionChecker.hasActivityRecognitionPermission()) return emptyFlow()
         return callbackFlow {
@@ -75,13 +79,28 @@ internal class ActivityRecognitionSignalSource(
             .distinctUntilChanged()
     }
 
+    /**
+     * В вердикт идёт самый вероятный вариант, но `ON_FOOT` — не вариант, а зонтик над
+     * `WALKING` и `RUNNING`, и Play Services почти всегда ставит его первым. В логе
+     * прогулки из 57 записей 53 оказались `ON_FOOT`, а `STILL` не появился ни разу — при
+     * том, что человек четыре минуты стоял на месте. Поэтому зонтик уступает место более
+     * конкретному варианту, если тот назван с сопоставимой уверенностью, а альтернативы
+     * пишутся всегда: по ним видно, что система на самом деле различала.
+     */
     private fun ActivityRecognitionResult.toSignal(): TrackingSignal.ActivityRecognized {
         val ranked = probableActivities.sortedByDescending(DetectedActivity::getConfidence)
         val mostProbable = ranked.firstOrNull()
+        val specific = ranked.firstOrNull { it.type in SPECIFIC_ON_FOOT_TYPES }
+        val chosen = when {
+            mostProbable == null -> null
+            mostProbable.type != DetectedActivity.ON_FOOT -> mostProbable
+            specific != null && specific.confidence >= mostProbable.confidence - ON_FOOT_MARGIN -> specific
+            else -> mostProbable
+        }
         return TrackingSignal.ActivityRecognized(
-            activityType = mostProbable?.type?.activityName() ?: "UNKNOWN",
-            confidencePercent = mostProbable?.confidence ?: 0,
-            alternatives = ranked.drop(1)
+            activityType = chosen?.type?.activityName() ?: "UNKNOWN",
+            confidencePercent = chosen?.confidence ?: 0,
+            alternatives = ranked.filterNot { it === chosen }
                 .take(MAX_ALTERNATIVES)
                 .associate { it.type.activityName() to it.confidence },
         )
@@ -111,5 +130,15 @@ internal class ActivityRecognitionSignalSource(
         const val REQUEST_CODE = 4201
         const val UPDATE_INTERVAL_MILLIS = 15_000L
         const val MAX_ALTERNATIVES = 3
+
+        /** Варианты, ради которых стоит отодвинуть зонтичный `ON_FOOT`. */
+        val SPECIFIC_ON_FOOT_TYPES = setOf(DetectedActivity.WALKING, DetectedActivity.RUNNING)
+
+        /**
+         * На сколько процентов уверенности конкретный вариант может уступать зонтичному
+         * и всё равно попасть в вердикт. `ON_FOOT` набирает сумму `WALKING` и `RUNNING`,
+         * поэтому при честной ходьбе он опережает `WALKING` заведомо.
+         */
+        const val ON_FOOT_MARGIN = 40
     }
 }

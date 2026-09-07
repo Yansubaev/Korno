@@ -26,6 +26,20 @@ internal sealed interface ActivityDetailAction {
 
     data object ConfirmDelete : ActivityDetailAction
 
+    /** Переключить режим показа маршрута на карте. */
+    data class SelectLens(val lens: MapLens) : ActivityDetailAction
+
+    /**
+     * Касание графика. Позиция — доля дистанции, 0..1: ось X у всех графиков экрана
+     * общая, поэтому карте достаточно одного числа, чтобы найти то же самое место.
+     */
+    data class SelectTrackPosition(val fraction: Float) : ActivityDetailAction
+
+    data object ClearSelection : ActivityDetailAction
+
+    /** Нажатие на строку сплита: повторное нажатие снимает выделение. */
+    data class ToggleSplit(val number: Int) : ActivityDetailAction
+
     /** Отдать ZIP с логом только этой активности (debug-сборка). */
     data object ShareActivityLogsClicked : ActivityDetailAction
 

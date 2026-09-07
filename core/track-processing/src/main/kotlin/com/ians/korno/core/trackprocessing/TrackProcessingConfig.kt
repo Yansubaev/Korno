@@ -2,12 +2,55 @@ package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
+import com.ians.korno.core.domain.model.TRACK_GAP_THRESHOLD_MILLIS
 import kotlin.math.max
 
 data class TrackProcessingConfig(
     val maximumSpeedMetersPerSecond: Double,
     val maximumAccelerationMetersPerSecondSquared: Double,
-    val smoothingRadius: Int = 1,
+    /**
+     * Погрешность, выше которой фикс не считается измерением.
+     *
+     * Точка с погрешностью в сотню метров не описывает положение — она описывает круг,
+     * в котором оно где-то находится. Пропущенная в трек, она даёт прыжок на всю свою
+     * погрешность и утаскивает за собой и дистанцию, и максимальную скорость.
+     */
+    val maximumAccuracyMeters: Double,
+    /**
+     * Насколько погрешность смягчает порог выброса. Иначе на плохом сигнале порог
+     * раздувается вместе с ней: при погрешности 40 м фильтр начинает пропускать
+     * прогулку со скоростью автомобиля.
+     */
+    val outlierAccuracyAllowanceMeters: Double = 15.0,
+    /**
+     * Доля погрешности, ниже которой перемещение считается дрожанием, а не шагом.
+     * Порог применяется к смещению от последней зачтённой точки, а не к каждому
+     * сегменту: иначе на частом опросе он съел бы ходьбу целиком.
+     */
+    val noiseDeadbandFactor: Double = 0.5,
+    /**
+     * Отрезок длиннее этого не наблюдался и не даёт ни мгновенной, ни максимальной
+     * скорости: делить прямую между двумя фиксами на время дыры бессмысленно.
+     */
+    val maximumSegmentDurationMillis: Long = TRACK_GAP_THRESHOLD_MILLIS,
+    /**
+     * Окно, по которому считается максимальная скорость.
+     *
+     * По одному отрезку её считать нельзя: при шаге опроса в семь секунд и погрешности
+     * в двадцать метров дрожание координат само по себе даёт пять метров в секунду, и
+     * прогулка получает максимум под двадцать километров в час. Шум за окно усредняется,
+     * а реальный рывок — нет, поэтому окно и решает.
+     */
+    val maximumSpeedWindowMillis: Long = 15_000L,
+    /** Короче этого окно не даёт максимальной скорости вовсе — мерить ещё нечем. */
+    val minimumSpeedWindowMillis: Long = 10_000L,
+    /**
+     * Насколько давней может быть точка, по которой ещё можно объявить стоянку, когда
+     * окно схлопнулось до одной. Дыра в полчаса ничего не доказывает: за неё можно
+     * успеть уйти и вернуться.
+     */
+    val maximumStopEvidenceGapMillis: Long = 300_000L,
+    val smoothingRadius: Int = 2,
     val stopWindowMillis: Long = 15_000L,
     val minimumStopDurationMillis: Long = 10_000L,
     val stopRadiusMeters: Double = 12.0,
@@ -18,6 +61,12 @@ data class TrackProcessingConfig(
     init {
         require(maximumSpeedMetersPerSecond > 0.0)
         require(maximumAccelerationMetersPerSecondSquared > 0.0)
+        require(maximumAccuracyMeters > 0.0)
+        require(outlierAccuracyAllowanceMeters >= 0.0)
+        require(noiseDeadbandFactor >= 0.0)
+        require(maximumSegmentDurationMillis > 0L)
+        require(minimumSpeedWindowMillis in 1L..maximumSpeedWindowMillis)
+        require(maximumStopEvidenceGapMillis >= minimumStopDurationMillis)
         require(smoothingRadius >= 0)
         require(stopWindowMillis >= minimumStopDurationMillis)
         require(minimumStopDurationMillis > 0L)
@@ -29,33 +78,43 @@ data class TrackProcessingConfig(
 
     companion object {
         fun forActivityType(activityType: ActivityType): TrackProcessingConfig = when (activityType) {
+            // Порог остановки для пешехода долго стоял на 0.25 м/с — это 0.9 км/ч,
+            // ниже шумового пола GPS на любой реальной погрешности, и автопауза
+            // не срабатывала вовсе.
             ActivityType.WALKING, ActivityType.HIKING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 5.5,
                 maximumAccelerationMetersPerSecondSquared = 4.0,
-                stopSpeedMetersPerSecond = 0.25,
-                resumeSpeedMetersPerSecond = 0.65,
+                maximumAccuracyMeters = 40.0,
+                stopSpeedMetersPerSecond = 0.5,
+                resumeSpeedMetersPerSecond = 0.9,
             )
             ActivityType.RUNNING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 10.0,
                 maximumAccelerationMetersPerSecondSquared = 6.0,
+                maximumAccuracyMeters = 40.0,
                 stopSpeedMetersPerSecond = 0.45,
                 resumeSpeedMetersPerSecond = 1.0,
             )
             ActivityType.CYCLING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 25.0,
                 maximumAccelerationMetersPerSecondSquared = 10.0,
+                maximumAccuracyMeters = 50.0,
                 stopSpeedMetersPerSecond = 0.6,
                 resumeSpeedMetersPerSecond = 1.5,
             )
+            // В машине сигнал хуже (крыша, тоннели), а цена ошибки ниже: сотня метров
+            // погрешности на скорости 60 км/ч — это меньше секунды пути.
             ActivityType.DRIVING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 70.0,
                 maximumAccelerationMetersPerSecondSquared = 15.0,
+                maximumAccuracyMeters = 100.0,
                 stopSpeedMetersPerSecond = 0.8,
                 resumeSpeedMetersPerSecond = 2.0,
             )
             ActivityType.OTHER -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 55.0,
                 maximumAccelerationMetersPerSecondSquared = 12.0,
+                maximumAccuracyMeters = 75.0,
                 stopSpeedMetersPerSecond = 0.45,
                 resumeSpeedMetersPerSecond = 1.0,
             )

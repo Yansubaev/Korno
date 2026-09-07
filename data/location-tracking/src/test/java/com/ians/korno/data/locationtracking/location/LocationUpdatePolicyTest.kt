@@ -17,7 +17,6 @@ class LocationUpdatePolicyTest {
     fun `recording keeps the interval chosen in settings`(accuracy: GpsAccuracy) {
         val config = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING)
 
-        assertThat(config.accuracy).isEqualTo(accuracy)
         assertThat(config.intervalMillis).isEqualTo(
             when (accuracy) {
                 GpsAccuracy.HIGH -> 2_000L
@@ -25,6 +24,19 @@ class LocationUpdatePolicyTest {
                 GpsAccuracy.BATTERY_SAVER -> 10_000L
             },
         )
+    }
+
+    @ParameterizedTest
+    @EnumSource(GpsAccuracy::class)
+    fun `recording never drops the priority below high accuracy`(accuracy: GpsAccuracy) {
+        // Настройка точности управляет частотой опроса, но не тем, включён ли GNSS-чип.
+        // На BALANCED и LOW_POWER система вправе обслуживать запрос сетевыми фиксами:
+        // стометровая погрешность, отсутствие скорости и провалы опроса на минуты.
+        listOf(RecordingStatus.RECORDING, RecordingStatus.WAITING_FOR_GPS, RecordingStatus.AUTO_PAUSE)
+            .forEach { status ->
+                assertThat(LocationUpdatePolicy.configFor(accuracy, status).accuracy)
+                    .isEqualTo(GpsAccuracy.HIGH)
+            }
     }
 
     @ParameterizedTest
@@ -43,7 +55,6 @@ class LocationUpdatePolicyTest {
         assertThat(paused.intervalMillis).isGreaterThan(recording.intervalMillis)
         // Возобновление движения должно замечаться в пределах окна детектора остановок.
         assertThat(paused.intervalMillis).isLessThanOrEqualTo(15_000L)
-        assertThat(paused.accuracy).isEqualTo(accuracy)
     }
 
     @ParameterizedTest

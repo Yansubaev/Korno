@@ -6,6 +6,48 @@
     <string name="activity_detail_max_speed">Макс. скорость</string>
     <string name="activity_detail_elevation">Набор высоты</string>
     <string name="activity_detail_pace_chart">Темп по дистанции</string>
+    <string name="activity_detail_avg_pace">Средний темп</string>
+    <string name="activity_detail_best_pace">Лучший темп</string>
+    <string name="activity_detail_value_unavailable">—</string>
+
+    <string name="activity_detail_lens_route">Маршрут</string>
+    <string name="activity_detail_lens_pace">Темп</string>
+    <string name="activity_detail_lens_speed">Скорость</string>
+    <string name="activity_detail_lens_elevation">Высота</string>
+    <string name="activity_detail_lens_stops">Остановки</string>
+    <string name="activity_detail_legend_auto_stop">Автоматическая остановка</string>
+    <string name="activity_detail_legend_manual_pause">Ручная пауза</string>
+
+    <string name="activity_detail_speed_chart">Скорость по дистанции</string>
+    <string name="activity_detail_elevation_chart">Профиль высоты</string>
+    <string name="activity_detail_chart_average">Средн. %1$s</string>
+
+    <string name="activity_detail_selection_time">Время</string>
+    <string name="activity_detail_selection_pace">Темп</string>
+    <string name="activity_detail_selection_speed">Скорость</string>
+    <string name="activity_detail_selection_altitude">Высота</string>
+    <string name="activity_detail_selection_paused">На паузе</string>
+    <string name="activity_detail_selection_stopped">Остановка</string>
+    <string name="activity_detail_selection_clear">Снять выделение</string>
+
+    <string name="activity_detail_splits">Сплиты</string>
+    <string name="activity_detail_splits_number">Сплит</string>
+    <string name="activity_detail_splits_pace">Темп</string>
+    <string name="activity_detail_splits_speed">Скорость</string>
+    <string name="activity_detail_splits_time">Время</string>
+    <string name="activity_detail_splits_elevation">Высота</string>
+
+    <string name="activity_detail_stops">Движение и остановки</string>
+    <string name="activity_detail_stops_moving_share">В движении</string>
+    <string name="activity_detail_stops_total">Остановки</string>
+    <string name="activity_detail_stops_count">Количество</string>
+    <string name="activity_detail_stops_longest">Самая долгая</string>
+
+    <string name="activity_detail_elevation_gain">Набор</string>
+    <string name="activity_detail_elevation_loss">Сброс</string>
+    <string name="activity_detail_elevation_range">Диапазон</string>
+    <string name="activity_detail_elevation_range_value">%1$s \u2013 %2$s</string>
+
     <string name="activity_detail_edit_track">Изменить трек</string>
     <string name="activity_map_back">Назад к активности</string>
     <string name="activity_detail_open_map">Открыть карту на весь экран</string>

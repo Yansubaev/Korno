@@ -6,6 +6,48 @@
     <string name="activity_detail_max_speed">Max speed</string>
     <string name="activity_detail_elevation">Elevation gain</string>
     <string name="activity_detail_pace_chart">Pace over distance</string>
+    <string name="activity_detail_avg_pace">Avg pace</string>
+    <string name="activity_detail_best_pace">Best pace</string>
+    <string name="activity_detail_value_unavailable">—</string>
+
+    <string name="activity_detail_lens_route">Route</string>
+    <string name="activity_detail_lens_pace">Pace</string>
+    <string name="activity_detail_lens_speed">Speed</string>
+    <string name="activity_detail_lens_elevation">Elevation</string>
+    <string name="activity_detail_lens_stops">Stops</string>
+    <string name="activity_detail_legend_auto_stop">Automatic stop</string>
+    <string name="activity_detail_legend_manual_pause">Manual pause</string>
+
+    <string name="activity_detail_speed_chart">Speed over distance</string>
+    <string name="activity_detail_elevation_chart">Elevation profile</string>
+    <string name="activity_detail_chart_average">Avg %1$s</string>
+
+    <string name="activity_detail_selection_time">Time</string>
+    <string name="activity_detail_selection_pace">Pace</string>
+    <string name="activity_detail_selection_speed">Speed</string>
+    <string name="activity_detail_selection_altitude">Altitude</string>
+    <string name="activity_detail_selection_paused">Paused</string>
+    <string name="activity_detail_selection_stopped">Stopped</string>
+    <string name="activity_detail_selection_clear">Clear selection</string>
+
+    <string name="activity_detail_splits">Splits</string>
+    <string name="activity_detail_splits_number">Split</string>
+    <string name="activity_detail_splits_pace">Pace</string>
+    <string name="activity_detail_splits_speed">Speed</string>
+    <string name="activity_detail_splits_time">Time</string>
+    <string name="activity_detail_splits_elevation">Elev.</string>
+
+    <string name="activity_detail_stops">Moving and stops</string>
+    <string name="activity_detail_stops_moving_share">Moving</string>
+    <string name="activity_detail_stops_total">Stopped</string>
+    <string name="activity_detail_stops_count">Stops</string>
+    <string name="activity_detail_stops_longest">Longest</string>
+
+    <string name="activity_detail_elevation_gain">Ascent</string>
+    <string name="activity_detail_elevation_loss">Descent</string>
+    <string name="activity_detail_elevation_range">Range</string>
+    <string name="activity_detail_elevation_range_value">%1$s \u2013 %2$s</string>
+
     <string name="activity_detail_edit_track">Edit track</string>
     <string name="activity_map_back">Back to the activity</string>
     <string name="activity_detail_open_map">Open the map full screen</string>

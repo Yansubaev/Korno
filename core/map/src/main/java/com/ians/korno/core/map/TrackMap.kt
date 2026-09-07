@@ -8,8 +8,10 @@ import androidx.compose.ui.unit.dp
 /**
  * Карта с записанным или записываемым треком.
  *
- * @param points точки маршрута в порядке записи.
+ * @param points точки маршрута в порядке записи. Цвет отрезка задаётся [MapPoint.shade] —
+ *   так работают линзы «Темп/скорость» и «Высота».
  * @param currentPoint текущая позиция; если задана, рисуется вместо маркера финиша.
+ * @param overlay остановки, километровые отметки и выделение поверх линии трека.
  * @param camera [TrackMapCamera.FitTrack] — показать трек целиком,
  *   [TrackMapCamera.FollowLatest] — следовать за последней точкой.
  * @param interactive разрешить жесты. Внутри вертикально прокручиваемых
@@ -24,6 +26,7 @@ fun TrackMap(
     points: List<MapPoint>,
     modifier: Modifier = Modifier,
     currentPoint: MapPoint? = null,
+    overlay: TrackOverlay = TrackOverlay.None,
     camera: TrackMapCamera = TrackMapCamera.FitTrack,
     interactive: Boolean = true,
     showEndpoints: Boolean = true,
@@ -33,6 +36,7 @@ fun TrackMap(
         route = points,
         modifier = modifier,
         currentPoint = currentPoint,
+        overlay = overlay,
         showEndpoints = showEndpoints,
         camera = camera,
         interactive = interactive,
