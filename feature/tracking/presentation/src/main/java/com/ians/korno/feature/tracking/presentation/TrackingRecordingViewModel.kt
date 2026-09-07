@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.MeasurementSystem
+import com.ians.korno.core.domain.model.isTrackGap
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
@@ -53,11 +54,12 @@ internal class TrackingRecordingViewModel(
     // Маппинг живёт здесь, а не в toUiState: иначе список пересобирался бы
     // на каждый тик таймера, а не только при появлении новых точек.
     private val routePoints = observeSessionTrack().map { points ->
-        points.map { point ->
+        points.mapIndexed { index, point ->
             MapPoint(
                 latitude = point.latitude,
                 longitude = point.longitude,
                 isPaused = point.isStop || point.recordingStatus.isPause,
+                isGap = index > 0 && isTrackGap(points[index - 1], point),
             )
         }
     }

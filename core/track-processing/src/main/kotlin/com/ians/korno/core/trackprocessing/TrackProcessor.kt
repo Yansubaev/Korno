@@ -20,27 +20,41 @@ class TrackProcessor(
         activityType: ActivityType,
         config: TrackProcessingConfig = TrackProcessingConfig.forActivityType(activityType),
     ): ProcessedTrack {
-        val ordered = points.sortedWith(compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id))
-        val processedPoints = ordered
-            .splitWhen { previous, current ->
-                previous.recordingStatus.isManualPause != current.recordingStatus.isManualPause
-            }
-            .flatMap { segment ->
-                val filtered = outlierFilter(segment, config)
-                val smoothed = smoothing(filtered, config.smoothingRadius)
-                if (segment.first().recordingStatus.isManualPause) {
-                    // Ручное перемещение на паузе нужно сохранить для карты, но оно не
-                    // участвует ни в автопаузе, ни в расчёте остановок.
-                    smoothed.map { it.copy(isStop = false) }
-                } else {
-                    stopDetection(smoothed, config)
-                }
-            }
+        val processedPoints = processPoints(points, config)
         return ProcessedTrack(
             points = processedPoints,
-            statistics = statisticsCalculator(processedPoints, config.elevationNoiseMeters),
+            statistics = statisticsCalculator(processedPoints, config),
         )
     }
+
+    /**
+     * Вердикты по точкам без подсчёта статистики: живой записи статистика нужна
+     * накопительная, а не пересчитанная с нуля (см. [IncrementalTrackProcessor]).
+     */
+    internal fun processPoints(
+        points: List<GeoPoint>,
+        config: TrackProcessingConfig,
+    ): List<GeoPoint> = points
+        .sortedWith(compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id))
+        .splitWhen { previous, current ->
+            previous.recordingStatus.isManualPause != current.recordingStatus.isManualPause
+        }
+        .flatMap { segment ->
+            val filtered = outlierFilter(segment, config)
+            // Остановки ищутся по отфильтрованным, но ещё не сглаженным точкам.
+            // Пороги детектора выражены в погрешности исходного фикса, а сглаживание
+            // эту погрешность как раз и размывает: соседние точки затягивают в стоянку
+            // движение, которое началось после неё, и наоборот. На границе «стоял —
+            // пошёл» это давало сдвиг вердикта на радиус окна.
+            val detected = if (segment.first().recordingStatus.isManualPause) {
+                // Ручное перемещение на паузе нужно сохранить для карты, но оно не
+                // участвует ни в автопаузе, ни в расчёте остановок.
+                filtered.map { it.copy(isStop = false) }
+            } else {
+                stopDetection(filtered, config)
+            }
+            smoothing(detected, config.smoothingRadius, config.maximumSegmentDurationMillis)
+        }
 }
 
 private val RecordingStatus.isManualPause: Boolean

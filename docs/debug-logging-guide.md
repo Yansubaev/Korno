@@ -104,6 +104,32 @@ jq -c 'select(.activityId == 42)' logs/*.jsonl
 jq -c 'select(.category == "SYSTEM")' logs/*.jsonl
 ```
 
+Сводка качества записи одной строкой:
+
+```bash
+jq -c 'select(.message == "Tracking session stopped") | .fields' logs/*.jsonl
+```
+
+Распределение погрешности и шага опроса — если жалоба на «прыгающий трек»:
+
+```bash
+jq -r 'select(.message == "Location sample received")
+  | [.fields.provider, .fields.accuracyMeters, .fields.sampleIntervalMillis] | @tsv' logs/*.jsonl
+```
+
+Почему точки отбрасывались:
+
+```bash
+jq -r 'select(.message == "Track point processed" and .fields.outlierReason != "")
+  | .fields.outlierReason' logs/*.jsonl | sort | uniq -c
+```
+
+Сетевые фиксы вместо GNSS — самая частая причина и разброса точек, и несработавшей автопаузы:
+
+```bash
+jq -r 'select(.message == "Location sample received") | .fields.provider' logs/*.jsonl | sort | uniq -c
+```
+
 Найти записи с исключениями:
 
 ```bash
@@ -122,17 +148,47 @@ rg '"level":"(WARN|ERROR)"|Unhandled exception' logs
 
 **Вход.** `Location sample received` — каждый сэмпл от провайдера: `accuracyMeters`, `reportedSpeed`, `sampleIntervalMillis` и текущий статус записи. Координат в этой записи нет, она пишется на уровне `DEBUG` всегда. Сами широта и долгота идут отдельной записью `Location sample coordinates` на уровне `VERBOSE` и только при включённой настройке «Включать GPS-точки».
 
+Там же лежат поля, по которым видно происхождение фикса, — без них сетевую точку от GNSS-точки не отличить:
+
+- `provider` — `gps`, `fused` или `network`. Стометровая погрешность вместе с `network` означает, что GNSS-чип в этот момент не работал;
+- `ageMillis` — сколько фикс пролежал до того, как дошёл до приложения; Fused Location Provider умеет отдавать кэш, и по времени записи этого не видно;
+- `satelliteCount` — число спутников в решении; у сетевых фиксов отсутствует;
+- `verticalAccuracyMeters` и `speedAccuracyMetersPerSecond` — есть не у всех провайдеров, но когда есть, сразу показывают, стоит ли верить набору высоты и доплеровской скорости.
+
 **Обработка.** `Track point processed` — вердикт по каждой точке: `isOutlier` (точка признана выбросом), `isStop` (точка попала в остановку), накопленные `distanceMeters` и `movingTimeMillis`. Расхождение между числом сэмплов и приростом дистанции разбирается именно здесь.
+
+У отброшенной точки есть `outlierReason`, иначе отказ выглядит как потерянный сэмпл:
+
+- `ACCURACY` — погрешность хуже `maximumAccuracyMeters`, точка описывает не положение, а круг;
+- `SPEED` — перемещение невозможно на этой скорости или с этим ускорением даже с поправкой на погрешность;
+- `TIMESTAMP` — время точки не больше времени предыдущей.
+
+Рядом идут `gapCount` и `unmeasuredTimeMillis` — сколько раз трек прерывался и сколько времени в этих разрывах накопилось. Отрезок длиннее минуты не наблюдался: его дистанция засчитывается как нижняя оценка пройденного, но ни в мгновенную, ни в максимальную скорость он не идёт, и на карте рисуется пунктиром.
+
+Накопленная дистанция намеренно отстаёт от последних точек на пару сэмплов: пока сглаживание может сдвинуть точку, засчитывать её рано. Поэтому `distanceMeters` в живой записи только растёт, а окончательное значение появляется в `Tracking session stopped` после полного пересчёта трека. Решение об автопаузе, наоборот, принимается по самой свежей точке и не отстаёт.
 
 **Решения.** `Automatic recording state changed` (смена состояния) и `Auto pause held` (сэмпл пришёл, но пауза сохранилась). Обе несут поля решения: `reportedSpeed` — скорость от провайдера (`null` означает, что её не было, и решение принималось только по координатам), `currentSpeed` — скорость по обработанному треку, `accuracyMeters` — погрешность точки и `sampleIntervalMillis` — шаг с прошлой точки. Последнее поле важнее, чем кажется: детектор остановок рассуждает временными окнами, и если шаг сравним с `stopWindowMillis`, в окно попадает слишком мало точек.
 
-Первой записью лога активности идёт `Tracking session started` с настройками, при которых пошла запись: `autoPauseEnabled`, `stopSpeedMetersPerSecond`, `resumeSpeedMetersPerSecond`, `stopWindowMillis`, `stopRadiusMeters`, `maximumSpeedMetersPerSecond`. Без них цифры автопаузы не с чем сравнивать. Та же строка появляется и после восстановления сессии — `Active tracking session recovered`.
+Первой записью лога активности идёт `Tracking session started` с настройками, при которых пошла запись: `autoPauseEnabled`, `autoPauseSensitivity`, `gpsAccuracy`, `stopSpeedMetersPerSecond`, `resumeSpeedMetersPerSecond`, `stopWindowMillis`, `minimumStopDurationMillis`, `stopRadiusMeters`, `maximumSpeedMetersPerSecond`, `maximumAccuracyMeters`, `smoothingRadius`. Без них цифры автопаузы не с чем сравнивать. Та же строка появляется и после восстановления сессии — `Active tracking session recovered`.
+
+Настройка точности GPS попадает именно сюда, хотя запросом к провайдеру владеет сервис: подписка на геолокацию поднимается ещё на прогреве, до появления `activityId`, и собственная запись `Location update policy changed` уходит только в общий лог.
+
+Последней записью идёт `Tracking session stopped` со сводкой качества записи — с неё удобно начинать разбор, не читая сотни строк про отдельные сэмплы:
+
+- `outlierCount` и `stopPointCount` — сколько точек отброшено и сколько попало в остановки;
+- `accuracyMedianMeters` и `accuracyP90Meters` — с какой точностью вообще шла запись;
+- `sampleIntervalMedianMillis` и `sampleIntervalP90Millis` — реальный шаг опроса против запрошенного в `Location update policy changed`. Расхождение медианы с запрошенным интервалом означает, что провайдер запрос не отрабатывал;
+- `gapCount`, `unmeasuredTimeMillis` и `unmeasuredTimeShare` — сколько раз трек прерывался и какая доля активности пришлась на разрывы. Доля выше 0.2 означает, что обрабатывать было почти нечего, и вопросы к алгоритмам можно не задавать.
 
 ## Системные сигналы
 
 Категория `SYSTEM` — то, что происходит вокруг приложения и способно объяснить поведение трека. Эти подписки включаются только под запись трека и только при включённом логировании, потому что стоят батареи.
 
-- `Activity recognized` — что о происходящем думает система: `detectedActivity` (`WALKING`, `RUNNING`, `ON_BICYCLE`, `IN_VEHICLE`, `STILL`, `TILTING`), `confidencePercent` и `alternatives` с прочими вариантами. Записывается только смена вердикта. Расхождение с выбранным типом активности объясняет и «слишком быстрый» трек, и остановки, которых пользователь не делал. Требует разрешения на распознавание активности; без него сигналов просто не будет.
+- `Activity recognized` — что о происходящем думает система: `detectedActivity` (`WALKING`, `RUNNING`, `ON_FOOT`, `ON_BICYCLE`, `IN_VEHICLE`, `STILL`, `TILTING`, `UNKNOWN`), `confidencePercent` и `alternatives` с прочими вариантами. Записывается только смена вердикта. Расхождение с выбранным типом активности объясняет и «слишком быстрый» трек, и остановки, которых пользователь не делал. Требует разрешения на распознавание активности; без него сигналов просто не будет.
+
+  `ON_FOOT` — не отдельный вариант, а зонтик над `WALKING` и `RUNNING`, и Play Services почти всегда ставит его первым. В вердикт он попадает только тогда, когда конкретного варианта рядом нет; в остальных случаях его видно в `alternatives`.
+- `Device idle mode changed` — `deviceIdleMode` и `ignoringBatteryOptimizations`. Doze — единственное состояние, которое одновременно режет и геолокацию, и распознавание активности: если оба источника замолчали разом, смотреть надо сюда. Приложение из белого списка переносит Doze заметно мягче.
+- `Background restriction changed` — `backgroundRestricted` и `standbyBucket` (`ACTIVE`, `WORKING_SET`, `FREQUENT`, `RARE`, `RESTRICTED`). Снимок пишется при старте записи и объясняет, почему сервис получает точки реже, чем просит, ещё до всякого Doze.
 - `Location providers changed` — `gpsEnabled` и `networkEnabled`. Самая частая причина дыры в треке: геолокацию выключили посреди записи.
 - `Power save mode changed` — режим энергосбережения режет частоту обновлений независимо от настроек приложения.
 - `Screen state changed` — с момента гашения экрана начинают действовать ограничения на фоновую работу.
@@ -143,5 +199,7 @@ rg '"level":"(WARN|ERROR)"|Unhandled exception' logs
 ## На что смотреть при расследовании
 
 Начните с `diagnostics.json`, затем найдите нужный `sessionId` и время воспроизведения. Просматривайте цепочку событий перед первым `WARN` или `ERROR`, а при проблемах записи маршрута фильтруйте категории `TRACKING` и `GPS`. Необработанный краш помечается тегом `UncaughtExceptionHandler` и содержит stack trace в `throwable`.
+
+С жалобами на трек порядок другой и почти всегда один и тот же: сперва `Tracking session stopped` — там вся статистика качества сразу, — и только потом отдельные точки. Если `accuracyMedianMeters` за два десятка метров, `sampleIntervalMedianMillis` заметно больше запрошенного, а `provider` у половины сэмплов не `gps`, то дело не в обработке трека: записи просто не из чего было его построить. Тогда смотреть надо в `SYSTEM` — на `Device idle mode changed`, `Background restriction changed` и `Power save mode changed`.
 
 Логи хранятся во внутреннем хранилище приложения: общий поток — максимум пять файлов по 2 МБ, логи активностей — двадцать последних, и всё это не дольше семи дней. Очистка данных или удаление приложения удаляет их. Точные GPS-координаты попадают в файл только после отдельного включения этой настройки, поэтому перед передачей архива проверьте, допустимо ли раскрывать маршрут.

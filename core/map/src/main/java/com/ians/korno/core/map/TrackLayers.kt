@@ -322,7 +322,9 @@ internal fun List<MapPoint>.toRouteSections(): List<RouteSection> {
 }
 
 private fun List<MapPoint>.edgeStyle(index: Int): EdgeStyle = EdgeStyle(
-    isPaused = this[index].isPaused || this[index + 1].isPaused,
+    // Разрыв трека рисуется как пауза: и там, и там сплошная линия соврала бы о том,
+    // что маршрут между точками известен.
+    isPaused = this[index].isPaused || this[index + 1].isPaused || this[index + 1].isGap,
     shade = this[index].shade,
 )
 

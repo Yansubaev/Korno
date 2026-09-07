@@ -11,6 +11,7 @@ import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.model.TrackFileOperation
+import com.ians.korno.core.domain.model.isTrackGap
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.ActivityLogInfo
 import com.ians.korno.core.logging.LogArchiveResult
@@ -298,11 +299,12 @@ internal class ActivityDetailViewModel(
                 track.analysis.elevation?.gainMeters ?: elevationGainMeters,
                 measurementSystem,
             ).text,
-            routePoints = track.points.map {
+            routePoints = track.points.mapIndexed { index, point ->
                 MapPoint(
-                    latitude = it.latitude,
-                    longitude = it.longitude,
-                    isPaused = it.isStop || it.recordingStatus.isPause,
+                    latitude = point.latitude,
+                    longitude = point.longitude,
+                    isPaused = point.isStop || point.recordingStatus.isPause,
+                    isGap = index > 0 && isTrackGap(track.points[index - 1], point),
                 )
             },
             insights = insights,

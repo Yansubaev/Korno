@@ -8,6 +8,7 @@ import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.trackprocessing.PrivacyZoneUseCase
 import com.ians.korno.core.trackprocessing.StatisticsCalculatorUseCase
+import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.data.gpxexport.TrackFileCodec
 import com.ians.korno.data.gpxexport.mapper.trackDocumentOf
 import kotlinx.coroutines.flow.first
@@ -52,7 +53,12 @@ internal class TrackFileWriter(
      */
     private fun Activity.withStatisticsFor(points: List<GeoPoint>, trimmed: Boolean): Activity {
         if (!trimmed) return this
-        val statistics = statisticsCalculator(points)
+        // Пороги берутся по типу активности: у пешехода и у машины разные и шумовой
+        // пол дистанции, и длительность, после которой отрезок считается разрывом.
+        val statistics = statisticsCalculator(
+            points = points,
+            config = TrackProcessingConfig.forActivityType(activityType),
+        )
         return copy(
             startTimeEpochMillis = points.first().timestampEpochMillis,
             endTimeEpochMillis = points.last().timestampEpochMillis,

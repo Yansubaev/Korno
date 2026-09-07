@@ -3,7 +3,9 @@ package com.ians.korno.feature.tracking.data.session
 import com.ians.korno.core.domain.error.onSuccess
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
@@ -16,12 +18,14 @@ import com.ians.korno.core.logging.debug
 import com.ians.korno.core.logging.info
 import com.ians.korno.core.logging.verbose
 import com.ians.korno.core.logging.warn
+import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
 import com.ians.korno.core.trackprocessing.TrackStatistics
 import com.ians.korno.core.trackprocessing.withAutoPauseSensitivity
 import com.ians.korno.data.locationtracking.location.LocationSample
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,10 +75,20 @@ internal class TrackingSessionCoordinator(
     val session: StateFlow<RecordingSession> = _session.asStateFlow()
 
     private val pointBuffer = mutableListOf<GeoPoint>()
+
+    /**
+     * Сырые точки сессии: вердикты фильтров сюда не записываются намеренно. Раньше вердикт
+     * последней точки клался обратно в этот же список, а фильтр выбросов считает флаг
+     * `isOutlier` липким — точка, один раз признанная выбросом, не могла им перестать быть,
+     * даже когда следующие точки это опровергали.
+     */
     private val sessionPoints = mutableListOf<GeoPoint>()
     private var lastFlushAtMillis = 0L
     private var autoPauseEnabled = true
     private var processingConfig = TrackProcessingConfig.forActivityType(ActivityType.RUNNING)
+    private var liveProcessor = IncrementalTrackProcessor(processingConfig)
+    private var gpsAccuracy = GpsAccuracy.BALANCED
+    private var autoPauseSensitivity = AutoPauseSensitivity.MEDIUM
     private var lastReliableFixAtMillis: Long? = null
     private var waitingForFixSinceMillis: Long? = null
 
@@ -101,6 +115,7 @@ internal class TrackingSessionCoordinator(
             newActivityId = id
             pointBuffer.clear()
             sessionPoints.clear()
+            liveProcessor.reset()
             lastFlushAtMillis = startTime
             waitingForFixSinceMillis = if (hasWarmFix) null else startTime
             _session.value = RecordingSession(
@@ -136,14 +151,24 @@ internal class TrackingSessionCoordinator(
     /**
      * Настройки, с которыми пошла запись. В логе активности они нужны первой же строкой:
      * без них цифры автопаузы и разброс точек не с чем сравнивать.
+     *
+     * Режим опроса GPS попадает сюда же, хотя запросом владеет сервис. Подписка на
+     * геолокацию поднимается ещё на прогреве, до того как у активности появится id, и её
+     * собственная запись `Location update policy changed` уходит только в общий лог —
+     * по логу одной активности нельзя было понять, с какой точностью она вообще писалась.
      */
     private fun recordingConfigFields(): Map<String, String> = mapOf(
         "autoPauseEnabled" to autoPauseEnabled.toString(),
+        "autoPauseSensitivity" to autoPauseSensitivity.name,
+        "gpsAccuracy" to gpsAccuracy.name,
         "stopSpeedMetersPerSecond" to processingConfig.stopSpeedMetersPerSecond.toString(),
         "resumeSpeedMetersPerSecond" to processingConfig.resumeSpeedMetersPerSecond.toString(),
         "stopWindowMillis" to processingConfig.stopWindowMillis.toString(),
+        "minimumStopDurationMillis" to processingConfig.minimumStopDurationMillis.toString(),
         "stopRadiusMeters" to processingConfig.stopRadiusMeters.toString(),
         "maximumSpeedMetersPerSecond" to processingConfig.maximumSpeedMetersPerSecond.toString(),
+        "maximumAccuracyMeters" to processingConfig.maximumAccuracyMeters.toString(),
+        "smoothingRadius" to processingConfig.smoothingRadius.toString(),
     )
 
     suspend fun recoverActiveSessionIfNeeded(): Boolean {
@@ -158,9 +183,13 @@ internal class TrackingSessionCoordinator(
                     is com.ians.korno.core.domain.error.Result.Success -> result.data
                     is com.ians.korno.core.domain.error.Result.Error -> emptyList()
                 }
+                // Вердикты фильтров пересчитываются с нуля: `isOutlier` липкий, и
+                // восстановленная с ним точка осталась бы выбросом навсегда.
+                val rawPoints = restoredPoints.map { it.copy(isOutlier = false, isStop = false) }
                 sessionPoints.clear()
-                sessionPoints += restoredPoints
-                val processed = trackProcessor.process(restoredPoints, activity.activityType, processingConfig)
+                sessionPoints += rawPoints
+                liveProcessor.reset(rawPoints)
+                val processed = trackProcessor.process(rawPoints, activity.activityType, processingConfig)
                 lastFlushAtMillis = nowMillis()
                 waitingForFixSinceMillis = null
                 _session.value = RecordingSession(
@@ -247,6 +276,11 @@ internal class TrackingSessionCoordinator(
 
         sessionPoints += point
         if (current.status == RecordingStatus.MANUAL_PAUSE) {
+            // Точка отдаётся обработчику и на паузе, хотя её значения никуда не идут:
+            // иначе в накопленном треке на месте паузы образуется дыра во времени, и
+            // возобновление после получаса стоянки он примет за разрыв записи —
+            // с прямой линией в дистанции и лишним gapCount.
+            liveProcessor.append(point)
             // На ручной паузе координата нужна живой карте и истории маршрута,
             // но значения активности должны оставаться полностью замороженными.
             _session.update {
@@ -259,9 +293,9 @@ internal class TrackingSessionCoordinator(
             return
         }
 
-        val processed = trackProcessor.process(sessionPoints, current.activityType, processingConfig)
-        val statistics = processed.statistics
-        val latestValidPoint = processed.points.lastOrNull { !it.isOutlier }
+        val update = liveProcessor.append(point)
+        val statistics = update.statistics
+        val latestValidPoint = update.lastValidPoint
         val nextStatus = if (autoPauseEnabled && latestValidPoint?.isStop == true) {
             RecordingStatus.AUTO_PAUSE
         } else {
@@ -269,10 +303,9 @@ internal class TrackingSessionCoordinator(
         }
         val storedPoint = point.copy(
             recordingStatus = nextStatus,
-            isStop = processed.points.lastOrNull()?.isStop == true,
-            isOutlier = processed.points.lastOrNull()?.isOutlier == true,
+            isStop = update.point.isStop,
+            isOutlier = update.point.isOutlier,
         )
-        sessionPoints[sessionPoints.lastIndex] = storedPoint
 
         // По одному факту смены статуса разобрать залипшую автопаузу нельзя: решение
         // зависит от плотности точек и от того, отдаёт ли провайдер скорость. Поэтому
@@ -290,6 +323,14 @@ internal class TrackingSessionCoordinator(
                 "currentSpeed" to statistics.currentSpeedMetersPerSecond.toString(),
                 "distanceMeters" to statistics.distanceMeters.toString(),
                 "movingTimeMillis" to statistics.movingTimeMillis.toString(),
+                // Отброшенная точка ничего не добавляет к дистанции, и без причины отказа
+                // это выглядит как потерянный сэмпл. Причина считается по тем же порогам,
+                // по которым принято само решение.
+                "outlierReason" to outlierReason(sample, storedPoint),
+                // Доля времени, проведённая в разрывах: показывает, какой части трека
+                // вообще есть чем верить.
+                "unmeasuredTimeMillis" to statistics.unmeasuredTimeMillis.toString(),
+                "gapCount" to statistics.gapCount.toString(),
             ),
         ) { "Track point processed" }
 
@@ -338,11 +379,38 @@ internal class TrackingSessionCoordinator(
     ): Map<String, String> = sampleFields(
         sample = sample,
         previousPoint = sessionPoints.getOrNull(sessionPoints.lastIndex - 1),
-    ) + mapOf("currentSpeed" to statistics.currentSpeedMetersPerSecond.toString())
+    ) + mapOf(
+        "currentSpeed" to statistics.currentSpeedMetersPerSecond.toString(),
+        "stopSpeedMetersPerSecond" to processingConfig.stopSpeedMetersPerSecond.toString(),
+        "resumeSpeedMetersPerSecond" to processingConfig.resumeSpeedMetersPerSecond.toString(),
+        "stopWindowMillis" to processingConfig.stopWindowMillis.toString(),
+    )
+
+    /**
+     * Почему точка признана выбросом. Пустая строка означает, что она принята.
+     *
+     * Причина восстанавливается по тем же порогам, по которым принято решение, а не
+     * приходит из фильтра: тащить её через доменную модель ради одной строки лога
+     * значило бы навсегда поселить диагностику в `GeoPoint`.
+     */
+    private fun outlierReason(sample: LocationSample, point: GeoPoint): String {
+        if (!point.isOutlier) return ""
+        val accuracy = sample.accuracyMeters?.toDouble()
+        if (accuracy != null && accuracy > processingConfig.maximumAccuracyMeters) {
+            return "ACCURACY"
+        }
+        val previous = sessionPoints.getOrNull(sessionPoints.lastIndex - 1) ?: return "UNKNOWN"
+        val elapsedMillis = sample.timestampEpochMillis - previous.timestampEpochMillis
+        return if (elapsedMillis <= 0L) "TIMESTAMP" else "SPEED"
+    }
 
     /**
      * Характеристики сэмпла без координат: их можно писать в лог всегда, тогда как
      * широта и долгота требуют отдельного согласия пользователя.
+     *
+     * Провайдер и возраст фикса здесь важнее, чем кажется: сетевой фикс отличался от
+     * GNSS-фикса только отсутствующей скоростью, и определить это можно было лишь
+     * косвенно — а именно на нём и разваливались и трек, и автопауза.
      */
     private fun sampleFields(
         sample: LocationSample,
@@ -353,6 +421,11 @@ internal class TrackingSessionCoordinator(
         "sampleIntervalMillis" to previousPoint
             ?.let { sample.timestampEpochMillis - it.timestampEpochMillis }
             .toString(),
+        "provider" to (sample.provider ?: "unknown"),
+        "ageMillis" to sample.ageMillis.toString(),
+        "verticalAccuracyMeters" to sample.verticalAccuracyMeters.toString(),
+        "speedAccuracyMetersPerSecond" to sample.speedAccuracyMetersPerSecond.toString(),
+        "satelliteCount" to sample.satelliteCount.toString(),
     )
 
     /**
@@ -483,16 +556,53 @@ internal class TrackingSessionCoordinator(
                 "pointCount" to processed.points.size.toString(),
                 "elapsedTimeMillis" to elapsedTime.toString(),
                 "pendingSummary" to pendingSummary.toString(),
-            ),
+            ) + trackQualityFields(processed.points, statistics, elapsedTime),
         ) { "Tracking session stopped" }
 
         // Область закрывается последней: запись об остановке должна попасть в лог активности.
         activityLogScope.end()
         pointBuffer.clear()
         sessionPoints.clear()
+        liveProcessor.reset()
         waitingForFixSinceMillis = null
         _session.value = RecordingSession(status = RecordingStatus.STOPPED)
         return activityId
+    }
+
+    /**
+     * Сводка качества записи одной строкой в конце лога активности.
+     *
+     * Раньше эти числа приходилось выводить вручную из сотни строк `Location sample
+     * received`: медиана погрешности, доля отброшенных точек, реальный шаг опроса против
+     * запрошенного. Именно с них начинается разбор любой жалобы на трек, и именно их
+     * не хватало, чтобы за минуту понять, что записи просто нечего было обрабатывать.
+     */
+    private fun trackQualityFields(
+        points: List<GeoPoint>,
+        statistics: TrackStatistics,
+        elapsedTimeMillis: Long,
+    ): Map<String, String> {
+        if (points.isEmpty()) return emptyMap()
+        val accuracies = points.mapNotNull { it.accuracyMeters?.toDouble() }.sorted()
+        val intervals = points.map(GeoPoint::timestampEpochMillis)
+            .sorted()
+            .zipWithNext { previous, next -> next - previous }
+            .sorted()
+        return mapOf(
+            "outlierCount" to points.count(GeoPoint::isOutlier).toString(),
+            "stopPointCount" to points.count(GeoPoint::isStop).toString(),
+            "accuracyMedianMeters" to accuracies.percentile(0.5).format(),
+            "accuracyP90Meters" to accuracies.percentile(0.9).format(),
+            "sampleIntervalMedianMillis" to intervals.percentile(0.5).toString(),
+            "sampleIntervalP90Millis" to intervals.percentile(0.9).toString(),
+            "unmeasuredTimeMillis" to statistics.unmeasuredTimeMillis.toString(),
+            "gapCount" to statistics.gapCount.toString(),
+            "unmeasuredTimeShare" to if (elapsedTimeMillis > 0L) {
+                (statistics.unmeasuredTimeMillis.toDouble() / elapsedTimeMillis).format()
+            } else {
+                "0"
+            },
+        )
     }
 
     private suspend fun flushBuffer(atMillis: Long = nowMillis()) {
@@ -511,11 +621,25 @@ internal class TrackingSessionCoordinator(
     private suspend fun loadRecordingPreferences(activityType: ActivityType) {
         val preferences = preferencesRepository.observePreferences().first()
         autoPauseEnabled = preferences.autoPauseEnabled
+        autoPauseSensitivity = preferences.autoPauseSensitivity
+        gpsAccuracy = preferences.gpsAccuracy
         processingConfig = TrackProcessingConfig.forActivityType(activityType)
             .withAutoPauseSensitivity(preferences.autoPauseSensitivity)
+        liveProcessor = IncrementalTrackProcessor(processingConfig)
     }
 
     private companion object {
         const val TAG = "TrackingSessionCoordinator"
     }
 }
+
+/** Перцентиль отсортированного списка; `null`, если считать не по чему. */
+private fun <T : Comparable<T>> List<T>.percentile(fraction: Double): T? {
+    if (isEmpty()) return null
+    val index = ((size - 1) * fraction).toInt().coerceIn(0, size - 1)
+    return this[index]
+}
+
+/** Одна цифра после запятой: в логе нужен порядок величины, а не все разряды Double. */
+private fun Double?.format(): String =
+    this?.let { String.format(Locale.US, "%.1f", it) } ?: "null"
