@@ -18,36 +18,69 @@ private val ONBOARDING_STEPS = listOf(
     PermissionType.POST_NOTIFICATIONS,
 )
 
+/** Что произойдёт по кнопке на карточке разрешения. */
+internal enum class PermissionAction {
+    /** Обычный системный диалог. */
+    REQUEST,
+
+    /** Экран настроек приложения: диалога для этого разрешения уже не будет. */
+    OPEN_SETTINGS,
+}
+
+internal data class OnboardingStep(
+    val type: PermissionType,
+    val isGranted: Boolean,
+    val action: PermissionAction,
+    /**
+     * Шаг ждёт другого разрешения. Фоновую геолокацию система не выдаёт, пока нет
+     * обычной, поэтому предлагать её первой значит вести пользователя в тупик.
+     */
+    val isBlocked: Boolean,
+)
+
 internal data class OnboardingUiState(
-    val steps: List<PermissionType> = emptyList(),
-    val grantedSteps: Set<PermissionType> = emptySet(),
+    val steps: List<OnboardingStep> = emptyList(),
     val isForegroundLocationDenied: Boolean = false,
     val isFinished: Boolean = false,
-)
+) {
+    val grantedSteps: Set<PermissionType>
+        get() = steps.filter(OnboardingStep::isGranted).map(OnboardingStep::type).toSet()
+}
 
 internal class OnboardingViewModel(
     private val permissionRepository: PermissionRepository,
     private val preferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(buildInitialState())
+    /**
+     * Шаги, для которых системный диалог уже исчерпан: запрос вернулся отказом, и
+     * показать диалог второй раз система отказалась.
+     */
+    private val exhaustedSteps = mutableSetOf<PermissionType>()
+
+    private val _state = MutableStateFlow(OnboardingUiState(steps = buildSteps()))
     val state: StateFlow<OnboardingUiState> = _state.asStateFlow()
 
-    fun onPermissionResult(type: PermissionType, granted: Boolean) {
-        _state.update { current ->
-            if (type == PermissionType.FOREGROUND_LOCATION && !granted) {
-                current.copy(isForegroundLocationDenied = true)
-            } else {
-                current.copy(
-                    grantedSteps = current.grantedSteps + type,
-                    isForegroundLocationDenied = if (type == PermissionType.FOREGROUND_LOCATION) {
-                        false
-                    } else {
-                        current.isForegroundLocationDenied
-                    },
-                )
-            }
+    /**
+     * @param canAskAgain система ещё готова показать диалог по этому разрешению
+     *  (`shouldShowRequestPermissionRationale`). Отказ, после которого диалога больше
+     *  не будет, переводит карточку на кнопку «Открыть настройки».
+     */
+    fun onPermissionResult(type: PermissionType, granted: Boolean, canAskAgain: Boolean = true) {
+        if (granted) {
+            exhaustedSteps -= type
+        } else if (!canAskAgain) {
+            exhaustedSteps += type
         }
+        refresh(foregroundDenied = type == PermissionType.FOREGROUND_LOCATION && !granted)
+    }
+
+    /**
+     * Разрешение могли включить мимо приложения — на системном экране, куда ведёт
+     * [PermissionAction.OPEN_SETTINGS]. Возврат на экран это подхватывает.
+     */
+    fun onScreenResumed() {
+        refresh()
     }
 
     fun onContinueClicked() {
@@ -57,8 +90,33 @@ internal class OnboardingViewModel(
         }
     }
 
-    private fun buildInitialState(): OnboardingUiState {
-        val granted = ONBOARDING_STEPS.filter(permissionRepository::isGranted).toSet()
-        return OnboardingUiState(steps = ONBOARDING_STEPS, grantedSteps = granted)
+    private fun refresh(foregroundDenied: Boolean? = null) {
+        _state.update { current ->
+            val steps = buildSteps()
+            current.copy(
+                steps = steps,
+                isForegroundLocationDenied = when {
+                    steps.any { it.type == PermissionType.FOREGROUND_LOCATION && it.isGranted } -> false
+                    foregroundDenied != null -> foregroundDenied
+                    else -> current.isForegroundLocationDenied
+                },
+            )
+        }
+    }
+
+    private fun buildSteps(): List<OnboardingStep> {
+        val foregroundGranted = permissionRepository.isGranted(PermissionType.FOREGROUND_LOCATION)
+        return ONBOARDING_STEPS.map { type ->
+            OnboardingStep(
+                type = type,
+                isGranted = permissionRepository.isGranted(type),
+                action = if (permissionRepository.isSettingsOnly(type) || type in exhaustedSteps) {
+                    PermissionAction.OPEN_SETTINGS
+                } else {
+                    PermissionAction.REQUEST
+                },
+                isBlocked = type == PermissionType.BACKGROUND_LOCATION && !foregroundGranted,
+            )
+        }
     }
 }

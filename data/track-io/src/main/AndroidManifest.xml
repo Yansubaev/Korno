@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Выгрузка сотни активностей и импорт большого выбора файлов переживают уход из
+        приложения, поэтому такие работы переводятся в foreground: иначе система вправе
+        усыпить процесс на середине папки.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application>
         <!--
@@ -16,6 +25,15 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/korno_track_file_paths" />
         </provider>
+
+        <!--
+            Начиная с Android 14 у foreground-сервиса обязан быть объявлен тип. Сервис
+            свой у WorkManager, поэтому тип дописывается к его записи в манифесте.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>

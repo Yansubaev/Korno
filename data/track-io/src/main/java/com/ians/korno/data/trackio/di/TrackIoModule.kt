@@ -5,6 +5,7 @@ import com.ians.korno.core.domain.repository.TrackFileRepository
 import com.ians.korno.data.gpxexport.TrackFileCodec
 import com.ians.korno.data.trackio.io.DocumentStore
 import com.ians.korno.data.trackio.repository.DefaultTrackFileRepository
+import com.ians.korno.data.trackio.work.TrackFileNotifier
 import com.ians.korno.data.trackio.work.TrackFileWriter
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
@@ -16,5 +17,6 @@ val trackIoModule = module {
     singleOf(::DocumentStore)
     single { TrackFileCodec() }
     singleOf(::TrackFileWriter)
+    singleOf(::TrackFileNotifier)
     singleOf(::DefaultTrackFileRepository) bind TrackFileRepository::class
 }

@@ -5,6 +5,7 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.data.gpxexport.TrackFileParseException
 import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
+import com.ians.korno.data.gpxexport.format.isKornoDocument
 import com.ians.korno.data.gpxexport.format.parseDecimal
 import com.ians.korno.data.gpxexport.model.TrackDocument
 import com.ians.korno.data.gpxexport.model.TrackDocumentPoint
@@ -19,6 +20,7 @@ internal object GpxParser {
         val text = StringBuilder()
 
         var sawRoot = false
+        var ownFile = false
         var metadataName: String? = null
         var note: String? = null
         var trackName: String? = null
@@ -35,7 +37,10 @@ internal object GpxParser {
                     text.setLength(0)
                     path.addLast(event.name)
                     when (event.name) {
-                        "gpx" -> sawRoot = true
+                        "gpx" -> {
+                            sawRoot = true
+                            ownFile = isKornoDocument(event.attributes)
+                        }
                         "trkpt", "rtept" -> point = readPointAttributes(event.attributes)
                     }
                 }
@@ -85,6 +90,7 @@ internal object GpxParser {
             activityType = activityType ?: ActivityType.OTHER,
             points = trackPoints.ifEmpty { routePoints },
             note = note,
+            isKornoExport = ownFile,
         )
     }
 

@@ -21,6 +21,13 @@ internal class DefaultPermissionRepository(
         PermissionType.POST_NOTIFICATIONS -> hasPostNotificationsPermission()
     }
 
+    override fun isSettingsOnly(type: PermissionType): Boolean = when (type) {
+        // Android 11 убрал вариант «Разрешить всегда» из диалога: запрос фоновой
+        // геолокации из приложения там сразу возвращает отказ, ничего не показав.
+        PermissionType.BACKGROUND_LOCATION -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        else -> false
+    }
+
     private fun hasPostNotificationsPermission(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(

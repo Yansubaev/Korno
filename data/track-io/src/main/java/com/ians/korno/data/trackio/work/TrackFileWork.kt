@@ -1,5 +1,6 @@
 package com.ians.korno.data.trackio.work
 
+import androidx.work.CoroutineWorker
 import androidx.work.Data
 import com.ians.korno.core.domain.error.Result as DomainResult
 import com.ians.korno.core.domain.error.TrackFileError
@@ -7,6 +8,10 @@ import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.repository.TrackRepository
+import com.ians.korno.core.logging.AppLogger
+import com.ians.korno.core.logging.LogCategory
+import com.ians.korno.core.logging.warn
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.first
 
 internal object TrackFileWork {
@@ -26,6 +31,18 @@ internal object TrackFileWork {
 
     /** Data ограничена 10 КБ, а ссылки на документы длинные — импорт режется на пачки. */
     const val MAX_URIS_PER_REQUEST = 20
+
+    /** Сколько файлов уже обработали предыдущие пачки этого же импорта. */
+    const val KEY_PROGRESS_OFFSET = "progress_offset"
+
+    /** Сколько файлов в импорте целиком — чтобы уведомление считало не по пачке. */
+    const val KEY_PROGRESS_TOTAL = "progress_total"
+
+    /**
+     * Начиная с этого количества элементов операция считается долгой и получает
+     * уведомление. Один файл уходит быстрее, чем уведомление успевает прочитаться.
+     */
+    const val PROGRESS_NOTIFICATION_THRESHOLD = 2
 
     fun outcome(successCount: Int, failureCount: Int, error: TrackFileError? = null): Data =
         Data.Builder()
@@ -60,4 +77,32 @@ internal suspend fun TrackRepository.loadTrack(
     }
     if (points.isEmpty()) return DomainResult.Error(TrackFileError.NO_TRACK_POINTS)
     return DomainResult.Success(LoadedTrack(activity, points))
+}
+
+/**
+ * Показывает прогресс уведомлением, если операция достаточно длинная.
+ *
+ * Перевод в foreground — вежливость, а не часть работы: Android 12+ вправе его
+ * запретить (например, когда приложение уже ушло в фон), и отказ не должен ронять
+ * саму выгрузку. Экранный индикатор в этом случае остаётся единственным.
+ */
+internal suspend fun CoroutineWorker.reportProgress(
+    notifier: TrackFileNotifier,
+    operation: TrackFileNotification,
+    completed: Int,
+    total: Int,
+    logger: AppLogger,
+) {
+    if (total < TrackFileWork.PROGRESS_NOTIFICATION_THRESHOLD) return
+    try {
+        setForeground(notifier.progress(operation, completed, total))
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Exception) {
+        logger.warn(
+            category = LogCategory.EXPORT,
+            tag = "TrackFileWork",
+            throwable = error,
+        ) { "Foreground progress notification rejected" }
+    }
 }

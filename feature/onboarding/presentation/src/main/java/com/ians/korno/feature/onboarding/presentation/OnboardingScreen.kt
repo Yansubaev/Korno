@@ -1,6 +1,11 @@
 package com.ians.korno.feature.onboarding.presentation
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -51,11 +56,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.core.app.ActivityCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.feature.onboarding.domain.model.PermissionType
@@ -82,23 +90,60 @@ internal fun OnboardingScreen(
             modifier = modifier,
         )
     } else {
+        val context = LocalContext.current
+        val activity = LocalActivity.current
+
+        // Разрешение могли выдать на системном экране настроек, куда ведёт часть
+        // карточек: возврат сюда должен показать это без перезапуска экрана.
+        LifecycleResumeEffect(viewModel) {
+            viewModel.onScreenResumed()
+            onPauseOrDispose {}
+        }
+
         var pendingType by remember { mutableStateOf<PermissionType?>(null) }
         val permissionLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.RequestMultiplePermissions(),
         ) { results ->
-            pendingType?.let { type -> viewModel.onPermissionResult(type, results.values.all { it }) }
+            val type = pendingType ?: return@rememberLauncherForActivityResult
+            viewModel.onPermissionResult(
+                type = type,
+                granted = results.values.all { it },
+                // Система готова показать диалог ещё раз, только пока просит объяснить
+                // отказ. Иначе повторное нажатие «Разрешить» не сделает вообще ничего.
+                canAskAgain = activity != null && type.toAndroidPermissions().any { permission ->
+                    ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
+                },
+            )
         }
 
         OnboardingPermissionsContent(
             state = state,
-            onAllowClick = { type ->
-                pendingType = type
-                permissionLauncher.launch(type.toAndroidPermissions())
+            onStepClick = { step ->
+                when (step.action) {
+                    PermissionAction.REQUEST -> {
+                        pendingType = step.type
+                        permissionLauncher.launch(step.type.toAndroidPermissions())
+                    }
+                    PermissionAction.OPEN_SETTINGS -> context.openAppSettings()
+                }
             },
             onContinueClick = viewModel::onContinueClicked,
             modifier = modifier,
         )
     }
+}
+
+/**
+ * Экран приложения в системных настройках: оттуда доступны все разрешения, включая
+ * те, которых диалог не выдаёт.
+ */
+private fun Context.openAppSettings() {
+    startActivity(
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
 }
 
 private data class IntroSlide(
@@ -284,9 +329,9 @@ private fun PermissionType.accentColor(): Color = when (this) {
 }
 
 @Composable
-private fun OnboardingPermissionsContent(
+internal fun OnboardingPermissionsContent(
     state: OnboardingUiState,
-    onAllowClick: (PermissionType) -> Unit,
+    onStepClick: (OnboardingStep) -> Unit,
     onContinueClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -314,9 +359,9 @@ private fun OnboardingPermissionsContent(
             state.steps.forEach { step ->
                 PermissionCard(
                     step = step,
-                    isGranted = step in state.grantedSteps,
-                    isDeniedRequired = step == PermissionType.FOREGROUND_LOCATION && state.isForegroundLocationDenied,
-                    onAllowClick = { onAllowClick(step) },
+                    isDeniedRequired = step.type == PermissionType.FOREGROUND_LOCATION &&
+                        state.isForegroundLocationDenied,
+                    onActionClick = { onStepClick(step) },
                 )
             }
         }
@@ -333,10 +378,9 @@ private fun OnboardingPermissionsContent(
 
 @Composable
 private fun PermissionCard(
-    step: PermissionType,
-    isGranted: Boolean,
+    step: OnboardingStep,
     isDeniedRequired: Boolean,
-    onAllowClick: () -> Unit,
+    onActionClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -346,20 +390,20 @@ private fun PermissionCard(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Icon(
-            imageVector = step.icon(),
+            imageVector = step.type.icon(),
             contentDescription = null,
-            tint = step.accentColor(),
+            tint = step.type.accentColor(),
             modifier = Modifier.size(24.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(step.titleRes()),
+                text = stringResource(step.type.titleRes()),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = stringResource(step.rationaleRes()),
+                text = stringResource(step.type.rationaleRes()),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -371,8 +415,16 @@ private fun PermissionCard(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            if (!step.isGranted && step.isBlocked) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.onboarding_background_location_blocked),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(10.dp))
-            if (isGranted) {
+            if (step.isGranted) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -391,11 +443,19 @@ private fun PermissionCard(
                 }
             } else {
                 Button(
-                    onClick = onAllowClick,
+                    onClick = onActionClick,
+                    enabled = !step.isBlocked,
                     colors = ButtonDefaults.filledTonalButtonColors(),
                     contentPadding = ButtonDefaults.ContentPadding,
                 ) {
-                    Text(text = stringResource(R.string.onboarding_allow))
+                    Text(
+                        text = stringResource(
+                            when (step.action) {
+                                PermissionAction.REQUEST -> R.string.onboarding_allow
+                                PermissionAction.OPEN_SETTINGS -> R.string.onboarding_open_settings
+                            },
+                        ),
+                    )
                 }
             }
         }
@@ -441,10 +501,20 @@ private fun OnboardingPermissionsContentPreview() {
     KornoTheme {
         OnboardingPermissionsContent(
             state = OnboardingUiState(
-                steps = PermissionType.entries,
-                grantedSteps = setOf(PermissionType.FOREGROUND_LOCATION),
+                steps = PermissionType.entries.map { type ->
+                    OnboardingStep(
+                        type = type,
+                        isGranted = type == PermissionType.FOREGROUND_LOCATION,
+                        action = if (type == PermissionType.BACKGROUND_LOCATION) {
+                            PermissionAction.OPEN_SETTINGS
+                        } else {
+                            PermissionAction.REQUEST
+                        },
+                        isBlocked = false,
+                    )
+                },
             ),
-            onAllowClick = {},
+            onStepClick = {},
             onContinueClick = {},
         )
     }

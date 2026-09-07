@@ -6,6 +6,8 @@
     <string name="onboarding_get_started">Get started</string>
     <string name="onboarding_continue">Continue</string>
     <string name="onboarding_granted">Granted</string>
+    <string name="onboarding_open_settings">Open settings</string>
+    <string name="onboarding_background_location_blocked">Allow location access first — the system will not offer “All the time” before that.</string>
     <string name="onboarding_foreground_location_required">This permission is required to record a track</string>
 
     <string name="onboarding_intro_slide1_title">Record every route</string>

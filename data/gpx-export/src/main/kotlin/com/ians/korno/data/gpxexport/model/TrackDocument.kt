@@ -18,6 +18,14 @@ data class TrackDocument(
      * как угодно, поэтому её всегда считает наш собственный pipeline.
      */
     val summary: TrackDocumentSummary? = null,
+    /**
+     * Файл записан самим Korno.
+     *
+     * Такой трек уже прошёл фильтрацию выбросов, поиск остановок и сглаживание, и
+     * прогонять его через них второй раз — значит слегка исказить собственный же
+     * экспорт. Признак заполняет parser по содержимому файла; writer его не пишет.
+     */
+    val isKornoExport: Boolean = false,
 ) {
     val startTimeEpochMillis: Long?
         get() = summary?.startTimeEpochMillis ?: points.firstNotNullOfOrNull { it.timestampEpochMillis }

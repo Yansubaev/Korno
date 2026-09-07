@@ -9,6 +9,22 @@ data class ProcessedTrack(
     val statistics: TrackStatistics,
 )
 
+/** Откуда пришли точки — от этого зависит, нужна ли им обработка вообще. */
+enum class TrackSource {
+    /** Сырые фиксы GPS или чужой файл: нужен весь pipeline. */
+    RAW,
+
+    /**
+     * Файл, записанный самим Korno.
+     *
+     * Его точки — уже результат этого же pipeline: выбросы отброшены при экспорте,
+     * остановки размечены, координаты сглажены. Второй проход сгладил бы сглаженное
+     * и слегка увёл бы трек от того, что пользователь видел на карте до выгрузки,
+     * поэтому здесь считается только статистика.
+     */
+    KORNO_EXPORT,
+}
+
 class TrackProcessor(
     private val outlierFilter: OutlierFilterUseCase = OutlierFilterUseCase(),
     private val smoothing: SmoothingUseCase = SmoothingUseCase(),
@@ -19,8 +35,16 @@ class TrackProcessor(
         points: List<GeoPoint>,
         activityType: ActivityType,
         config: TrackProcessingConfig = TrackProcessingConfig.forActivityType(activityType),
+        source: TrackSource = TrackSource.RAW,
     ): ProcessedTrack {
-        val processedPoints = processPoints(points, config)
+        val processedPoints = when (source) {
+            TrackSource.RAW -> processPoints(points, config)
+            // Порядок всё равно восстанавливается: статистика считается по соседним
+            // точкам и на перемешанном списке посчитала бы не тот трек.
+            TrackSource.KORNO_EXPORT -> points.sortedWith(
+                compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id),
+            )
+        }
         return ProcessedTrack(
             points = processedPoints,
             statistics = statisticsCalculator(processedPoints, config),

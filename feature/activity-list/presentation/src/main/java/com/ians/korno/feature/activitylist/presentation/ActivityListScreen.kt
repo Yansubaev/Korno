@@ -130,7 +130,7 @@ private fun ActivityPeriod.labelRes(): Int = when (this) {
 }
 
 @Composable
-private fun ActivityListContent(
+internal fun ActivityListContent(
     state: ActivityListState,
     onAction: (ActivityListAction) -> Unit,
     onOpenActivity: (Long) -> Unit,

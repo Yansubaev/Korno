@@ -6,6 +6,8 @@
     <string name="onboarding_get_started">Начать</string>
     <string name="onboarding_continue">Продолжить</string>
     <string name="onboarding_granted">Разрешено</string>
+    <string name="onboarding_open_settings">Открыть настройки</string>
+    <string name="onboarding_background_location_blocked">Сначала разрешите доступ к геолокации — без него система не предложит вариант «Всегда».</string>
     <string name="onboarding_foreground_location_required">Это разрешение обязательно для записи трека</string>
 
     <string name="onboarding_intro_slide1_title">Записывайте каждый маршрут</string>

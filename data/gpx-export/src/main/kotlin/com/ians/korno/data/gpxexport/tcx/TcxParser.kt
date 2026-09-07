@@ -5,6 +5,7 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.data.gpxexport.TrackFileParseException
 import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
+import com.ians.korno.data.gpxexport.format.isKornoDocument
 import com.ians.korno.data.gpxexport.format.parseDecimal
 import com.ians.korno.data.gpxexport.gpx.isTruthy
 import com.ians.korno.data.gpxexport.model.TrackDocument
@@ -19,6 +20,7 @@ internal object TcxParser {
         val text = StringBuilder()
 
         var sawRoot = false
+        var ownFile = false
         var sportType: ActivityType? = null
         var exactType: ActivityType? = null
         var name: String? = null
@@ -31,7 +33,10 @@ internal object TcxParser {
                 is XmlEvent.StartElement -> {
                     text.setLength(0)
                     when (event.name) {
-                        "TrainingCenterDatabase" -> sawRoot = true
+                        "TrainingCenterDatabase" -> {
+                            sawRoot = true
+                            ownFile = isKornoDocument(event.attributes)
+                        }
                         "Activity" -> sportType = ActivityTypeCodec.parse(event.attributes["Sport"])
                         "Trackpoint" -> point = MutableTcxPoint()
                     }
@@ -73,6 +78,7 @@ internal object TcxParser {
             activityType = exactType ?: sportType ?: ActivityType.OTHER,
             points = points,
             note = note,
+            isKornoExport = ownFile,
         )
     }
 }

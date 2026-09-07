@@ -61,3 +61,5 @@ include(":feature:settings:presentation")
 include(":feature:tracking:data")
 include(":feature:tracking:domain")
 include(":feature:tracking:presentation")
+
+include(":tools:track-calibration")

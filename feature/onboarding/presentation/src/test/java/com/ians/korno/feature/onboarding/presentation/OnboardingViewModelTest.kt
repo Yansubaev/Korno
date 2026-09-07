@@ -58,6 +58,70 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `background location is offered through settings when the dialog cannot grant it`() {
+        val viewModel = createViewModel(
+            FakePermissionRepository(settingsOnly = setOf(PermissionType.BACKGROUND_LOCATION)),
+        )
+
+        assertThat(viewModel.step(PermissionType.BACKGROUND_LOCATION).action)
+            .isEqualTo(PermissionAction.OPEN_SETTINGS)
+        assertThat(viewModel.step(PermissionType.ACTIVITY_RECOGNITION).action)
+            .isEqualTo(PermissionAction.REQUEST)
+    }
+
+    @Test
+    fun `background location waits for the foreground one`() {
+        val repository = FakePermissionRepository()
+        val viewModel = createViewModel(repository)
+
+        assertThat(viewModel.step(PermissionType.BACKGROUND_LOCATION).isBlocked).isTrue()
+
+        repository.granted += PermissionType.FOREGROUND_LOCATION
+        viewModel.onScreenResumed()
+
+        assertThat(viewModel.step(PermissionType.BACKGROUND_LOCATION).isBlocked).isFalse()
+    }
+
+    @Test
+    fun `a denial the system will not repeat sends the step to settings`() {
+        val viewModel = createViewModel(FakePermissionRepository())
+
+        viewModel.onPermissionResult(
+            PermissionType.POST_NOTIFICATIONS,
+            granted = false,
+            canAskAgain = false,
+        )
+
+        assertThat(viewModel.step(PermissionType.POST_NOTIFICATIONS).action)
+            .isEqualTo(PermissionAction.OPEN_SETTINGS)
+    }
+
+    @Test
+    fun `a denial the system will repeat keeps the ordinary dialog`() {
+        val viewModel = createViewModel(FakePermissionRepository())
+
+        viewModel.onPermissionResult(
+            PermissionType.POST_NOTIFICATIONS,
+            granted = false,
+            canAskAgain = true,
+        )
+
+        assertThat(viewModel.step(PermissionType.POST_NOTIFICATIONS).action)
+            .isEqualTo(PermissionAction.REQUEST)
+    }
+
+    @Test
+    fun `permission granted outside the app is picked up on resume`() {
+        val repository = FakePermissionRepository()
+        val viewModel = createViewModel(repository)
+
+        repository.granted += PermissionType.BACKGROUND_LOCATION
+        viewModel.onScreenResumed()
+
+        assertThat(viewModel.state.value.grantedSteps).contains(PermissionType.BACKGROUND_LOCATION)
+    }
+
+    @Test
     fun `denied foreground location does not mark it granted`() {
         val viewModel = createViewModel(FakePermissionRepository())
 
@@ -69,8 +133,10 @@ class OnboardingViewModelTest {
 
     @Test
     fun `granted foreground location marks only that step granted`() {
-        val viewModel = createViewModel(FakePermissionRepository())
+        val repository = FakePermissionRepository()
+        val viewModel = createViewModel(repository)
 
+        repository.granted += PermissionType.FOREGROUND_LOCATION
         viewModel.onPermissionResult(PermissionType.FOREGROUND_LOCATION, granted = true)
 
         assertThat(viewModel.state.value.grantedSteps).contains(PermissionType.FOREGROUND_LOCATION)
@@ -92,10 +158,18 @@ class OnboardingViewModelTest {
     private fun createViewModel(permissionRepository: PermissionRepository) =
         OnboardingViewModel(permissionRepository, FakeUserPreferencesRepository())
 
+    private fun OnboardingViewModel.step(type: PermissionType): OnboardingStep =
+        state.value.steps.first { it.type == type }
+
     private class FakePermissionRepository(
-        private val grantedAll: Boolean = false,
+        grantedAll: Boolean = false,
+        private val settingsOnly: Set<PermissionType> = emptySet(),
     ) : PermissionRepository {
-        override fun isGranted(type: PermissionType): Boolean = grantedAll
+        val granted: MutableSet<PermissionType> =
+            if (grantedAll) PermissionType.entries.toMutableSet() else mutableSetOf()
+
+        override fun isGranted(type: PermissionType): Boolean = type in granted
+        override fun isSettingsOnly(type: PermissionType): Boolean = type in settingsOnly
     }
 
     private class FakeUserPreferencesRepository : UserPreferencesRepository {

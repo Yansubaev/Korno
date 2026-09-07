@@ -525,6 +525,53 @@ class TrackProcessorTest {
         assertThat(smoothed[1].latitude).isLessThan(0.0001)
     }
 
+    @Test
+    fun `korno export keeps its geometry and stop verdicts untouched`() {
+        // Файл нашего же экспорта: середина уже сглажена, стоянка уже размечена.
+        // Второй проход сдвинул бы координату и мог бы передумать про остановку.
+        val points = listOf(
+            point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 5f),
+            point(id = 2L, latitude = 0.0001, timestamp = 5_000L, accuracy = 5f).copy(isStop = true),
+            point(id = 3L, latitude = 0.0, timestamp = 10_000L, accuracy = 5f),
+        )
+
+        val result = processor.process(
+            points = points,
+            activityType = ActivityType.WALKING,
+            source = TrackSource.KORNO_EXPORT,
+        )
+
+        assertThat(result.points).isEqualTo(points)
+    }
+
+    @Test
+    fun `the same points are reshaped when they come from a foreign file`() {
+        val points = listOf(
+            point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 5f),
+            point(id = 2L, latitude = 0.0001, timestamp = 5_000L, accuracy = 5f),
+            point(id = 3L, latitude = 0.0, timestamp = 10_000L, accuracy = 5f),
+        )
+
+        val result = processor.process(points, ActivityType.WALKING, source = TrackSource.RAW)
+
+        assertThat(result.points[1].latitude).isLessThan(0.0001)
+    }
+
+    @Test
+    fun `korno export is sorted before statistics are counted`() {
+        val result = processor.process(
+            points = listOf(
+                point(id = 3L, latitude = 0.0002, timestamp = 10_000L),
+                point(id = 1L, latitude = 0.0, timestamp = 0L),
+                point(id = 2L, latitude = 0.0001, timestamp = 5_000L),
+            ),
+            activityType = ActivityType.WALKING,
+            source = TrackSource.KORNO_EXPORT,
+        )
+
+        assertThat(result.points.map(GeoPoint::id)).isEqualTo(listOf(1L, 2L, 3L))
+    }
+
     private fun point(
         id: Long,
         latitude: Double,

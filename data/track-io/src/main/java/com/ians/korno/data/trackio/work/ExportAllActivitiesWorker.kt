@@ -28,6 +28,7 @@ internal class ExportAllActivitiesWorker(
     private val trackRepository: TrackRepository by inject()
     private val documentStore: DocumentStore by inject()
     private val trackFileWriter: TrackFileWriter by inject()
+    private val notifier: TrackFileNotifier by inject()
     private val logger: AppLogger by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -49,7 +50,9 @@ internal class ExportAllActivitiesWorker(
         var failureCount = 0
         var lastError: TrackFileError? = null
 
-        activities.forEach { activity ->
+        reportProgress(notifier, TrackFileNotification.EXPORT, 0, activities.size, logger)
+
+        activities.forEachIndexed { index, activity ->
             when (val result = export(activity, treeUri, format)) {
                 is DomainResult.Success -> successCount++
                 is DomainResult.Error -> {
@@ -65,6 +68,7 @@ internal class ExportAllActivitiesWorker(
                     ) { "Activity export failed" }
                 }
             }
+            reportProgress(notifier, TrackFileNotification.EXPORT, index + 1, activities.size, logger)
         }
 
         // Полностью провалившаяся операция — это failure: пользователю нужно показать

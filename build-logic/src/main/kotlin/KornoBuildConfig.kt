@@ -36,6 +36,8 @@ internal fun Project.configureAndroid(
         addUnitTestDependencies(libs)
         add("androidTestImplementation", libs.findLibrary("androidx-junit").get())
         add("androidTestImplementation", libs.findLibrary("androidx-espresso-core").get())
+        add("androidTestImplementation", libs.findLibrary("assertk").get())
+        add("androidTestImplementation", libs.findLibrary("kotlinx-coroutines-test").get())
     }
 }
 

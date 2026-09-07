@@ -2,14 +2,14 @@ package com.ians.korno.data.gpxexport.gpx
 
 import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
+import com.ians.korno.data.gpxexport.format.KORNO_CREATOR
+import com.ians.korno.data.gpxexport.format.KORNO_NAMESPACE
 import com.ians.korno.data.gpxexport.format.formatDecimal
 import com.ians.korno.data.gpxexport.model.TrackDocument
 import com.ians.korno.data.gpxexport.model.TrackDocumentPoint
 import com.ians.korno.data.gpxexport.xml.XmlWriter
 
 internal const val GPX_NAMESPACE = "http://www.topografix.com/GPX/1/1"
-internal const val KORNO_NAMESPACE = "https://korno.app/xmlschemas/TrackExtension/v1"
-internal const val CREATOR = "Korno"
 
 /** Знаков после запятой: ~1 см по широте, дальше врёт уже сам GPS. */
 internal const val COORDINATE_DECIMALS = 7
@@ -26,7 +26,7 @@ internal object GpxWriter {
             name = "gpx",
             attributes = listOf(
                 "version" to "1.1",
-                "creator" to CREATOR,
+                "creator" to KORNO_CREATOR,
                 "xmlns" to GPX_NAMESPACE,
                 "xmlns:korno" to KORNO_NAMESPACE,
             ),

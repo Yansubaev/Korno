@@ -18,6 +18,9 @@ class AndroidRoomConventionPlugin : Plugin<Project> {
             add("implementation", libs.findLibrary("androidx-room-ktx").get())
             add("ksp", libs.findLibrary("androidx-room-compiler").get())
             add("testImplementation", libs.findLibrary("androidx-room-testing").get())
+            // Тесты миграций читают экспортированные схемы с устройства, поэтому живут
+            // в androidTest, а не в JVM-тестах.
+            add("androidTestImplementation", libs.findLibrary("androidx-room-testing").get())
         }
     }
 }

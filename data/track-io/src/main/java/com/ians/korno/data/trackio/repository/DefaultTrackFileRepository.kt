@@ -70,13 +70,21 @@ internal class DefaultTrackFileRepository(
         if (sourceUris.isEmpty()) return
         sourceUris.forEach { documentStore.persistPermission(it, writable = false) }
         // Ссылки на документы длинные, а входные Data ограничены 10 КБ, поэтому
-        // большой выбор разбивается на несколько работ с общим тегом.
+        // большой выбор разбивается на несколько работ. Общее имя выстраивает их в
+        // очередь: параллельные пачки спорили бы за одно уведомление о прогрессе,
+        // а счётчик в нём прыгал бы туда-сюда.
         sourceUris.chunked(TrackFileWork.MAX_URIS_PER_REQUEST).forEachIndexed { index, chunk ->
             enqueue<ImportTracksWorker>(
                 tag = TrackFileWork.TAG_IMPORT,
-                uniqueName = "$UNIQUE_IMPORT-${System.currentTimeMillis()}-$index",
+                uniqueName = UNIQUE_IMPORT,
+                policy = ExistingWorkPolicy.APPEND_OR_REPLACE,
                 data = Data.Builder()
                     .putStringArray(TrackFileWork.KEY_SOURCE_URIS, chunk.toTypedArray())
+                    .putInt(
+                        TrackFileWork.KEY_PROGRESS_OFFSET,
+                        index * TrackFileWork.MAX_URIS_PER_REQUEST,
+                    )
+                    .putInt(TrackFileWork.KEY_PROGRESS_TOTAL, sourceUris.size)
                     .build(),
             )
         }
@@ -129,6 +137,7 @@ internal class DefaultTrackFileRepository(
         tag: String,
         uniqueName: String,
         data: Data,
+        policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE,
     ) {
         val request = OneTimeWorkRequestBuilder<W>()
             .setInputData(data)
@@ -137,7 +146,7 @@ internal class DefaultTrackFileRepository(
         ownedRequests += request.id
         // Уникальность по имени защищает от дубля при повторном тапе, но не мешает
         // экспортировать две разные активности одновременно.
-        workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.REPLACE, request)
+        workManager.enqueueUniqueWork(uniqueName, policy, request)
     }
 
     private fun observe(tag: String): Flow<TrackFileOperation> =

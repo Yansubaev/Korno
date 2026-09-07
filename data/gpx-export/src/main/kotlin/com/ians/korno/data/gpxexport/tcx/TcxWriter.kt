@@ -2,11 +2,11 @@ package com.ians.korno.data.gpxexport.tcx
 
 import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
+import com.ians.korno.data.gpxexport.format.KORNO_NAMESPACE
 import com.ians.korno.data.gpxexport.format.formatDecimal
 import com.ians.korno.data.gpxexport.gpx.ACCURACY_DECIMALS
 import com.ians.korno.data.gpxexport.gpx.ALTITUDE_DECIMALS
 import com.ians.korno.data.gpxexport.gpx.COORDINATE_DECIMALS
-import com.ians.korno.data.gpxexport.gpx.KORNO_NAMESPACE
 import com.ians.korno.data.gpxexport.gpx.SPEED_DECIMALS
 import com.ians.korno.data.gpxexport.model.TrackDocument
 import com.ians.korno.data.gpxexport.model.TrackDocumentPoint

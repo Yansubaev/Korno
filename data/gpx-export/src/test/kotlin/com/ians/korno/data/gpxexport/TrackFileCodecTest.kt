@@ -189,6 +189,41 @@ class TrackFileCodecTest {
         assertThat(parsed.points.first().timestampEpochMillis).isNotNull()
     }
 
+    @ParameterizedTest
+    @EnumSource(TrackFileFormat::class)
+    fun `own file is recognised as a korno export`(format: TrackFileFormat) {
+        val parsed = codec.parse(codec.write(sampleDocument(), format)).requireSuccess()
+
+        assertThat(parsed.isKornoExport).isTrue()
+    }
+
+    @Test
+    fun `foreign gpx is not mistaken for a korno export`() {
+        val gpx = """
+            <gpx version="1.1" creator="StravaGPX" xmlns="http://www.topografix.com/GPX/1/1">
+              <trk><trkseg><trkpt lat="55.75" lon="37.61"/></trkseg></trk>
+            </gpx>
+        """.trimIndent()
+
+        assertThat(codec.parse(gpx).requireSuccess().isKornoExport).isFalse()
+    }
+
+    @Test
+    fun `foreign tcx is not mistaken for a korno export`() {
+        val tcx = """
+            <TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+              <Activities><Activity Sport="Running"><Lap><Track>
+                <Trackpoint><Position>
+                  <LatitudeDegrees>55.75</LatitudeDegrees>
+                  <LongitudeDegrees>37.61</LongitudeDegrees>
+                </Position></Trackpoint>
+              </Track></Lap></Activity></Activities>
+            </TrainingCenterDatabase>
+        """.trimIndent()
+
+        assertThat(codec.parse(tcx).requireSuccess().isKornoExport).isFalse()
+    }
+
     @Test
     fun `gpx route points are used when the file has no track`() {
         val gpx = """

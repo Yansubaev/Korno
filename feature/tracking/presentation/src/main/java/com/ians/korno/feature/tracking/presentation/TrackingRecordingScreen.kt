@@ -495,7 +495,7 @@ private fun StatTile(
 }
 
 @Composable
-private fun RecordingControls(
+internal fun RecordingControls(
     state: TrackingRecordingState,
     onAction: (TrackingRecordingAction) -> Unit,
     modifier: Modifier = Modifier,

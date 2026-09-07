@@ -129,7 +129,7 @@ internal fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsContent(
+internal fun SettingsContent(
     state: SettingsState,
     onAction: (SettingsAction) -> Unit,
     onExportAllClick: () -> Unit,

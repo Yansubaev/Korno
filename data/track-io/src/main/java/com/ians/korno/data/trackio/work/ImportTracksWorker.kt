@@ -12,6 +12,7 @@ import com.ians.korno.core.logging.AppLogger
 import com.ians.korno.core.logging.LogCategory
 import com.ians.korno.core.logging.warn
 import com.ians.korno.core.trackprocessing.TrackProcessor
+import com.ians.korno.core.trackprocessing.TrackSource
 import com.ians.korno.core.trackprocessing.TrackStatistics
 import com.ians.korno.data.gpxexport.TrackFileCodec
 import com.ians.korno.data.gpxexport.mapper.toGeoPoints
@@ -35,6 +36,7 @@ internal class ImportTracksWorker(
     private val documentStore: DocumentStore by inject()
     private val codec: TrackFileCodec by inject()
     private val trackProcessor: TrackProcessor by inject()
+    private val notifier: TrackFileNotifier by inject()
     private val logger: AppLogger by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -45,11 +47,18 @@ internal class ImportTracksWorker(
             )
         }
 
+        // Выбор из десятков файлов режется на пачки, а прогресс пользователю нужен
+        // общий, поэтому счётчик приходит вместе с работой, а не берётся из её порции.
+        val progressOffset = inputData.getInt(TrackFileWork.KEY_PROGRESS_OFFSET, 0)
+        val progressTotal = inputData.getInt(TrackFileWork.KEY_PROGRESS_TOTAL, sourceUris.size)
+
         var successCount = 0
         var failureCount = 0
         var lastError: TrackFileError? = null
 
-        sourceUris.forEach { uri ->
+        reportProgress(notifier, TrackFileNotification.IMPORT, progressOffset, progressTotal, logger)
+
+        sourceUris.forEachIndexed { index, uri ->
             when (val result = importDocument(uri)) {
                 is DomainResult.Success -> successCount++
                 is DomainResult.Error -> {
@@ -62,6 +71,13 @@ internal class ImportTracksWorker(
                     ) { "Track import failed" }
                 }
             }
+            reportProgress(
+                notifier = notifier,
+                operation = TrackFileNotification.IMPORT,
+                completed = progressOffset + index + 1,
+                total = progressTotal,
+                logger = logger,
+            )
         }
 
         if (successCount == 0) {
@@ -93,7 +109,12 @@ internal class ImportTracksWorker(
         )
         // Файл может прийти откуда угодно, поэтому статистика считается своим pipeline,
         // а не берётся из документа: только так цифры сходятся с собственными записями.
-        val processed = trackProcessor.process(points, document.activityType)
+        // Геометрию при этом трогаем не всегда — свой же экспорт её уже прошёл.
+        val processed = trackProcessor.process(
+            points = points,
+            activityType = document.activityType,
+            source = if (document.isKornoExport) TrackSource.KORNO_EXPORT else TrackSource.RAW,
+        )
         if (processed.points.isEmpty()) return DomainResult.Error(TrackFileError.NO_TRACK_POINTS)
 
         val activity = document.toActivity(processed.points, processed.statistics, fileName)
