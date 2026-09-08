@@ -16,7 +16,6 @@ import com.ians.korno.core.logging.NoOpActivityLogScope
 import com.ians.korno.core.logging.NoOpAppLogger
 import com.ians.korno.core.logging.debug
 import com.ians.korno.core.logging.info
-import com.ians.korno.core.logging.verbose
 import com.ians.korno.core.logging.warn
 import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
@@ -297,15 +296,25 @@ internal class TrackingSessionCoordinator(
         // Координаты — отдельной записью и только с явного согласия. Всё остальное о точке
         // безопасно и нужно всегда: по одному лишь числу точек нельзя понять, почему трек
         // рвётся, а по точности, шагу и скорости — можно.
+        //
+        // Обе записи несут `sampleTimestamp` — время самого фикса, а не время попадания
+        // в лог. Оно же служит ключом, по которому калибровка сшивает координаты с
+        // остальными полями сэмпла, и оно же задаёт ось времени всему конвейеру.
         logger.debug(
             category = LogCategory.GPS,
             tag = TAG,
             fields = sampleFields(sample) + mapOf("status" to current.status.name),
         ) { "Location sample received" }
-        logger.verbose(
+        // Уровень здесь именно DEBUG, а не VERBOSE. Запись и так закрыта отдельным
+        // согласием (`containsSensitiveLocation`), и требовать сверх него ещё и самый
+        // подробный уровень значило бы молча выбрасывать координаты у всех, кто согласие
+        // дал, но уровень не тронул, — а по умолчанию он как раз DEBUG. Именно так и
+        // получались логи, по которым нельзя восстановить трек.
+        logger.debug(
             category = LogCategory.GPS,
             tag = TAG,
             fields = mapOf(
+                "sampleTimestamp" to sample.timestampEpochMillis.toString(),
                 "latitude" to sample.latitude.toString(),
                 "longitude" to sample.longitude.toString(),
                 "altitudeMeters" to sample.altitudeMeters.toString(),
@@ -455,6 +464,9 @@ internal class TrackingSessionCoordinator(
         sample: LocationSample,
         previousPoint: GeoPoint? = sessionPoints.lastOrNull(),
     ): Map<String, String> = mapOf(
+        // Время фикса, а не время записи в лог: между ними лежит очередь логгера, и по
+        // второму нельзя ни восстановить шаг опроса, ни сшить запись с координатами.
+        "sampleTimestamp" to sample.timestampEpochMillis.toString(),
         "reportedSpeed" to sample.speedMetersPerSecond.toString(),
         "accuracyMeters" to sample.accuracyMeters.toString(),
         "sampleIntervalMillis" to previousPoint

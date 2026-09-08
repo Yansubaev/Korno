@@ -17,6 +17,16 @@ Korno track calibration — прогон записанных треков че�
 
   ./gradlew :tools:track-calibration:run --args="<файл|каталог>... [опции]"
 
+Принимаются файлы GPX и TCX, а также диагностические логи Korno: .jsonl или .zip
+из «Поделиться диагностикой». Лог предпочтительнее: в нём лежат сэмплы в том виде,
+в каком их отдал провайдер, вместе с погрешностью скорости и курсом, — тогда как GPX
+уже прошёл через фильтр, и калибровать пороги по нему значит настраивать их по
+результату их же работы.
+
+Чтобы в логе оказались координаты, в настройках диагностики нужно включить
+«Записывать GPS-сэмплы» до начала записи. Без них лог годится для разбора автопаузы,
+но трека в нём нет.
+
 Опции:
   --type=<ACTIVITY_TYPE>   тип активности вместо указанного в файле
                            (RUNNING, CYCLING, WALKING, HIKING, DRIVING, OTHER)
@@ -33,11 +43,11 @@ fun main(arguments: Array<String>) {
 
     val files = options.paths.flatMap(::trackFilesIn).sortedBy(File::getName)
     if (files.isEmpty()) {
-        println("Файлов GPX или TCX не найдено: ${options.paths.joinToString { it.path }}")
+        println("Файлов GPX, TCX или логов не найдено: ${options.paths.joinToString { it.path }}")
         exitProcess(1)
     }
 
-    val tracks = files.mapNotNull { file -> loadTrack(file, options) }
+    val tracks = files.flatMap { file -> loadTracks(file, options) }
     if (tracks.isEmpty()) exitProcess(1)
 
     printSummary(tracks)
@@ -57,7 +67,16 @@ private class LoadedTrack(
     val points: List<GeoPoint>,
     val config: TrackProcessingConfig,
     val isKornoExport: Boolean,
+    /** Вердикты, записанные приложением во время самой записи; `null` — источник не лог. */
+    val recorded: RecordedVerdicts? = null,
 )
+
+/**
+ * Что приложение решило по этим же точкам на телефоне. Расхождение с текущим прогоном
+ * и есть то, ради чего порог меняют: видно не только новое число, но и насколько оно
+ * отличается от того, что пользователь уже видел на экране.
+ */
+private class RecordedVerdicts(val outlierCount: Int, val stopCount: Int)
 
 private fun parseOptions(arguments: Array<String>): Options? {
     val paths = mutableListOf<File>()
@@ -82,9 +101,6 @@ private fun parseOptions(arguments: Array<String>): Options? {
     return Options(paths, activityType, sensitivity, noSweep)
 }
 
-private inline fun <reified E : Enum<E>> enumOrNull(value: String): E? =
-    enumValues<E>().firstOrNull { it.name.equals(value, ignoreCase = true) }
-
 private fun trackFilesIn(path: File): List<File> = when {
     path.isDirectory -> path.walkTopDown().filter { it.isFile && it.isTrackFile() }.toList()
     path.isFile -> listOf(path)
@@ -95,7 +111,63 @@ private fun trackFilesIn(path: File): List<File> = when {
 }
 
 private fun File.isTrackFile(): Boolean =
-    extension.equals("gpx", ignoreCase = true) || extension.equals("tcx", ignoreCase = true)
+    extension.equals("gpx", ignoreCase = true) ||
+        extension.equals("tcx", ignoreCase = true) ||
+        isLogFile()
+
+private fun loadTracks(file: File, options: Options): List<LoadedTrack> =
+    if (file.isLogFile()) loadLogTracks(file, options) else listOfNotNull(loadTrack(file, options))
+
+/**
+ * Один лог может содержать несколько активностей: общий архив диагностики собирает их все.
+ */
+private fun loadLogTracks(file: File, options: Options): List<LoadedTrack> {
+    val activities = runCatching { readLoggedActivities(file) }.getOrElse { error ->
+        println("${file.name}: не разобран (${error.javaClass.simpleName})")
+        return emptyList()
+    }
+    if (activities.isEmpty()) {
+        println("${file.name}: записей активностей в логе нет")
+        return emptyList()
+    }
+
+    return activities.mapNotNull { activity ->
+        val name = "${file.name}#${activity.activityId}"
+        if (activity.points.isEmpty()) {
+            println("$name: координат в логе нет ${activity.missingCoordinatesHint()}")
+            return@mapNotNull null
+        }
+        if (activity.samplesWithoutCoordinates > 0) {
+            println(
+                "$name: пропущено сэмплов без координат — ${activity.samplesWithoutCoordinates} " +
+                    activity.missingCoordinatesHint(),
+            )
+        }
+        val activityType = options.activityType ?: activity.activityType ?: ActivityType.OTHER
+        if (options.activityType == null && activity.activityType == null) {
+            println("$name: типа активности в логе нет, взят OTHER — задайте --type")
+        }
+        val sensitivity = options.sensitivity ?: activity.sensitivity
+        LoadedTrack(
+            name = name,
+            activityType = activityType,
+            points = activity.points,
+            config = TrackProcessingConfig.forActivityType(activityType)
+                .let { base -> sensitivity?.let(base::withAutoPauseSensitivity) ?: base },
+            isKornoExport = false,
+            recorded = RecordedVerdicts(activity.recordedOutliers, activity.recordedStopRuns),
+        )
+    }
+}
+
+private fun LoggedActivity.missingCoordinatesHint(): String = when {
+    !sawCoordinateRecords ->
+        "(включите «Записывать GPS-сэмплы» в настройках диагностики до начала записи)"
+    missingSampleTimestamp ->
+        "(лог записан версией без sampleTimestamp — сшить координаты с сэмплами нельзя)"
+    else ->
+        "(записи сэмпла и координат разошлись: лог обрезан или настройки менялись по ходу)"
+}
 
 private fun loadTrack(file: File, options: Options): LoadedTrack? {
     val content = file.readText()
@@ -145,6 +217,7 @@ private fun printSummary(tracks: List<LoadedTrack>) {
             ),
         )
         printSignalQuality(track)
+        printRecordedComparison(track, run)
     }
     println()
     println(
@@ -157,6 +230,26 @@ private fun printSummary(tracks: List<LoadedTrack>) {
                 "калибруются хуже, чем по чужому или по сырой записи.",
         )
     }
+}
+
+/**
+ * Чем текущий прогон разошёлся с тем, что приложение решило во время самой записи.
+ *
+ * Совпадение здесь не самоцель: логи, снятые до изменения порогов, обязаны расходиться —
+ * ради этого пороги и меняли. Ценно само число: видно, сколько точек поменяли вердикт и
+ * не превратилось ли «чуть подкрутили» в «переписали трек».
+ */
+private fun printRecordedComparison(track: LoadedTrack, run: TrackRun) {
+    val recorded = track.recorded ?: return
+    println(
+        "    на телефоне: выбросов %d, стоянок %d   сейчас: выбросов %d, стоянок %d".format(
+            Locale.US,
+            recorded.outlierCount,
+            recorded.stopCount,
+            run.outlierCount,
+            run.stopCount,
+        ),
+    )
 }
 
 private fun printSignalQuality(track: LoadedTrack) {

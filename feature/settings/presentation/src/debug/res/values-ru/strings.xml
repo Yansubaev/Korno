@@ -9,7 +9,7 @@
     <string name="settings_log_level_warn">Предупреждения</string>
     <string name="settings_log_level_error">Ошибки</string>
     <string name="settings_location_samples_title">Записывать GPS-сэмплы</string>
-    <string name="settings_location_samples_subtitle">Содержит точные координаты и включает уровень «Подробно»; используйте только на время воспроизведения проблемы</string>
+    <string name="settings_location_samples_subtitle">Содержит точные координаты; без них трек по логу не восстановить. Включайте только на время воспроизведения проблемы</string>
     <string name="settings_share_logs_title">Поделиться диагностикой</string>
     <plurals name="settings_share_logs_subtitle">
         <item quantity="one">%1$s в %2$d файле · сессия %3$s</item>

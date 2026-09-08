@@ -7,7 +7,6 @@ import kotlin.math.max
 
 data class TrackProcessingConfig(
     val maximumSpeedMetersPerSecond: Double,
-    val maximumAccelerationMetersPerSecondSquared: Double,
     /**
      * Погрешность, выше которой фикс не считается измерением.
      *
@@ -17,11 +16,11 @@ data class TrackProcessingConfig(
      */
     val maximumAccuracyMeters: Double,
     /**
-     * Насколько погрешность смягчает порог выброса. Иначе на плохом сигнале порог
-     * раздувается вместе с ней: при погрешности 40 м фильтр начинает пропускать
-     * прогулку со скоростью автомобиля.
+     * Сколько сигм заявленной погрешности прибавляется к порогу правдоподобного
+     * перемещения. Два независимых фикса расходятся в среднем на 1.25 сигмы только
+     * из-за шума, поэтому три сигмы — это уже «так шум не разойдётся».
      */
-    val outlierAccuracyAllowanceMeters: Double = 15.0,
+    val outlierAccuracySigmas: Double = 3.0,
     /**
      * Доля погрешности, ниже которой перемещение считается дрожанием, а не шагом.
      * Порог применяется к смещению от последней зачтённой точки, а не к каждому
@@ -57,9 +56,12 @@ data class TrackProcessingConfig(
      * говорит, насколько человеку позволено отклоняться от постоянной скорости. Слишком
      * малое значение делает трек упрямым — фильтр срезает повороты, потому что не верит,
      * что вы могли так резко свернуть; слишком большое возвращает доверие каждому шумному
-     * фиксу, и дрожание проходит насквозь. Это не предельное ускорение
-     * ([maximumAccelerationMetersPerSecondSquared]), а типичное: предельное осталось
-     * грубой проверкой правдоподобия.
+     * фиксу, и дрожание проходит насквозь.
+     *
+     * Это единственное ускорение в конфигурации. Прежний предел
+     * `maximumAccelerationMetersPerSecondSquared` убран вместе с проверкой, которая его
+     * читала: она сравнивала с порогом производную от разницы шумных координат — величину,
+     * которая на секундном шаге состоит из одного шума (см. [OutlierFilterUseCase]).
      */
     val processNoiseAccelerationMetersPerSecondSquared: Double,
     /**
@@ -83,8 +85,17 @@ data class TrackProcessingConfig(
      * в городе говорит о хорошей геометрии спутников, а не об отсутствии переотражений.
      */
     val positionNoiseFloorMeters: Double = 3.0,
-    /** Чем считать погрешность доплеровской скорости, когда провайдер её не сообщил. */
-    val defaultSpeedAccuracyMetersPerSecond: Double = 1.0,
+    /**
+     * Чем считать погрешность доплеровской скорости, когда провайдер её не сообщил.
+     *
+     * Намеренно большая. Приёмник, который сообщает скорость вместе с её точностью, обычно
+     * считает её по сдвигу несущей и знает с точностью до десятых. Тот, который точность не
+     * сообщает, зачастую скорость не меряет, а синтезирует, — и на слабом сигнале
+     * (и на эмуляторе) уверенно отдаёт ноль, пока приёмник движется. Двух метров в секунду
+     * хватает, чтобы такой «ноль» не перевесил координаты, но и чтобы он не пропал даром:
+     * настоящая стоянка подтверждается им же, просто медленнее.
+     */
+    val defaultSpeedAccuracyMetersPerSecond: Double = 2.0,
     /** То же для курса; сорок пять градусов — это «направление скорее известно, чем нет». */
     val defaultBearingAccuracyDegrees: Double = 45.0,
     val stopWindowMillis: Long = 15_000L,
@@ -96,9 +107,8 @@ data class TrackProcessingConfig(
 ) {
     init {
         require(maximumSpeedMetersPerSecond > 0.0)
-        require(maximumAccelerationMetersPerSecondSquared > 0.0)
         require(maximumAccuracyMeters > 0.0)
-        require(outlierAccuracyAllowanceMeters >= 0.0)
+        require(outlierAccuracySigmas >= 0.0)
         require(noiseDeadbandFactor >= 0.0)
         require(maximumSegmentDurationMillis > 0L)
         require(minimumSpeedWindowMillis in 1L..maximumSpeedWindowMillis)
@@ -124,15 +134,13 @@ data class TrackProcessingConfig(
             // не срабатывала вовсе.
             ActivityType.WALKING, ActivityType.HIKING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 5.5,
-                maximumAccelerationMetersPerSecondSquared = 4.0,
                 maximumAccuracyMeters = 40.0,
-                processNoiseAccelerationMetersPerSecondSquared = 0.4,
+                processNoiseAccelerationMetersPerSecondSquared = 0.25,
                 stopSpeedMetersPerSecond = 0.5,
                 resumeSpeedMetersPerSecond = 0.9,
             )
             ActivityType.RUNNING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 10.0,
-                maximumAccelerationMetersPerSecondSquared = 6.0,
                 maximumAccuracyMeters = 40.0,
                 processNoiseAccelerationMetersPerSecondSquared = 0.7,
                 stopSpeedMetersPerSecond = 0.45,
@@ -140,7 +148,6 @@ data class TrackProcessingConfig(
             )
             ActivityType.CYCLING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 25.0,
-                maximumAccelerationMetersPerSecondSquared = 10.0,
                 maximumAccuracyMeters = 50.0,
                 processNoiseAccelerationMetersPerSecondSquared = 0.9,
                 stopSpeedMetersPerSecond = 0.6,
@@ -150,7 +157,6 @@ data class TrackProcessingConfig(
             // погрешности на скорости 60 км/ч — это меньше секунды пути.
             ActivityType.DRIVING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 70.0,
-                maximumAccelerationMetersPerSecondSquared = 15.0,
                 maximumAccuracyMeters = 100.0,
                 processNoiseAccelerationMetersPerSecondSquared = 1.5,
                 stopSpeedMetersPerSecond = 0.8,
@@ -158,7 +164,6 @@ data class TrackProcessingConfig(
             )
             ActivityType.OTHER -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 55.0,
-                maximumAccelerationMetersPerSecondSquared = 12.0,
                 maximumAccuracyMeters = 75.0,
                 processNoiseAccelerationMetersPerSecondSquared = 1.0,
                 stopSpeedMetersPerSecond = 0.45,

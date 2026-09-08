@@ -9,7 +9,7 @@
     <string name="settings_log_level_warn">Warnings</string>
     <string name="settings_log_level_error">Errors</string>
     <string name="settings_location_samples_title">Include GPS samples</string>
-    <string name="settings_location_samples_subtitle">Contains exact coordinates and enables Verbose; use only while reproducing a problem</string>
+    <string name="settings_location_samples_subtitle">Contains exact coordinates; needed to replay a track. Use only while reproducing a problem</string>
     <string name="settings_share_logs_title">Share diagnostics</string>
     <plurals name="settings_share_logs_subtitle">
         <item quantity="one">%1$s in %2$d file · session %3$s</item>

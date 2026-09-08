@@ -85,7 +85,7 @@ class TrackProcessor(
                 // участвует ни в автопаузе, ни в расчёте остановок.
                 estimated.points.map { it.copy(isStop = false) }
             } else {
-                stopDetection(estimated.points, config)
+                stopDetection(estimated.points, config, estimated.speeds)
             }
             estimated.withSmoothedPositions(detected)
         }

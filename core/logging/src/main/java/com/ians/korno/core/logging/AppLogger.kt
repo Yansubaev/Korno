@@ -69,8 +69,16 @@ fun AppLogger.debug(
     category: LogCategory,
     tag: String,
     fields: Map<String, String> = emptyMap(),
+    containsSensitiveLocation: Boolean = false,
     message: () -> String,
-) = log(LogLevel.DEBUG, category, tag, fields = fields, message = message)
+) = log(
+    level = LogLevel.DEBUG,
+    category = category,
+    tag = tag,
+    fields = fields,
+    containsSensitiveLocation = containsSensitiveLocation,
+    message = message,
+)
 
 fun AppLogger.info(
     category: LogCategory,

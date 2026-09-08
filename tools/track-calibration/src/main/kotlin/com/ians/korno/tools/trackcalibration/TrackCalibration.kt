@@ -106,6 +106,12 @@ val SWEEPS: List<Sweep> = listOf(
         apply = { config, value -> config.copy(maximumAccuracyMeters = value) },
     ),
     Sweep(
+        name = "outlierAccuracySigmas",
+        currentValue = { it.outlierAccuracySigmas },
+        values = { listOf(1.0, 2.0, 3.0, 4.0, 6.0) },
+        apply = { config, value -> config.copy(outlierAccuracySigmas = value) },
+    ),
+    Sweep(
         name = "processNoiseAcceleration",
         currentValue = { it.processNoiseAccelerationMetersPerSecondSquared },
         // Главный и, по сути, единственный параметр фильтра: чем он меньше, тем упрямее

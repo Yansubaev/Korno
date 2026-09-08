@@ -3,6 +3,7 @@ package com.ians.korno.core.trackprocessing
 import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isGreaterThan
+import assertk.assertions.isLessThan
 import assertk.assertions.isTrue
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
@@ -49,11 +50,15 @@ class IncrementalTrackProcessorTest {
             config = config,
         )
 
-        // Живое число отстаёт ровно на нестабильный хвост и никогда не забегает вперёд:
-        // показать больше, чем пройдено, хуже, чем показать меньше.
-        assertThat(live.statistics.distanceMeters <= full.statistics.distanceMeters).isTrue()
+        // Раньше живое число не могло забежать вперёд итогового. Теперь может — и это не
+        // упущение, а следствие обратного прохода: он доступен только готовому треку и
+        // убирает остаток дрожания, а дрожание всегда прибавляет к длине. Итог поэтому
+        // чуть короче живого. Требование осталось прежним по сути — числа обязаны
+        // сходиться, — но допуск теперь двусторонний.
         assertThat(live.statistics.distanceMeters)
             .isGreaterThan(full.statistics.distanceMeters * (1.0 - TAIL_LAG_SHARE))
+        assertThat(live.statistics.distanceMeters)
+            .isLessThan(full.statistics.distanceMeters * (1.0 + BACKWARD_PASS_SHARE))
         assertThat(live.statistics.movingTimeMillis <= full.statistics.movingTimeMillis).isTrue()
         assertThat(live.statistics.gapCount).isEqualTo(full.statistics.gapCount)
     }
@@ -101,9 +106,10 @@ class IncrementalTrackProcessorTest {
             activityType = ActivityType.WALKING,
             config = config,
         )
-        assertThat(update.statistics.distanceMeters <= full.statistics.distanceMeters).isTrue()
         assertThat(update.statistics.distanceMeters)
             .isGreaterThan(full.statistics.distanceMeters * (1.0 - TAIL_LAG_SHARE))
+        assertThat(update.statistics.distanceMeters)
+            .isLessThan(full.statistics.distanceMeters * (1.0 + BACKWARD_PASS_SHARE))
     }
 
     @Test
@@ -186,5 +192,11 @@ class IncrementalTrackProcessorTest {
     private companion object {
         /** Доля дистанции, на которую живое число вправе отставать от полного прохода. */
         const val TAIL_LAG_SHARE = 0.1
+
+        /**
+         * И на которую вправе его превысить: обратный проход доступен только итоговому
+         * треку и снимает остаток дрожания, а дрожание всегда прибавляет к длине.
+         */
+        const val BACKWARD_PASS_SHARE = 0.1
     }
 }

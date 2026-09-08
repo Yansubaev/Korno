@@ -43,6 +43,7 @@ class KalmanTrackFilterUseCase {
         backwardPass: Boolean = false,
     ): FilteredTrack {
         val estimated = points.toMutableList()
+        val speeds = arrayOfNulls<EstimatedSpeed>(points.size)
         val runs = mutableListOf<MutableList<SmootherStep>>()
         var filter: TrackKalmanFilter? = null
         var rejectionStreak = 0
@@ -65,6 +66,7 @@ class KalmanTrackFilterUseCase {
                 val started = TrackKalmanFilter(point, config)
                 filter = started
                 runs += mutableListOf(SmootherStep(index, started.snapshot()))
+                speeds[index] = started.estimatedSpeed()
                 rejectionStreak = 0
                 return@forEachIndexed
             }
@@ -87,6 +89,7 @@ class KalmanTrackFilterUseCase {
 
             rejectionStreak = 0
             runs.last() += SmootherStep(index, step)
+            speeds[index] = current.estimatedSpeed()
             // Точку, поправленную вручную, пользователь поставил сам — её координаты
             // остаются на месте, хотя состояние фильтра она обновляет как очень точное
             // измерение.
@@ -96,7 +99,7 @@ class KalmanTrackFilterUseCase {
         }
 
         val smoothed = if (backwardPass) smoothBackwards(points.size, runs) else null
-        return FilteredTrack(estimated, smoothed)
+        return FilteredTrack(estimated, speeds.toList(), smoothed)
     }
 
     /**
@@ -152,6 +155,19 @@ class KalmanTrackFilterUseCase {
 internal data class Position(val latitude: Double, val longitude: Double)
 
 /**
+ * Оценка скорости в точке: модуль и то, насколько фильтр в нём уверен.
+ *
+ * Неопределённость здесь не украшение. Она и отвечает на вопрос, который детектор
+ * остановок раньше решал длиной окна: достаточно ли уже наблюдений, чтобы отличить покой
+ * от дрожания. На хорошем сигнале с доплером она падает за несколько секунд, на плохом
+ * остаётся большой — и вердикт честно откладывается.
+ */
+data class EstimatedSpeed(
+    val metersPerSecond: Double,
+    val uncertaintyMetersPerSecond: Double,
+)
+
+/**
  * Результат прямого прохода.
  *
  * Координаты обратного прохода держатся отдельно, а не накладываются сразу, потому что
@@ -162,6 +178,11 @@ internal data class Position(val latitude: Double, val longitude: Double)
 class FilteredTrack internal constructor(
     /** Точки с координатами прямого прохода и вердиктами гейта. */
     val points: List<GeoPoint>,
+    /**
+     * Оценка скорости для каждой точки; `null` — точка не участвовала в фильтре.
+     * Индексы совпадают с [points].
+     */
+    val speeds: List<EstimatedSpeed?>,
     private val smoothedPositions: List<Position?>?,
 ) {
     /**

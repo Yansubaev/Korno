@@ -3,8 +3,10 @@ package com.ians.korno.core.trackprocessing
 import com.ians.korno.core.domain.model.GeoPoint
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Погрешность, приписываемая фиксу, о точности которого провайдер ничего не сказал.
@@ -27,6 +29,25 @@ private const val METERS_PER_DEGREE_LATITUDE = 6_371_000.0 * Math.PI / 180.0
  * маловероятен, но деление на ноль превратило бы координаты в NaN на весь остаток участка.
  */
 private const val MINIMUM_LONGITUDE_SCALE = 1e-6
+
+/**
+ * Скорость, ниже которой у вектора скорости нет осмысленного направления: делить на неё
+ * значило бы получить случайный единичный вектор.
+ */
+private const val DEGENERATE_SPEED_METERS_PER_SECOND = 1e-6
+
+/**
+ * Ниже этой скорости у предсказания нет направления, которое стоило бы одалживать
+ * измерению: единичный вектор от почти нулевой скорости — это случайное направление.
+ */
+private const val DIRECTIONLESS_SPEED_METERS_PER_SECOND = 0.3
+
+/**
+ * Насколько неизвестен курс, одолженный у предсказания. Радиан — это около 57°, то есть
+ * «направление скорее угадано, чем известно»: модуль скорости остаётся измерением,
+ * а поперечная составляющая почти ни на что не влияет.
+ */
+private const val DIRECTION_FROM_PREDICTION_SIGMA_RADIANS = 1.0
 
 /** Индексы состояния: смещение на восток и на север, затем скорости по тем же осям. */
 private const val EAST = 0
@@ -91,7 +112,9 @@ internal class TrackKalmanFilter(origin: GeoPoint, config: TrackProcessingConfig
 
     init {
         val accuracy = origin.measurementAccuracyMeters(config)
-        val velocity = origin.velocityMeasurement(config)
+        // Направления у первой точки взяться неоткуда, поэтому доплер без курса даёт здесь
+        // только «стоит или нет»; вектор появится со второй точки.
+        val velocity = origin.velocityMeasurement(config, DoubleArray(STATE_SIZE))
         // Скорость первой точки берётся из доплера, если он есть. Иначе она неизвестна, и
         // сказать об этом нужно честно — широкой начальной неопределённостью, а не нулём:
         // ноль означал бы «стоит на месте», и первые секунды фильтр сопротивлялся бы
@@ -107,6 +130,40 @@ internal class TrackKalmanFilter(origin: GeoPoint, config: TrackProcessingConfig
             ?: (config.maximumSpeedMetersPerSecond * config.maximumSpeedMetersPerSecond)
         covariance[index(VELOCITY_OFFSET, VELOCITY_OFFSET)] = velocityVariance
         covariance[index(VELOCITY_OFFSET + 1, VELOCITY_OFFSET + 1)] = velocityVariance
+    }
+
+    /**
+     * Оценка скорости вместе с её собственной неопределённостью.
+     *
+     * Это то, ради чего детектору остановок вообще нужен фильтр. Раньше он выбирал большее
+     * из двух: медианы доплеровской скорости по окну и скорости по смещению за окно. Первая
+     * есть не всегда и изредка выдаёт одиночные выбросы в 3–4 м/с на стоящем месте, вторая
+     * при погрешности 20 м и шаге 5 с состоит из шума на две трети. Фильтр объединяет оба
+     * источника с весами по их погрешностям — то есть делает ровно то, что делалось руками,
+     * но правильно, — и вдобавок говорит, насколько сам себе верит.
+     */
+    fun estimatedSpeed(): EstimatedSpeed {
+        val east = state[VELOCITY_OFFSET]
+        val north = state[VELOCITY_OFFSET + 1]
+        val speed = hypot(east, north)
+        val eastVariance = covariance[index(VELOCITY_OFFSET, VELOCITY_OFFSET)]
+        val northVariance = covariance[index(VELOCITY_OFFSET + 1, VELOCITY_OFFSET + 1)]
+        val crossVariance = covariance[index(VELOCITY_OFFSET, VELOCITY_OFFSET + 1)]
+        // Неопределённость модуля — это неопределённость вдоль самого вектора скорости.
+        // На месте вектор вырождается, направления нет, и остаётся средняя по осям.
+        val variance = if (speed > DEGENERATE_SPEED_METERS_PER_SECOND) {
+            val unitEast = east / speed
+            val unitNorth = north / speed
+            unitEast * unitEast * eastVariance +
+                2.0 * unitEast * unitNorth * crossVariance +
+                unitNorth * unitNorth * northVariance
+        } else {
+            (eastVariance + northVariance) / 2.0
+        }
+        return EstimatedSpeed(
+            metersPerSecond = speed,
+            uncertaintyMetersPerSecond = sqrt(variance.coerceAtLeast(0.0)),
+        )
     }
 
     fun position(): Position = Position(
@@ -164,7 +221,7 @@ internal class TrackKalmanFilter(origin: GeoPoint, config: TrackProcessingConfig
             currentCovariance = positionCorrection.covariance
         }
 
-        val velocity = point.velocityMeasurement(config)
+        val velocity = point.velocityMeasurement(config, currentState)
         if (velocity != null) {
             val velocityCorrection = correction(
                 state = currentState,
@@ -345,32 +402,60 @@ private fun GeoPoint.measurementAccuracyMeters(config: TrackProcessingConfig): D
 /** Измерение скорости: вектор в осях восток—север и его ковариация. */
 private class VelocityMeasurement(val value: DoubleArray, val covariance: DoubleArray)
 
-private fun GeoPoint.velocityMeasurement(config: TrackProcessingConfig): VelocityMeasurement? {
+private fun GeoPoint.velocityMeasurement(
+    config: TrackProcessingConfig,
+    predicted: DoubleArray,
+): VelocityMeasurement? {
     val speed = speedMetersPerSecond
         ?.toDouble()
         ?.takeIf { it.isFinite() && it >= 0.0 }
         ?: return null
-    val speedSigma = speedAccuracyMetersPerSecond
+    val reportedSpeedSigma = speedAccuracyMetersPerSecond
         ?.toDouble()
         ?.takeIf { it.isFinite() && it > 0.0 }
-        ?: config.defaultSpeedAccuracyMetersPerSecond
+    val speedSigma = reportedSpeedSigma ?: config.defaultSpeedAccuracyMetersPerSecond
 
-    val bearing = bearingDegrees?.toDouble()?.takeIf { it.isFinite() }
-    if (bearing == null) {
-        // Без курса известен только модуль скорости, и это ещё что-то значит, пока модуль
-        // мал: если приёмник говорит «ноль», то обе составляющие вектора близки к нулю,
-        // куда бы вы ни смотрели. Ровно этот случай и гасит дрожание на месте, а раньше
-        // пропадал впустую. При заметной скорости без направления сказать нечего.
-        val bound = speed + speedSigma
-        if (bound > config.resumeSpeedMetersPerSecond) return null
-        return VelocityMeasurement(doubleArrayOf(0.0, 0.0), isotropicNoise(bound))
+    val reportedBearing = bearingDegrees?.toDouble()?.takeIf { it.isFinite() }
+    // Курс есть не у всех приёмников, а модуль скорости — самое точное, что они сообщают,
+    // и терять его нельзя. Когда направления нет, оно берётся из предсказания фильтра:
+    // модуль при этом остаётся измерением, а вот поперечная составляющая объявляется
+    // почти неизвестной, чтобы предсказанное направление не выдавалось за измеренное.
+    val predictedEast = predicted[VELOCITY_OFFSET]
+    val predictedNorth = predicted[VELOCITY_OFFSET + 1]
+    val predictedSpeed = hypot(predictedEast, predictedNorth)
+
+    if (reportedBearing == null && predictedSpeed <= DIRECTIONLESS_SPEED_METERS_PER_SECOND) {
+        // Направления нет ни у измерения, ни у предсказания. Утверждать про вектор можно
+        // только одно и только пока сам модуль мал: если приёмник говорит «ноль», то обе
+        // составляющие близки к нулю, куда бы вы ни смотрели. Ровно этот случай и гасит
+        // дрожание на месте.
+        //
+        // Условие проверяется по измеренному модулю, а не по модулю с запасом на
+        // погрешность. Иначе приёмник, который не сообщает точность скорости, лишался бы
+        // этого измерения совсем: неизвестная точность подставляется большой, и запас
+        // сразу перекрывал бы порог. Насколько верить нулю, решает не это условие,
+        // а вес — им и служит погрешность.
+        if (speed > config.stopSpeedMetersPerSecond) return null
+        // Ноль без заявленной точности — это не измерение покоя, а его отсутствие.
+        // `Location.hasSpeed()` возвращает true и у провайдеров, которые скорость не меряют
+        // вовсе: поле просто остаётся нулевым. Отличить «намерил ноль» от «не мерил» можно
+        // единственным способом — по тому, сообщил ли провайдер погрешность скорости.
+        // Раньше такой ноль принимался за доказательство, и на слабом сигнале автопауза
+        // включалась посреди ходьбы.
+        if (reportedSpeedSigma == null) return null
+        return VelocityMeasurement(doubleArrayOf(0.0, 0.0), isotropicNoise(speed + speedSigma))
     }
 
-    val heading = Math.toRadians(bearing)
-    val bearingSigma = Math.toRadians(
-        bearingAccuracyDegrees?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
-            ?: config.defaultBearingAccuracyDegrees,
-    )
+    val heading = reportedBearing?.let(Math::toRadians)
+        ?: kotlin.math.atan2(predictedEast, predictedNorth)
+    val bearingSigma = if (reportedBearing == null) {
+        DIRECTION_FROM_PREDICTION_SIGMA_RADIANS
+    } else {
+        Math.toRadians(
+            bearingAccuracyDegrees?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
+                ?: config.defaultBearingAccuracyDegrees,
+        )
+    }
     // Вдоль курса погрешность задаёт доплер, поперёк — неуверенность в самом курсе, и
     // тем сильнее, чем быстрее движение. Ниже доплеровской она опуститься не может:
     // на малой скорости курс вырождается, и утверждать, что поперечная составляющая
