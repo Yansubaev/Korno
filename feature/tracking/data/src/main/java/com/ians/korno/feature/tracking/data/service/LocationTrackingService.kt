@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val NOTIFICATION_ID = 4200
 private const val NOTIFICATION_CHANNEL_ID = "tracking_channel"
@@ -119,7 +120,7 @@ internal class LocationTrackingService : Service() {
         startLocationUpdates()
         preparationTimeoutJob?.cancel()
         preparationTimeoutJob = serviceScope.launch {
-            delay(PREPARATION_TIMEOUT_MILLIS)
+            delay(PREPARATION_TIMEOUT_MILLIS.milliseconds)
             cancelPreparation()
         }
     }
@@ -193,7 +194,7 @@ internal class LocationTrackingService : Service() {
             if (status == RecordingStatus.AUTO_PAUSE) {
                 flow {
                     emit(status to false)
-                    delay(LocationUpdatePolicy.AUTO_PAUSE_SETTLE_MILLIS)
+                    delay(LocationUpdatePolicy.AUTO_PAUSE_SETTLE_MILLIS.milliseconds)
                     emit(status to true)
                 }
             } else {
