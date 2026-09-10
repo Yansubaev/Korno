@@ -1,7 +1,9 @@
 package com.ians.korno.feature.home.presentation
 
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -39,12 +41,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.StartRecordingTransition
+import com.ians.korno.core.designsystem.animation.startRecordingSharedBounds
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
 internal fun HomeScreen(
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onStartSetup: (ActivityType) -> Unit,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (Long) -> Unit,
@@ -62,6 +67,7 @@ internal fun HomeScreen(
         onOpenActivity = onOpenActivity,
         onOpenSettings = onOpenSettings,
         modifier = modifier,
+        animatedVisibilityScope = animatedVisibilityScope,
     )
 }
 
@@ -90,6 +96,7 @@ private fun HomeContent(
     onOpenActivity: (Long) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -164,11 +171,31 @@ private fun HomeContent(
                         }
                     }
                 }
-                Button(
-                    onClick = onStartSetup,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                // Box под кнопкой раскрывается в экран настройки; сама кнопка летит отдельно
+                // и становится кнопкой «Старт». Без своего фона: цветная подложка во время
+                // перехода выглядела второй кнопкой рядом с настоящей.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .startRecordingSharedBounds(
+                            key = StartRecordingTransition.CONTAINER_KEY,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            clipShape = RoundedCornerShape(28.dp),
+                        ),
                 ) {
-                    Text(stringResource(R.string.home_start_recording_button))
+                    Button(
+                        onClick = onStartSetup,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .startRecordingSharedBounds(
+                                key = StartRecordingTransition.BUTTON_KEY,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                clipShape = CircleShape,
+                            ),
+                    ) {
+                        Text(stringResource(R.string.home_start_recording_button))
+                    }
                 }
             }
 

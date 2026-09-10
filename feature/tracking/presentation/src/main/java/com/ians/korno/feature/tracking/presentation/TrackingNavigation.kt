@@ -1,10 +1,12 @@
 package com.ians.korno.feature.tracking.presentation
 
+import androidx.compose.animation.ExitTransition
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
+import com.ians.korno.core.designsystem.animation.DISINTEGRATING_ENTRY_KEY
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.feature.tracking.domain.navigation.TrackingDeepLinks
 import kotlinx.serialization.Serializable
@@ -26,6 +28,7 @@ fun NavGraphBuilder.trackingGraph(
     composable<TrackingSetupRoute> { backStackEntry ->
         val route: TrackingSetupRoute = backStackEntry.toRoute()
         TrackingSetupScreen(
+            animatedVisibilityScope = this,
             initialActivityType = route.initialActivityType,
             onStartRecording = {
                 // Настройка отработала — возвращаться к ней уже некуда, а экран записи
@@ -51,12 +54,20 @@ fun NavGraphBuilder.trackingGraph(
             },
         )
     }
-    composable<TrackingSummaryRoute> { backStackEntry ->
+    composable<TrackingSummaryRoute>(
+        // Уход экран анимирует сам (disintegrateOnExit), чужой fade его бы перекрыл.
+        exitTransition = { ExitTransition.None },
+        popExitTransition = { ExitTransition.None },
+    ) { backStackEntry ->
         val route: TrackingSummaryRoute = backStackEntry.toRoute()
         TrackingSummaryScreen(
+            animatedVisibilityScope = this,
             activityId = route.activityId,
             onSaved = onFinished,
-            onDiscarded = onDiscarded,
+            onDiscarded = {
+                backStackEntry.savedStateHandle[DISINTEGRATING_ENTRY_KEY] = true
+                onDiscarded()
+            },
         )
     }
 }

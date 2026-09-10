@@ -1,5 +1,6 @@
 package com.ians.korno.feature.tracking.presentation
 
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.disintegrateOnExit
+import com.ians.korno.core.designsystem.animation.rememberDisintegrationState
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.map.TrackMap
@@ -42,6 +45,7 @@ import org.koin.core.parameter.parametersOf
 
 @Composable
 internal fun TrackingSummaryScreen(
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onSaved: (activityId: Long) -> Unit,
     onDiscarded: () -> Unit,
     activityId: Long,
@@ -57,10 +61,18 @@ internal fun TrackingSummaryScreen(
         if (state.discarded) onDiscarded()
     }
 
+    val disintegration = rememberDisintegrationState()
+
     TrackingSummaryContent(
         state = state,
-        onAction = viewModel::onAction,
-        modifier = modifier,
+        onAction = { action ->
+            if (action == TrackingSummaryAction.DiscardClicked) {
+                disintegration.start { viewModel.onAction(action) }
+            } else {
+                viewModel.onAction(action)
+            }
+        },
+        modifier = modifier.disintegrateOnExit(disintegration, animatedVisibilityScope),
     )
 }
 
