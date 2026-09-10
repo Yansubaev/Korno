@@ -3,6 +3,7 @@ package com.ians.korno.feature.activitydetail.presentation
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.disintegrateOnExit
+import com.ians.korno.core.designsystem.animation.rememberDisintegrationState
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.TrackFileFormat
@@ -61,8 +64,10 @@ import org.koin.core.parameter.parametersOf
 
 @Composable
 internal fun ActivityDetailScreen(
+    animatedVisibilityScope: AnimatedVisibilityScope,
     activityId: Long,
     onBack: () -> Unit,
+    onDeleted: () -> Unit,
     onEditTrack: (Long) -> Unit,
     onOpenMap: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -72,8 +77,9 @@ internal fun ActivityDetailScreen(
     val context = LocalContext.current
 
     LaunchedEffect(state.deleted) {
-        if (state.deleted) onBack()
+        if (state.deleted) onDeleted()
     }
+    val disintegration = rememberDisintegrationState()
 
     // Формат документа фиксируется при создании контракта, поэтому на каждый формат
     // свой launcher: подменить mime type в момент запуска система не даёт.
@@ -109,11 +115,17 @@ internal fun ActivityDetailScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = modifier,
+        modifier = modifier.disintegrateOnExit(disintegration, animatedVisibilityScope),
     ) { padding ->
         ActivityDetailContent(
             state = state,
-            onAction = viewModel::onAction,
+            onAction = { action ->
+                if (action == ActivityDetailAction.ConfirmDelete) {
+                    disintegration.start { viewModel.onAction(action) }
+                } else {
+                    viewModel.onAction(action)
+                }
+            },
             onBack = onBack,
             onEditTrack = { onEditTrack(activityId) },
             onOpenMap = { onOpenMap(activityId) },
