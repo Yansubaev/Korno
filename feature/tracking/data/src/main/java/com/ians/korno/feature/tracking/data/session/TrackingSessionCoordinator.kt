@@ -18,6 +18,7 @@ import com.ians.korno.core.logging.debug
 import com.ians.korno.core.logging.info
 import com.ians.korno.core.logging.warn
 import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
+import com.ians.korno.core.trackprocessing.LiveTrackUpdate
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
 import com.ians.korno.core.trackprocessing.TrackStatistics
@@ -110,6 +111,16 @@ internal class TrackingSessionCoordinator(
     private var autoPauseSensitivity = AutoPauseSensitivity.MEDIUM
     private var lastReliableFixAtMillis: Long? = null
     private var waitingForFixSinceMillis: Long? = null
+
+    /**
+     * Время последнего принятого фикса — ключ, по которому отсеиваются повторы.
+     *
+     * Провайдер регулярно отдаёт один и тот же фикс дважды: в разобранных логах так
+     * пришли 4 сэмпла из 720, 12 из 341 и 8 из 99. До конвейера они доходили целиком и
+     * там же браковались как выбросы по времени — на трек это не влияло, но счётчик
+     * выбросов раздувало втрое, и разбирать по нему записи становилось нечем.
+     */
+    private var lastAcceptedSampleTimestampMillis: Long? = null
 
     /**
      * Создаёт активность и открывает сессию. Если сигнала ещё нет — сессия начинается
@@ -249,6 +260,14 @@ internal class TrackingSessionCoordinator(
         // сигнале: по кэшированной координате нельзя ни начать запись, ни считать, что
         // приёмник прогрелся.
         val rejection = sample.usabilityRejection()
+        if (rejection == null && sample.timestampEpochMillis == lastAcceptedSampleTimestampMillis) {
+            logger.debug(
+                category = LogCategory.GPS,
+                tag = TAG,
+                fields = sampleFields(sample) + mapOf("rejectedBecause" to "DUPLICATE"),
+            ) { "Location sample rejected before processing" }
+            return
+        }
         if (rejection != null) {
             logger.debug(
                 category = LogCategory.GPS,
@@ -260,6 +279,7 @@ internal class TrackingSessionCoordinator(
 
         // Сэмплы приходят и до старта — на прогреве GPS с экрана настройки.
         // Записывать их некуда, но по ним видно, что приёмник уже поймал сигнал.
+        lastAcceptedSampleTimestampMillis = sample.timestampEpochMillis
         val isReliableFix = sample.isReliableFixAt(now)
         if (isReliableFix) lastReliableFixAtMillis = now
 
@@ -386,7 +406,7 @@ internal class TrackingSessionCoordinator(
             logger.info(
                 category = LogCategory.TRACKING,
                 tag = TAG,
-                fields = autoPauseDecisionFields(sample, statistics) + mapOf(
+                fields = autoPauseDecisionFields(sample, statistics, update) + mapOf(
                     "from" to current.status.name,
                     "to" to nextStatus.name,
                 ),
@@ -395,7 +415,7 @@ internal class TrackingSessionCoordinator(
             logger.debug(
                 category = LogCategory.TRACKING,
                 tag = TAG,
-                fields = autoPauseDecisionFields(sample, statistics),
+                fields = autoPauseDecisionFields(sample, statistics, update),
             ) { "Auto pause held" }
         }
 
@@ -424,15 +444,45 @@ internal class TrackingSessionCoordinator(
     private fun autoPauseDecisionFields(
         sample: LocationSample,
         statistics: TrackStatistics,
+        update: LiveTrackUpdate,
     ): Map<String, String> = sampleFields(
         sample = sample,
         previousPoint = sessionPoints.getOrNull(sessionPoints.lastIndex - 1),
     ) + mapOf(
         "currentSpeed" to statistics.currentSpeedMetersPerSecond.toString(),
+        // Оценка фильтра — не то же самое, что `currentSpeed`: та на стоянке обнуляется
+        // и показывает уже принятое решение. Без этих двух полей по логу нельзя понять,
+        // почему сработала пауза, — разбирать приходилось, повторяя цикл детектора
+        // отдельным прогоном.
+        "filterSpeed" to (update.filterSpeed?.metersPerSecond?.toString() ?: ""),
+        "filterSpeedUncertainty" to (update.filterSpeed?.uncertaintyMetersPerSecond?.toString() ?: ""),
+        // Медиана доплера по окну детектора за вычетом его же погрешности: ровно та
+        // величина, которая теперь и решает, отменять ли стоянку.
+        "windowDopplerLowerBound" to (windowDopplerLowerBound()?.toString() ?: ""),
+        "windowPointCount" to stopWindowPoints().size.toString(),
         "stopSpeedMetersPerSecond" to processingConfig.stopSpeedMetersPerSecond.toString(),
         "resumeSpeedMetersPerSecond" to processingConfig.resumeSpeedMetersPerSecond.toString(),
         "stopWindowMillis" to processingConfig.stopWindowMillis.toString(),
     )
+
+    /** Точки, попадающие в окно детектора остановок на текущий момент. */
+    private fun stopWindowPoints(): List<GeoPoint> {
+        val last = sessionPoints.lastOrNull() ?: return emptyList()
+        return sessionPoints.filter {
+            last.timestampEpochMillis - it.timestampEpochMillis <= processingConfig.stopWindowMillis
+        }
+    }
+
+    private fun windowDopplerLowerBound(): Double? {
+        val bounds = stopWindowPoints().mapNotNull { point ->
+            val speed = point.speedMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it >= 0.0 }
+                ?: return@mapNotNull null
+            val sigma = point.speedAccuracyMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
+                ?: processingConfig.defaultSpeedAccuracyMetersPerSecond
+            speed - sigma
+        }.sorted()
+        return bounds.getOrNull(bounds.size / 2)
+    }
 
     /**
      * Почему точка признана выбросом. Пустая строка означает, что она принята.

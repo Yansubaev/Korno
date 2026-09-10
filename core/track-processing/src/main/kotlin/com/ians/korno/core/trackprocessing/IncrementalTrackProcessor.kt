@@ -17,11 +17,27 @@ private const val REPROCESSED_TAIL_POINTS = 16
 private const val REPROCESSED_TAIL_WINDOW_FACTOR = 4
 
 /**
- * Насколько вердикт по точке может ещё измениться: запас на точку, до которой дотягивается
- * схлопнутое окно детектора остановок, и на то, что гейт фильтра судит о точке по
- * предсказанию, а предсказание уточняется следующими измерениями.
+ * Насколько вердикт по точке может ещё измениться: запас на то, что гейт фильтра судит
+ * о точке по предсказанию, а предсказание уточняется следующими измерениями.
  */
 private const val UNSTABLE_TAIL_MARGIN_POINTS = 2
+
+/**
+ * Во сколько окон детектора остановок вглубь вердикт по точке ещё может перевернуться.
+ *
+ * Объявив стоянку, детектор помечает ею всё окно разом — то есть задним числом меняет
+ * вердикт у точек, которые пришли задолго до решения. Запаса в две точки на это не
+ * хватало: на разрежённом опросе стоянка объявляется через три-четыре фикса после того,
+ * как человек встал, а точки запечатывались через два. Запечатанную поправить уже нельзя —
+ * накопитель работает только на добавление, — и дрожание на стоянке уходило в дистанцию
+ * как настоящий путь. Отсюда и брались 835 метров на экране против 476 в сохранённой
+ * активности: вердикты и координаты совпадали до метра, расходился только накопитель.
+ *
+ * Ценой служит отставание цифры на экране на длину окна. Это честная цена: показать на
+ * двадцать метров меньше и догнать через полминуты лучше, чем показать вдвое больше и
+ * отобрать разницу при сохранении.
+ */
+private const val VERDICT_SETTLE_WINDOW_FACTOR = 2
 
 /**
  * Итог обработки очередного сэмпла.
@@ -36,6 +52,14 @@ data class LiveTrackUpdate(
     /** Последняя точка трека, не признанная выбросом, — то, что показывает карта. */
     val lastValidPoint: GeoPoint?,
     val statistics: TrackStatistics,
+    /**
+     * Оценка скорости фильтром для [point]; `null` — точка в фильтр не попала.
+     *
+     * Нужна диагностике, а не расчёту: [TrackStatistics.currentSpeedMetersPerSecond] на
+     * стоянке равен нулю по определению и потому показывает уже принятое решение, а не
+     * то, из чего оно принято.
+     */
+    val filterSpeed: EstimatedSpeed? = null,
 )
 
 /**
@@ -96,7 +120,7 @@ class IncrementalTrackProcessor(
 
         rawPoints += point
         val windowStart = reprocessedWindowStart()
-        val processed = processor.processPoints(
+        val tracked = processor.processTrack(
             points = rawPoints.subList(windowStart, rawPoints.size),
             config = config,
             // Живой записи будущее недоступно по определению, поэтому обратный проход
@@ -105,10 +129,16 @@ class IncrementalTrackProcessor(
             // на карту.
             backwardPass = false,
         )
+        val processed = tracked.points
 
-        val stableCount = (rawPoints.size - UNSTABLE_TAIL_MARGIN_POINTS).coerceAtLeast(accumulatedCount)
+        val stableCount = settledPointCount().coerceAtLeast(accumulatedCount)
         while (accumulatedCount < stableCount) {
-            accumulator.add(processed[accumulatedCount - windowStart])
+            val settled = processed[accumulatedCount - windowStart]
+            // Выброс — не измерение, и накопитель его не ждёт: он считает соседние точки
+            // отрезком пути. Пропущенный сюда, он давал прыжок на всю свою погрешность
+            // и обратно. На прогулке с двадцатью двумя такими точками это 338 метров из
+            // 814 на экране — вся разница с сохранённой активностью.
+            if (!settled.isOutlier) accumulator.add(settled)
             accumulatedCount++
         }
 
@@ -118,6 +148,7 @@ class IncrementalTrackProcessor(
             statistics = accumulator.snapshot().copy(
                 currentSpeedMetersPerSecond = latestSpeed(processed),
             ),
+            filterSpeed = tracked.speeds.lastOrNull(),
         )
         return lastUpdate
     }
@@ -140,6 +171,21 @@ class IncrementalTrackProcessor(
         val elapsedMillis = last.timestampEpochMillis - previous.timestampEpochMillis
         if (elapsedMillis <= 0L || elapsedMillis > config.maximumSegmentDurationMillis) return 0.0
         return distanceMeters(previous, last) / (elapsedMillis / 1_000.0)
+    }
+
+    /**
+     * Сколько точек с начала трека уже не могут поменять вердикт.
+     *
+     * Ограничений два, и оба обязательны: по количеству — потому что гейт фильтра судит
+     * о точке по предсказанию, которое уточняется следующими измерениями; по времени —
+     * потому что детектор остановок помечает стоянкой всё своё окно задним числом.
+     */
+    private fun settledPointCount(): Int {
+        val horizon = rawPoints.last().timestampEpochMillis -
+            config.stopWindowMillis * VERDICT_SETTLE_WINDOW_FACTOR
+        var count = rawPoints.size - UNSTABLE_TAIL_MARGIN_POINTS
+        while (count > 0 && rawPoints[count - 1].timestampEpochMillis > horizon) count--
+        return count.coerceAtLeast(0)
     }
 
     /**

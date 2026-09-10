@@ -42,6 +42,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -175,6 +177,31 @@ internal class LocationTrackingService : Service() {
     }
 
     /**
+     * Состояние записи вместе с признаком «автопауза уже затянулась».
+     *
+     * Отдельный поток нужен ровно ради этого признака: он меняется не от события, а от
+     * времени. Короткая автопауза не должна трогать частоту опроса вовсе —
+     * [LocationUpdatePolicy.AUTO_PAUSE_SETTLE_MILLIS] задаёт, сколько она считается
+     * короткой. `flatMapLatest` снимает отложенное переключение сам, если запись
+     * возобновилась раньше срока.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun settledStatuses() = coordinator.session
+        .map { it.status }
+        .distinctUntilChanged()
+        .flatMapLatest { status ->
+            if (status == RecordingStatus.AUTO_PAUSE) {
+                flow {
+                    emit(status to false)
+                    delay(LocationUpdatePolicy.AUTO_PAUSE_SETTLE_MILLIS)
+                    emit(status to true)
+                }
+            } else {
+                flowOf(status to false)
+            }
+        }
+
+    /**
      * Частота опроса зависит не только от настройки точности, но и от состояния записи:
      * на паузе она снижается, а подписка сохраняется. Смена конфигурации пересоздаёт
      * запрос к Fused Location Provider, поэтому поток проходит через distinctUntilChanged —
@@ -186,10 +213,16 @@ internal class LocationTrackingService : Service() {
         locationJob = serviceScope.launch {
             combine(
                 preferencesRepository.observePreferences(),
-                coordinator.session.map { it.status }.distinctUntilChanged(),
-            ) { preferences, status ->
+                settledStatuses(),
+                coordinator.session.map { it.activityType }.distinctUntilChanged(),
+            ) { preferences, (status, settled), activityType ->
                 measurementSystem = preferences.measurementSystem
-                LocationUpdatePolicy.configFor(preferences.gpsAccuracy, status)
+                LocationUpdatePolicy.configFor(
+                    accuracy = preferences.gpsAccuracy,
+                    status = status,
+                    activityType = activityType,
+                    autoPauseSettled = settled,
+                )
             }
                 .distinctUntilChanged()
                 .onEach { config ->

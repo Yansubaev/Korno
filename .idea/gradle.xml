@@ -61,6 +61,8 @@
             <option value="$PROJECT_DIR$/feature/tracking/data" />
             <option value="$PROJECT_DIR$/feature/tracking/domain" />
             <option value="$PROJECT_DIR$/feature/tracking/presentation" />
+            <option value="$PROJECT_DIR$/tools" />
+            <option value="$PROJECT_DIR$/tools/track-calibration" />
           </set>
         </option>
       </GradleProjectSettings>

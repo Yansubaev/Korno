@@ -44,12 +44,6 @@ data class TrackProcessingConfig(
     /** Короче этого окно не даёт максимальной скорости вовсе — мерить ещё нечем. */
     val minimumSpeedWindowMillis: Long = 10_000L,
     /**
-     * Насколько давней может быть точка, по которой ещё можно объявить стоянку, когда
-     * окно схлопнулось до одной. Дыра в полчаса ничего не доказывает: за неё можно
-     * успеть уйти и вернуться.
-     */
-    val maximumStopEvidenceGapMillis: Long = 300_000L,
-    /**
      * Среднеквадратичное ускорение, которое модель движения считает обычным.
      *
      * Это единственный настоящий параметр фильтра Калмана и вся его «настройка»: он
@@ -112,7 +106,6 @@ data class TrackProcessingConfig(
         require(noiseDeadbandFactor >= 0.0)
         require(maximumSegmentDurationMillis > 0L)
         require(minimumSpeedWindowMillis in 1L..maximumSpeedWindowMillis)
-        require(maximumStopEvidenceGapMillis >= minimumStopDurationMillis)
         require(processNoiseAccelerationMetersPerSecondSquared > 0.0)
         require(outlierGateChiSquare > 0.0)
         require(maximumConsecutiveGateRejections > 0)

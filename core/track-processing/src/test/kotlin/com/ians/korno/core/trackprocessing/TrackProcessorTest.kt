@@ -563,22 +563,21 @@ class TrackProcessorTest {
         assertThat(result.points.take(8).all(GeoPoint::isStop)).isTrue()
         assertThat(result.points.last().isStop).isFalse()
         // Путь до выхода из круга стоянки в дистанцию не идёт — это цена гистерезиса:
-        // из пройденных 55 м засчитываются те, что после возобновления.
-        assertThat(result.statistics.distanceMeters).isGreaterThan(20.0)
+        // из пройденных 55 м засчитываются те, что после возобновления. Порог выхода
+        // теперь в полтора раза дальше круга стоянки, и цена соответственно выросла:
+        // так стоянка перестаёт разваливаться надвое от обычного сноса координат.
+        assertThat(result.statistics.distanceMeters).isGreaterThan(10.0)
     }
 
     @Test
     fun `stale evidence does not turn a long gap into a stop`() {
         val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
-            .copy(
-                processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION,
-                maximumStopEvidenceGapMillis = 60_000L,
-            )
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
                 point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 11f),
-                // Между фиксами прошло больше, чем стоянка вообще может доказывать:
-                // за это время можно уйти и вернуться.
+                // Между фиксами прошло на порядок больше окна детектора: за это время
+                // можно уйти и вернуться, и прямая между концами ничего не доказывает.
                 point(id = 2L, latitude = 43.000_001, timestamp = 600_000L, accuracy = 11f),
             ),
             activityType = ActivityType.WALKING,
@@ -586,6 +585,114 @@ class TrackProcessorTest {
         )
 
         assertThat(result.points.last().isStop).isFalse()
+    }
+
+    @Test
+    fun `the walk up to a stop is not swallowed by it`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Человек подошёл и встал. Стоянка объявляется по окну целиком, а окно к этому
+        // моменту дотягивается до подхода: раньше та ходьба помечалась стоянкой заодно
+        // и пропадала из трека дважды — временем из движения и дистанцией вместе
+        // с переносом опорной точки.
+        val walking = (0..5).map { index ->
+            point(
+                id = index + 1L,
+                latitude = 43.0 + index * 0.000_045,
+                timestamp = index * 4_000L,
+                accuracy = 8f,
+                speed = 1.25f,
+                speedAccuracy = 0.3f,
+            )
+        }
+        val standing = (0..7).map { index ->
+            point(
+                id = 100L + index,
+                latitude = 43.000_225,
+                timestamp = 24_000L + index * 4_000L,
+                accuracy = 8f,
+                speed = 0.05f,
+                speedAccuracy = 0.2f,
+            )
+        }
+
+        val result = processor.process(walking + standing, ActivityType.WALKING, config)
+
+        assertThat(result.points.take(walking.size).none(GeoPoint::isStop)).isTrue()
+        assertThat(result.points.last().isStop).isTrue()
+    }
+
+    @Test
+    fun `a point without provider speed stays inside the stop`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Обрезается только то, про что доплер прямо говорит «идёт». Отсутствие скорости
+        // ничего не доказывает, и вырезать по нему начало стоянки значило бы терять её
+        // всякий раз, когда провайдер скорость не отдаёт.
+        val standing = (0..9).map { index ->
+            point(
+                id = index + 1L,
+                latitude = 43.0,
+                timestamp = index * 4_000L,
+                accuracy = 8f,
+            )
+        }
+
+        val result = processor.process(standing, ActivityType.WALKING, config)
+
+        assertThat(result.points.first().isStop).isTrue()
+    }
+
+    @Test
+    fun `doppler overrides a collapsed window that looks like rest`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Схлопнутое окно: два фикса в 34 секундах друг от друга, между ними всё
+        // отбраковано по погрешности. Прямая между концами короткая и сама по себе
+        // читается как покой — но приёмник всё это время меряет скорость по сдвигу
+        // несущей и знает её с точностью до трети метра в секунду.
+        val result = processor.process(
+            points = listOf(
+                point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 30f, speed = 1.35f, speedAccuracy = 0.36f),
+                point(
+                    id = 2L,
+                    latitude = 43.000_100,
+                    timestamp = 34_000L,
+                    accuracy = 30f,
+                    speed = 1.35f,
+                    speedAccuracy = 0.36f,
+                ),
+            ),
+            activityType = ActivityType.WALKING,
+            config = config,
+        )
+
+        assertThat(result.points.none(GeoPoint::isStop)).isTrue()
+    }
+
+    @Test
+    fun `doppler speed keeps a curved walk out of auto pause`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Ходьба по дуге: смещение по прямой за окно мало и само по себе читается как
+        // покой, но приёмник всё это время меряет скорость по сдвигу несущей и уверенно
+        // показывает шаг. Именно так на прогулке включалась автопауза посреди движения.
+        val walking = (0..14).map { index ->
+            val angle = Math.PI * index / 14.0
+            point(
+                id = index + 1L,
+                latitude = 43.0 + 0.000_06 * kotlin.math.sin(angle),
+                longitude = 76.0 + 0.000_06 * (1 - kotlin.math.cos(angle)),
+                timestamp = index * 1_000L,
+                accuracy = 8f,
+                speed = 1.2f,
+                speedAccuracy = 0.3f,
+            )
+        }
+
+        val result = processor.process(walking, ActivityType.WALKING, config)
+
+        assertThat(result.points.none(GeoPoint::isStop)).isTrue()
     }
 
     @Test
@@ -700,19 +807,22 @@ class TrackProcessorTest {
         id: Long,
         latitude: Double,
         timestamp: Long,
+        longitude: Double = 0.0,
         accuracy: Float? = null,
         altitude: Double? = null,
         speed: Float? = null,
+        speedAccuracy: Float? = null,
         recordingStatus: RecordingStatus = RecordingStatus.RECORDING,
     ) = GeoPoint(
         id = id,
         activityId = 1L,
         latitude = latitude,
-        longitude = 0.0,
+        longitude = longitude,
         altitudeMeters = altitude,
         timestampEpochMillis = timestamp,
         accuracyMeters = accuracy,
         speedMetersPerSecond = speed,
+        speedAccuracyMetersPerSecond = speedAccuracy,
         recordingStatus = recordingStatus,
     )
 }

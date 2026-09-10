@@ -1,5 +1,6 @@
 package com.ians.korno.data.locationtracking.location
 
+import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.RecordingStatus
 
@@ -13,6 +14,22 @@ import com.ians.korno.core.domain.model.RecordingStatus
 object LocationUpdatePolicy {
 
     /**
+     * Сколько автопауза держится на частоте записи, прежде чем разредить опрос.
+     *
+     * Разрежать сразу — значит решать выход из паузы по самым плохим точкам записи. В
+     * разобранном логе прогулки на автопаузе погрешность была вдвое хуже, чем во время
+     * движения (33 м против 16), а половина пауз длилась меньше минуты: до экономии дело
+     * так и не доходило, зато каждый выход из паузы решался по загрублённому сигналу.
+     * Сюда же ложится и дребезг: каждая смена частоты пересоздаёт запрос к провайдеру, и
+     * в двадцать секунд после этого погрешность заметно хуже обычной.
+     *
+     * Минута выбрана по тому, чем стоянки вообще бывают. Светофор, переход, завязать
+     * шнурки — это десятки секунд, и на них частота теперь не меняется вовсе. Всё, что
+     * дольше, — привал, и там разрежённый опрос уже окупается.
+     */
+    const val AUTO_PAUSE_SETTLE_MILLIS = 60_000L
+
+    /**
      * Автопауза должна замечать возобновление движения, поэтому запас невелик.
      * Коэффициент намеренно небольшой: при шаге опроса порядка окна детектора остановок
      * (`TrackProcessingConfig.stopWindowMillis`) окно схлопывается до одной точки, и выход
@@ -23,29 +40,43 @@ object LocationUpdatePolicy {
 
     /** Ручную паузу снимает человек, и до этого момента точки не нужны вовсе. */
     private const val MANUAL_PAUSE_INTERVAL_MILLIS = 60_000L
-    private const val MANUAL_PAUSE_MIN_INTERVAL_MILLIS = 30_000L
 
+    /**
+     * @param autoPauseSettled продержалась ли автопауза дольше [AUTO_PAUSE_SETTLE_MILLIS].
+     *   Пока нет, частота остаётся такой же, как при записи.
+     */
     fun configFor(
         accuracy: GpsAccuracy,
         status: RecordingStatus,
+        activityType: ActivityType,
+        autoPauseSettled: Boolean = false,
     ): LocationUpdateConfig {
-        val base = baseConfig(accuracy)
+        val recording = LocationUpdateConfig(
+            intervalMillis = recordingIntervalMillis(accuracy, activityType),
+            // Пока идёт запись, приоритет не опускается ниже высокого, какой бы ни была
+            // настройка точности. Настройка обязана управлять частотой опроса — это и есть
+            // основной расход батареи, — но не тем, включён ли вообще GNSS-чип. С BALANCED
+            // и LOW_POWER система вправе обслуживать запрос сетевыми фиксами: в разобранном
+            // логе прогулки это дало стометровую погрешность, отсутствие доплеровской
+            // скорости и провалы опроса до двух-трёх минут. Трек из таких точек не спасает
+            // никакая постобработка.
+            accuracy = GpsAccuracy.HIGH,
+        )
         return when (status) {
             // На автопаузе приоритет тоже остаётся высоким: батарею экономит уже
             // разрежённый интервал, а вот выход из автопаузы решается по координатам и
             // доплеровской скорости — ровно тому, чего сетевой фикс не даёт.
-            RecordingStatus.AUTO_PAUSE -> {
-                val interval = (base.intervalMillis * AUTO_PAUSE_FACTOR)
-                    .coerceAtMost(AUTO_PAUSE_MAX_INTERVAL_MILLIS)
-                base.recordingQuality().copy(
-                    intervalMillis = interval,
-                    minIntervalMillis = interval / 2,
+            RecordingStatus.AUTO_PAUSE -> if (autoPauseSettled) {
+                recording.copy(
+                    intervalMillis = (recording.intervalMillis * AUTO_PAUSE_FACTOR)
+                        .coerceAtMost(AUTO_PAUSE_MAX_INTERVAL_MILLIS),
                 )
+            } else {
+                recording
             }
 
             RecordingStatus.MANUAL_PAUSE -> LocationUpdateConfig(
                 intervalMillis = MANUAL_PAUSE_INTERVAL_MILLIS,
-                minIntervalMillis = MANUAL_PAUSE_MIN_INTERVAL_MILLIS,
                 // Приоритет понижается независимо от настройки: точность на паузе
                 // ни на что не влияет, а высокий приоритет держал бы включённым сам чип GPS.
                 accuracy = GpsAccuracy.BATTERY_SAVER,
@@ -57,41 +88,65 @@ object LocationUpdatePolicy {
             RecordingStatus.WAITING_FOR_GPS,
             RecordingStatus.RECORDING,
             RecordingStatus.STOPPED,
-            -> base.recordingQuality()
+            -> recording
         }
     }
 
     /**
-     * Пока идёт запись, приоритет не опускается ниже высокого, какой бы ни была настройка
-     * точности.
+     * Темп активности: как быстро под ногами меняется то, ради чего вообще спрашивают
+     * координаты.
      *
-     * Настройка обязана управлять частотой опроса — это и есть основной расход батареи, —
-     * но не тем, включён ли вообще GNSS-чип. С BALANCED и LOW_POWER система вправе
-     * обслуживать запрос сетевыми фиксами: в разобранном логе прогулки это дало
-     * стометровую погрешность, отсутствие доплеровской скорости и провалы опроса
-     * до двух-трёх минут. Трек из таких точек не спасает никакая постобработка.
+     * Пешеход за десять секунд проходит тринадцать метров — меньше, чем городская
+     * погрешность фикса, и разрежённый опрос ему обходится дорого: точек мало, каждая
+     * шумная, а окну детектора остановок нужно набрать несколько штук. Машина за те же
+     * десять секунд проезжает полтораста метров, её `maximumAccuracyMeters` вдвое шире,
+     * и поездки длятся часами — там экономия батареи стоит больше лишней точки.
      */
-    private fun LocationUpdateConfig.recordingQuality(): LocationUpdateConfig =
-        copy(accuracy = GpsAccuracy.HIGH)
+    private enum class TrackingTempo { ON_FOOT, WHEELED, VEHICLE }
 
-    private fun baseConfig(accuracy: GpsAccuracy): LocationUpdateConfig = when (accuracy) {
-        // Секунда, а не две. GNSS-чип всё равно считает решение раз в секунду: просить
-        // реже — не выключить его, а лишь выбросить половину уже посчитанных фиксов.
-        // Экономия на этом невелика, а фильтру каждый лишний замер идёт в дело.
-        GpsAccuracy.HIGH -> LocationUpdateConfig(
-            intervalMillis = 1_000L,
-            minIntervalMillis = 500L,
-            accuracy = accuracy,
-        )
-        GpsAccuracy.BALANCED -> LocationUpdateConfig(
-            intervalMillis = 4_000L,
-            minIntervalMillis = 2_000L,
-            accuracy = accuracy,
-        )
-        GpsAccuracy.BATTERY_SAVER -> LocationUpdateConfig(
-            intervalMillis = 10_000L,
-            minIntervalMillis = 5_000L,
-            accuracy = accuracy,
-        )
+    private val ActivityType.tempo: TrackingTempo
+        get() = when (this) {
+            ActivityType.WALKING, ActivityType.HIKING, ActivityType.RUNNING -> TrackingTempo.ON_FOOT
+            ActivityType.CYCLING, ActivityType.OTHER -> TrackingTempo.WHEELED
+            ActivityType.DRIVING -> TrackingTempo.VEHICLE
+        }
+
+    /**
+     * Шаг опроса во время записи.
+     *
+     * Интервал здесь один, без отдельного «самого частого»: провайдер выдаёт фиксы именно
+     * по нижней границе, а не по запрошенному интервалу, и прежняя пара 4000/2000
+     * означала на деле 2000. Настройки обещали одно, а делали другое — и различались вдвое
+     * меньше, чем задумывалось. Теперь запрошенное и выданное совпадают.
+     *
+     * Секунда для пешехода на HIGH — не опечатка: GNSS-чип всё равно считает решение раз
+     * в секунду, просить реже — не выключить его, а лишь выбросить половину уже
+     * посчитанных фиксов.
+     */
+    private fun recordingIntervalMillis(
+        accuracy: GpsAccuracy,
+        activityType: ActivityType,
+    ): Long = when (activityType.tempo) {
+        TrackingTempo.ON_FOOT -> when (accuracy) {
+            GpsAccuracy.HIGH -> 1_000L
+            GpsAccuracy.BALANCED -> 2_500L
+            // Четыре секунды, а не десять. Прежний BATTERY_SAVER выдавал фиксы раз в пять
+            // секунд с медианной погрешностью 16 м и девяностым процентилем 49 — при
+            // пороге отбраковки в 40 м для ходьбы. Три точки из десяти не доживали до
+            // трека вовсе, и режим переставал годиться для прогулки совсем.
+            GpsAccuracy.BATTERY_SAVER -> 4_000L
+        }
+
+        TrackingTempo.WHEELED -> when (accuracy) {
+            GpsAccuracy.HIGH -> 1_500L
+            GpsAccuracy.BALANCED -> 3_500L
+            GpsAccuracy.BATTERY_SAVER -> 7_000L
+        }
+
+        TrackingTempo.VEHICLE -> when (accuracy) {
+            GpsAccuracy.HIGH -> 2_000L
+            GpsAccuracy.BALANCED -> 5_000L
+            GpsAccuracy.BATTERY_SAVER -> 10_000L
+        }
     }
 }

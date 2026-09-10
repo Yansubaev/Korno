@@ -94,11 +94,14 @@ class IncrementalTrackProcessorTest {
     @Test
     fun `an out of order sample rebuilds the state instead of corrupting it`() {
         val processor = IncrementalTrackProcessor(config)
-        val points = walkWithNoise(pointCount = 40)
+        // Трек длиннее запаса, который живой проход держит незапечатанным: он отмеряется
+        // окном детектора остановок, и на сорока точках составлял бы заметную долю всей
+        // дистанции — сравнивать числа было бы не с чем.
+        val points = walkWithNoise(pointCount = 200)
         points.forEach(processor::append)
 
         // Провайдер изредка отдаёт фикс задним числом.
-        val stale = points[20].copy(id = 999L, timestampEpochMillis = points[20].timestampEpochMillis + 1L)
+        val stale = points[100].copy(id = 999L, timestampEpochMillis = points[100].timestampEpochMillis + 1L)
         val update = processor.append(stale)
 
         val full = TrackProcessor().process(

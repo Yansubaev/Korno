@@ -64,12 +64,26 @@ class TrackProcessor(
         points: List<GeoPoint>,
         config: TrackProcessingConfig,
         backwardPass: Boolean = true,
-    ): List<GeoPoint> = points
+    ): List<GeoPoint> = processTrack(points, config, backwardPass).points
+
+    /**
+     * То же самое вместе с оценкой скорости фильтром.
+     *
+     * Оценка нужна не расчёту, а диагностике: по логу должно быть видно, почему включилась
+     * автопауза. Статистика для этого не годится — её `currentSpeed` на стоянке равен нулю
+     * по определению (см. [TrackStatisticsAccumulator]), то есть показывает уже принятое
+     * решение, а не то, из чего оно принято.
+     */
+    internal fun processTrack(
+        points: List<GeoPoint>,
+        config: TrackProcessingConfig,
+        backwardPass: Boolean = true,
+    ): ProcessedPoints = points
         .sortedWith(compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id))
         .splitWhen { previous, current ->
             previous.recordingStatus.isManualPause != current.recordingStatus.isManualPause
         }
-        .flatMap { segment ->
+        .map { segment ->
             // Грубые проверки идут до фильтра, а не вместо него. Гейт невязки судит
             // измерение по тому, насколько оно расходится с предсказанием, — но пока
             // фильтр не сошёлся, предсказывать ему нечем, и первую же дикую точку он
@@ -87,9 +101,18 @@ class TrackProcessor(
             } else {
                 stopDetection(estimated.points, config, estimated.speeds)
             }
-            estimated.withSmoothedPositions(detected)
+            ProcessedPoints(estimated.withSmoothedPositions(detected), estimated.speeds)
+        }
+        .fold(ProcessedPoints(emptyList(), emptyList())) { accumulated, segment ->
+            ProcessedPoints(accumulated.points + segment.points, accumulated.speeds + segment.speeds)
         }
 }
+
+/** Точки с вердиктами и оценка скорости фильтром для каждой из них; индексы совпадают. */
+internal class ProcessedPoints(
+    val points: List<GeoPoint>,
+    val speeds: List<EstimatedSpeed?>,
+)
 
 private val RecordingStatus.isManualPause: Boolean
     get() = this == RecordingStatus.MANUAL_PAUSE

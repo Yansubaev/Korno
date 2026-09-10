@@ -31,7 +31,10 @@ internal class DefaultLocationClient(
             GpsAccuracy.BATTERY_SAVER -> Priority.PRIORITY_LOW_POWER
         }
         val request = LocationRequest.Builder(priority, config.intervalMillis)
-            .setMinUpdateIntervalMillis(config.minIntervalMillis)
+            // Ровно тот же интервал, а не доля от него: по нижней границе провайдер и
+            // выдаёт фиксы, и оставленный запас превращал запрошенную частоту в вдвое
+            // большую. Просить нечего сверх того, что уже сказано интервалом.
+            .setMinUpdateIntervalMillis(config.intervalMillis)
             // Без явной гранулярности Fused Location Provider выдаёт координаты по уровню
             // выданного разрешения. Приложение просит ACCESS_FINE_LOCATION, но при
             // умолчании система вправе огрубить фикс до сетевого — в логах это стометровая

@@ -3,6 +3,28 @@ package com.ians.korno.core.trackprocessing
 import com.ians.korno.core.domain.model.GeoPoint
 
 /**
+ * Во сколько раз схлопнутое окно вправе дотянуться назад дальше собственной длины.
+ *
+ * Раньше здесь стоял отдельный порог в пять минут, и он ничего не ограничивал: детектор
+ * объявлял стоянку по двум фиксам, разнесённым на 34 секунды при окне в 25, — а между
+ * ними человек прошёл полсотни метров, просто все точки на этом отрезке отбраковались по
+ * погрешности. Прямая между двумя далёкими фиксами не отличает покой от петли, и чем
+ * длиннее промежуток, тем меньше она значит.
+ */
+private const val COLLAPSED_WINDOW_FACTOR = 2
+
+/**
+ * Насколько дальше порога должна уйти точка, чтобы снять стоянку по смещению.
+ *
+ * Между порогами скорости гистерезис есть — от [TrackProcessingConfig.stopSpeedMetersPerSecond]
+ * до [TrackProcessingConfig.resumeSpeedMetersPerSecond], — а у пути через смещение его не
+ * было вовсе. При погрешности за десяток метров порог гуляет вместе с ней, и на настоящей
+ * стоянке его пробивает обычный снос: запись выходила из паузы и через три секунды
+ * возвращалась в неё, разрезая одну остановку на две.
+ */
+private const val RESUME_DISPLACEMENT_FACTOR = 1.5
+
+/**
  * Разметка стоянок и, через неё, решение об автопаузе.
  *
  * Вход в стоянку и выход из неё намеренно устроены по-разному.
@@ -28,6 +50,13 @@ import com.ians.korno.core.domain.model.GeoPoint
  * Смещение за окно такого недостатка не имеет — это несмещённая оценка средней скорости на
  * окне, ровно то, о чём и спрашивает детектор. А вот для выхода из стоянки она полезна:
  * там нужна отзывчивость, и отставание компенсируется двумя другими признаками.
+ *
+ * Зато сырая доплеровская скорость участвует и во входе — но не как основание, а как
+ * запрет. Отставания у неё нет: приёмник меряет модуль по сдвигу несущей, а не по разнице
+ * координат. У смещения за окно есть слепое пятно, которого у доплера нет: ходьба по дуге
+ * даёт короткую прямую между концами окна и читается как покой. Именно так на прогулке
+ * включалась автопауза посреди движения — приёмник всё это время показывал 0.9–1.4 м/с
+ * при пороге 0.5.
  *
  * ## Чего здесь больше нет
  *
@@ -101,13 +130,19 @@ class StopDetectionUseCase {
             val windowIndices = validIndices.subList(firstPosition, endPosition + 1)
             val firstIndex = windowIndices.firstOrNull() ?: return@forEachIndexed
             val durationMillis = end.timestampEpochMillis - result[firstIndex].timestampEpochMillis
-            // Слишком старая опорная точка ничего не доказывает: за полчаса можно уйти
-            // и вернуться, и трек снаружи стоянки будет неотличим от покоя.
-            if (durationMillis > config.maximumStopEvidenceGapMillis) return@forEachIndexed
+            // Схлопнутое окно вправе дотянуться назад чуть дальше своей длины, но не
+            // насколько угодно: чем длиннее промежуток, тем меньше значит прямая через него.
+            if (durationMillis > config.stopWindowMillis * COLLAPSED_WINDOW_FACTOR) return@forEachIndexed
             if (durationMillis < config.minimumStopDurationMillis) return@forEachIndexed
 
             val windowSpeed = distanceMeters(result[firstIndex], end) / (durationMillis / 1_000.0)
             if (windowSpeed > config.stopSpeedMetersPerSecond) return@forEachIndexed
+            // Смещение за окно — не единственное, что известно о движении. Приёмник меряет
+            // модуль скорости по сдвигу несущей, и это прямое измерение: оно не отстаёт,
+            // как оценка фильтра, и не зависит от того, шли вы по прямой или по дуге.
+            // Пока доплер уверенно показывает ходьбу, стоянки нет, каким бы малым ни
+            // вышло смещение.
+            if (reportedSpeedExceeds(result, windowIndices, config)) return@forEachIndexed
 
             // Смещения от начала окна мало: по нему круг, пройденный за окно, неотличим от
             // покоя. Максимальный уход за окно закрывает и этот случай.
@@ -118,8 +153,21 @@ class StopDetectionUseCase {
             if (maximumDisplacement > config.stopRadiusMeters + accuracyAllowance) return@forEachIndexed
 
             isStopped = true
-            stopAnchorIndex = firstIndex
-            windowIndices.forEach { index -> result[index] = result[index].copy(isStop = true) }
+            // Решение принято по всему окну, а помечается не всё окно.
+            //
+            // Его начало отстоит от решения на длину окна, и на подходе к остановке там
+            // лежит обычная ходьба. Помеченная стоянкой, она пропадала из трека дважды:
+            // время уходило из движения, а дистанция — вместе с переносом опорной точки.
+            // Перед настоящей остановкой так стиралось до девятнадцати секунд пути.
+            //
+            // Обрезается ровно то, про что доплер прямо говорит «идёт»: точка без
+            // скорости остаётся в стоянке, потому что отсутствие измерения ничего не
+            // доказывает. Границы решения это не трогает — окно для всех проверок
+            // остаётся прежним, иначе укороченному окну стало бы легче пройти порог по
+            // уходу, и стоянки посыпались бы там, где их нет.
+            val stopIndices = windowIndices.dropWhile { result[it].reportedMotion(config) }
+            stopAnchorIndex = stopIndices.firstOrNull() ?: firstIndex
+            stopIndices.forEach { index -> result[index] = result[index].copy(isStop = true) }
         }
 
         return result
@@ -142,7 +190,8 @@ class StopDetectionUseCase {
         // Пороговой скорости для этого мало: на разрежённом сигнале уходящий пешеход её
         // просто не набирает, и запись залипает в автопаузе до ручного вмешательства.
         if (stopAnchor != null &&
-            distanceMeters(stopAnchor, end) > config.stopRadiusMeters + accuracyAllowance
+            distanceMeters(stopAnchor, end) >
+            (config.stopRadiusMeters + accuracyAllowance) * RESUME_DISPLACEMENT_FACTOR
         ) {
             return true
         }
@@ -158,6 +207,53 @@ class StopDetectionUseCase {
         // тогда как ложный вход стирает реальный путь.
         val reported = end.speedMetersPerSecond?.toDouble()?.takeIf { it.isFinite() }
         return reported != null && reported >= config.resumeSpeedMetersPerSecond
+    }
+
+    /**
+     * Уверенно ли доплер показывает движение на всём окне.
+     *
+     * Берётся медиана, а не среднее и не максимум: одиночные выбросы в 3–4 м/с на стоящем
+     * месте провайдер выдаёт регулярно, и по ним стоянку не отменить. Точки, для которых
+     * скорость не пришла вовсе, в счёт не идут — их отсутствие ничего не доказывает.
+     *
+     * Сравнивается с порогом не сама скорость, а её нижняя граница
+     * ([reportedSpeedLowerBound]): измерение 1.39 ± 1.5 м/с не вправе отменять стоянку,
+     * а измерение 1.35 ± 0.36 — вправе.
+     */
+    private fun reportedSpeedExceeds(
+        result: List<GeoPoint>,
+        indices: List<Int>,
+        config: TrackProcessingConfig,
+    ): Boolean {
+        val bounds = indices.mapNotNull { result[it].reportedSpeedLowerBound(config) }.sorted()
+        if (bounds.isEmpty()) return false
+        return bounds[bounds.size / 2] > config.stopSpeedMetersPerSecond
+    }
+
+    /**
+     * Показывает ли доплер движение в этой одной точке.
+     *
+     * Точка без скорости движущейся не считается: отсутствие измерения ничего не
+     * доказывает, и обрезать по нему начало окна значило бы выбрасывать доказательства
+     * покоя всякий раз, когда провайдер скорость не отдал.
+     */
+    private fun GeoPoint.reportedMotion(config: TrackProcessingConfig): Boolean {
+        val lowerBound = reportedSpeedLowerBound(config) ?: return false
+        return lowerBound > config.stopSpeedMetersPerSecond
+    }
+
+    /**
+     * Доплеровская скорость за вычетом её собственной погрешности; `null` — скорости нет.
+     *
+     * Вычитание обязательно: на плохом сигнале приёмник ошибается в обе стороны. На
+     * разобранной записи он показывал 1.39 м/с на человеке, который стоял, — но сообщал
+     * при этом погрешность в 1.5 м/с, то есть честно признавался, что не знает.
+     */
+    private fun GeoPoint.reportedSpeedLowerBound(config: TrackProcessingConfig): Double? {
+        val speed = speedMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it >= 0.0 } ?: return null
+        val sigma = speedAccuracyMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
+            ?: config.defaultSpeedAccuracyMetersPerSecond
+        return speed - sigma
     }
 
     /**
