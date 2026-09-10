@@ -11,4 +11,5 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:track-processing"))
     implementation(project(":data:gpx-export"))
+    implementation(libs.kotlinx.serialization.json)
 }

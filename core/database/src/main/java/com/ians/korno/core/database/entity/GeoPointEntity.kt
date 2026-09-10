@@ -31,6 +31,11 @@ data class GeoPointEntity(
     val timestamp: Long,
     val accuracy: Float? = null,
     val speed: Float? = null,
+    @ColumnInfo(name = "speed_accuracy")
+    val speedAccuracy: Float? = null,
+    val bearing: Float? = null,
+    @ColumnInfo(name = "bearing_accuracy")
+    val bearingAccuracy: Float? = null,
     @ColumnInfo(name = "recording_status", defaultValue = "'RECORDING'")
     val recordingStatus: String = "RECORDING",
     @ColumnInfo(name = "is_stop")

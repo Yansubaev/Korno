@@ -107,6 +107,44 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `a cached fix neither starts the recording nor lands in the track`() = runTest {
+        // Первой эмиссией Fused Location Provider почти всегда отдаёт последнюю известную
+        // координату из кэша. По времени получения она неотличима от свежей, а относиться
+        // может к тому месту, где телефон лежал час назад.
+        coordinator.beginSession(ActivityType.RUNNING)
+
+        coordinator.applySample(
+            sample(
+                latitude = 55.0,
+                longitude = 37.0,
+                timestamp = 0L,
+                accuracyMeters = 5f,
+                ageMillis = 120_000L,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
+        assertThat(repository.insertedPoints).hasSize(0)
+    }
+
+    @Test
+    fun `a network fix is not treated as a position measurement`() = runTest {
+        coordinator.beginSession(ActivityType.RUNNING)
+
+        coordinator.applySample(
+            sample(
+                latitude = 55.0,
+                longitude = 37.0,
+                timestamp = 0L,
+                accuracyMeters = 5f,
+                provider = "network",
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
+    }
+
+    @Test
     fun `after a long wait even a rough point starts the recording`() = runTest {
         coordinator.beginSession(ActivityType.RUNNING)
         clockMillis += 31_000L
@@ -130,13 +168,16 @@ class TrackingSessionCoordinatorTest {
     fun `consecutive samples accumulate distance and moving time`() = runTest {
         coordinator.beginSession(ActivityType.RUNNING)
 
-        // Живые значения отстают на нестабильный хвост: сглаживание ещё может сдвинуть
-        // последние точки, и засчитывать их в дистанцию рано — иначе она уезжала бы
-        // назад на каждом сэмпле. Поэтому здесь четыре точки, а проверяется вклад двух.
+        // Живые значения отстают на нестабильный хвост: вердикт по точке может ещё
+        // перевернуться — детектор остановок помечает стоянкой всё своё окно задним
+        // числом, — и засчитывать такую точку в дистанцию рано. Хвост отмеряется
+        // временем, а не числом точек, поэтому сэмплов здесь пять, а проверяется вклад
+        // первых двух: только они старше окна детектора.
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.applySample(sample(latitude = 0.0005, longitude = 0.0, timestamp = 10_000L))
         coordinator.applySample(sample(latitude = 0.0010, longitude = 0.0, timestamp = 20_000L))
         coordinator.applySample(sample(latitude = 0.0015, longitude = 0.0, timestamp = 30_000L))
+        coordinator.applySample(sample(latitude = 0.0020, longitude = 0.0, timestamp = 40_000L))
 
         val session = coordinator.session.value
         // ~0.0005 degree of latitude is ~56 meters.
@@ -264,13 +305,18 @@ class TrackingSessionCoordinatorTest {
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
 
         // Решение об автопаузе принимается мгновенно, а накопленное время движения
-        // отстаёт на нестабильный хвост — отсюда ещё два сэмпла до проверки.
-        coordinator.applySample(
-            sample(latitude = 0.0002, longitude = 0.0, timestamp = 20_000L, speedMetersPerSecond = 1.4f),
-        )
-        coordinator.applySample(
-            sample(latitude = 0.0003, longitude = 0.0, timestamp = 25_000L, speedMetersPerSecond = 1.4f),
-        )
+        // отстаёт на нестабильный хвост длиной в окно детектора остановок — отсюда
+        // сэмплы до сорок пятой секунды: раньше точка возобновления не запечатывается.
+        listOf(20_000L, 25_000L, 30_000L, 35_000L, 40_000L, 45_000L).forEachIndexed { index, timestamp ->
+            coordinator.applySample(
+                sample(
+                    latitude = 0.0002 + index * 0.0001,
+                    longitude = 0.0,
+                    timestamp = timestamp,
+                    speedMetersPerSecond = 1.4f,
+                ),
+            )
+        }
 
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
         assertThat(coordinator.session.value.movingTimeMillis).isEqualTo(5_000L)
@@ -383,6 +429,8 @@ class TrackingSessionCoordinatorTest {
         timestamp: Long,
         speedMetersPerSecond: Float? = null,
         accuracyMeters: Float? = null,
+        provider: String? = null,
+        ageMillis: Long? = null,
     ) = LocationSample(
         latitude = latitude,
         longitude = longitude,
@@ -390,6 +438,8 @@ class TrackingSessionCoordinatorTest {
         timestampEpochMillis = timestamp,
         accuracyMeters = accuracyMeters,
         speedMetersPerSecond = speedMetersPerSecond,
+        provider = provider,
+        ageMillis = ageMillis,
     )
 
     private class FakeTrackRepository : TrackRepository {

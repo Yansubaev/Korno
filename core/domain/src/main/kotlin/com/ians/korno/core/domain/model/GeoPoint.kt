@@ -20,6 +20,19 @@ data class GeoPoint(
     val timestampEpochMillis: Long,
     val accuracyMeters: Float? = null,
     val speedMetersPerSecond: Float? = null,
+    /**
+     * Погрешность доплеровской скорости. Приёмник меряет скорость по сдвигу несущей, а не
+     * по разнице координат, и обычно знает её на порядок точнее положения. Без этого поля
+     * скорость нечем взвесить, и фильтр вынужден доверять ей либо полностью, либо никак.
+     */
+    val speedAccuracyMetersPerSecond: Float? = null,
+    /**
+     * Курс в градусах от севера по часовой стрелке. Вместе со скоростью задаёт вектор
+     * движения — то самое измерение, которого не хватало модели движения: раньше скорость
+     * была известна только по модулю, и направление приходилось брать из шумных координат.
+     */
+    val bearingDegrees: Float? = null,
+    val bearingAccuracyDegrees: Float? = null,
     /** Состояние записи в момент получения точки; паузы сохраняются как часть маршрута. */
     val recordingStatus: RecordingStatus = RecordingStatus.RECORDING,
     val isStop: Boolean = false,

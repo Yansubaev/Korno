@@ -106,10 +106,34 @@ val SWEEPS: List<Sweep> = listOf(
         apply = { config, value -> config.copy(maximumAccuracyMeters = value) },
     ),
     Sweep(
-        name = "smoothingRadius",
-        currentValue = { it.smoothingRadius.toDouble() },
-        values = { listOf(0.0, 1.0, 2.0, 3.0, 4.0) },
-        apply = { config, value -> config.copy(smoothingRadius = value.toInt()) },
+        name = "outlierAccuracySigmas",
+        currentValue = { it.outlierAccuracySigmas },
+        values = { listOf(1.0, 2.0, 3.0, 4.0, 6.0) },
+        apply = { config, value -> config.copy(outlierAccuracySigmas = value) },
+    ),
+    Sweep(
+        name = "processNoiseAcceleration",
+        currentValue = { it.processNoiseAccelerationMetersPerSecondSquared },
+        // Главный и, по сути, единственный параметр фильтра: чем он меньше, тем упрямее
+        // модель движения и тем сильнее срезаются повороты; чем больше — тем ближе трек
+        // к сырым фиксам со всем их дрожанием.
+        values = { listOf(0.1, 0.25, 0.5, 1.0, 2.0) },
+        apply = { config, value ->
+            config.copy(processNoiseAccelerationMetersPerSecondSquared = value)
+        },
+    ),
+    Sweep(
+        name = "outlierGateChiSquare",
+        currentValue = { it.outlierGateChiSquare },
+        // Квантили χ² с двумя степенями свободы: 90%, 95%, 99%, 99.9%, 99.99%.
+        values = { listOf(4.605, 5.991, 9.210, 13.816, 18.421) },
+        apply = { config, value -> config.copy(outlierGateChiSquare = value) },
+    ),
+    Sweep(
+        name = "positionNoiseFloorMeters",
+        currentValue = { it.positionNoiseFloorMeters },
+        values = { listOf(0.0, 1.0, 3.0, 5.0, 10.0) },
+        apply = { config, value -> config.copy(positionNoiseFloorMeters = value) },
     ),
     Sweep(
         name = "noiseDeadbandFactor",

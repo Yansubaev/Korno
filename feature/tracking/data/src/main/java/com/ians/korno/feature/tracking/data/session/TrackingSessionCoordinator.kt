@@ -16,9 +16,9 @@ import com.ians.korno.core.logging.NoOpActivityLogScope
 import com.ians.korno.core.logging.NoOpAppLogger
 import com.ians.korno.core.logging.debug
 import com.ians.korno.core.logging.info
-import com.ians.korno.core.logging.verbose
 import com.ians.korno.core.logging.warn
 import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
+import com.ians.korno.core.trackprocessing.LiveTrackUpdate
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
 import com.ians.korno.core.trackprocessing.TrackStatistics
@@ -53,6 +53,26 @@ private const val FIX_WAIT_RELAXATION_MILLIS = 30_000L
  * Пока она свежа, запись стартует сразу, без экрана ожидания.
  */
 private const val WARM_FIX_VALIDITY_MILLIS = 20_000L
+
+/**
+ * Насколько старым может быть фикс, чтобы описывать текущее положение.
+ *
+ * Fused Location Provider на первую подписку почти всегда отдаёт последнюю известную
+ * координату из кэша, и по времени получения она неотличима от свежей. Возраст ей
+ * может быть и час: точка ставится там, где телефон лежал до выхода, и трек
+ * открывается прыжком через весь город. Батчинг выключен
+ * (`setMaxUpdateDelayMillis(0)`), поэтому настоящий фикс при шаге опроса в секунду
+ * доходит заметно быстрее этого порога, и запас взят с избытком.
+ */
+private const val MAXIMUM_FIX_AGE_MILLIS = 5_000L
+
+/**
+ * Провайдер, координаты которого не описывают движение: сетевой фикс считается по
+ * вышкам и точкам доступа, его погрешность — сотни метров, и доплеровской скорости
+ * у него нет вовсе. Запрос идёт с точной гранулярностью и высоким приоритетом, но
+ * система вправе обслужить его чем угодно, и в разобранном логе прогулки обслуживала.
+ */
+private const val NETWORK_PROVIDER = "network"
 
 /**
  * Единственный держатель истины о текущей записи трека.
@@ -91,6 +111,16 @@ internal class TrackingSessionCoordinator(
     private var autoPauseSensitivity = AutoPauseSensitivity.MEDIUM
     private var lastReliableFixAtMillis: Long? = null
     private var waitingForFixSinceMillis: Long? = null
+
+    /**
+     * Время последнего принятого фикса — ключ, по которому отсеиваются повторы.
+     *
+     * Провайдер регулярно отдаёт один и тот же фикс дважды: в разобранных логах так
+     * пришли 4 сэмпла из 720, 12 из 341 и 8 из 99. До конвейера они доходили целиком и
+     * там же браковались как выбросы по времени — на трек это не влияло, но счётчик
+     * выбросов раздувало втрое, и разбирать по нему записи становилось нечем.
+     */
+    private var lastAcceptedSampleTimestampMillis: Long? = null
 
     /**
      * Создаёт активность и открывает сессию. Если сигнала ещё нет — сессия начинается
@@ -168,7 +198,10 @@ internal class TrackingSessionCoordinator(
         "stopRadiusMeters" to processingConfig.stopRadiusMeters.toString(),
         "maximumSpeedMetersPerSecond" to processingConfig.maximumSpeedMetersPerSecond.toString(),
         "maximumAccuracyMeters" to processingConfig.maximumAccuracyMeters.toString(),
-        "smoothingRadius" to processingConfig.smoothingRadius.toString(),
+        "processNoiseAcceleration" to
+            processingConfig.processNoiseAccelerationMetersPerSecondSquared.toString(),
+        "outlierGateChiSquare" to processingConfig.outlierGateChiSquare.toString(),
+        "positionNoiseFloorMeters" to processingConfig.positionNoiseFloorMeters.toString(),
     )
 
     suspend fun recoverActiveSessionIfNeeded(): Boolean {
@@ -223,8 +256,30 @@ internal class TrackingSessionCoordinator(
 
     suspend fun applySample(sample: LocationSample) {
         val now = nowMillis()
+        // Негодный фикс отбрасывается до всего остального, включая отметку о пойманном
+        // сигнале: по кэшированной координате нельзя ни начать запись, ни считать, что
+        // приёмник прогрелся.
+        val rejection = sample.usabilityRejection()
+        if (rejection == null && sample.timestampEpochMillis == lastAcceptedSampleTimestampMillis) {
+            logger.debug(
+                category = LogCategory.GPS,
+                tag = TAG,
+                fields = sampleFields(sample) + mapOf("rejectedBecause" to "DUPLICATE"),
+            ) { "Location sample rejected before processing" }
+            return
+        }
+        if (rejection != null) {
+            logger.debug(
+                category = LogCategory.GPS,
+                tag = TAG,
+                fields = sampleFields(sample) + mapOf("rejectedBecause" to rejection),
+            ) { "Location sample rejected before processing" }
+            return
+        }
+
         // Сэмплы приходят и до старта — на прогреве GPS с экрана настройки.
         // Записывать их некуда, но по ним видно, что приёмник уже поймал сигнал.
+        lastAcceptedSampleTimestampMillis = sample.timestampEpochMillis
         val isReliableFix = sample.isReliableFixAt(now)
         if (isReliableFix) lastReliableFixAtMillis = now
 
@@ -253,20 +308,33 @@ internal class TrackingSessionCoordinator(
             timestampEpochMillis = sample.timestampEpochMillis,
             accuracyMeters = sample.accuracyMeters,
             speedMetersPerSecond = sample.speedMetersPerSecond,
+            speedAccuracyMetersPerSecond = sample.speedAccuracyMetersPerSecond,
+            bearingDegrees = sample.bearingDegrees,
+            bearingAccuracyDegrees = sample.bearingAccuracyDegrees,
             recordingStatus = current.status,
         )
         // Координаты — отдельной записью и только с явного согласия. Всё остальное о точке
         // безопасно и нужно всегда: по одному лишь числу точек нельзя понять, почему трек
         // рвётся, а по точности, шагу и скорости — можно.
+        //
+        // Обе записи несут `sampleTimestamp` — время самого фикса, а не время попадания
+        // в лог. Оно же служит ключом, по которому калибровка сшивает координаты с
+        // остальными полями сэмпла, и оно же задаёт ось времени всему конвейеру.
         logger.debug(
             category = LogCategory.GPS,
             tag = TAG,
             fields = sampleFields(sample) + mapOf("status" to current.status.name),
         ) { "Location sample received" }
-        logger.verbose(
+        // Уровень здесь именно DEBUG, а не VERBOSE. Запись и так закрыта отдельным
+        // согласием (`containsSensitiveLocation`), и требовать сверх него ещё и самый
+        // подробный уровень значило бы молча выбрасывать координаты у всех, кто согласие
+        // дал, но уровень не тронул, — а по умолчанию он как раз DEBUG. Именно так и
+        // получались логи, по которым нельзя восстановить трек.
+        logger.debug(
             category = LogCategory.GPS,
             tag = TAG,
             fields = mapOf(
+                "sampleTimestamp" to sample.timestampEpochMillis.toString(),
                 "latitude" to sample.latitude.toString(),
                 "longitude" to sample.longitude.toString(),
                 "altitudeMeters" to sample.altitudeMeters.toString(),
@@ -338,7 +406,7 @@ internal class TrackingSessionCoordinator(
             logger.info(
                 category = LogCategory.TRACKING,
                 tag = TAG,
-                fields = autoPauseDecisionFields(sample, statistics) + mapOf(
+                fields = autoPauseDecisionFields(sample, statistics, update) + mapOf(
                     "from" to current.status.name,
                     "to" to nextStatus.name,
                 ),
@@ -347,7 +415,7 @@ internal class TrackingSessionCoordinator(
             logger.debug(
                 category = LogCategory.TRACKING,
                 tag = TAG,
-                fields = autoPauseDecisionFields(sample, statistics),
+                fields = autoPauseDecisionFields(sample, statistics, update),
             ) { "Auto pause held" }
         }
 
@@ -376,15 +444,45 @@ internal class TrackingSessionCoordinator(
     private fun autoPauseDecisionFields(
         sample: LocationSample,
         statistics: TrackStatistics,
+        update: LiveTrackUpdate,
     ): Map<String, String> = sampleFields(
         sample = sample,
         previousPoint = sessionPoints.getOrNull(sessionPoints.lastIndex - 1),
     ) + mapOf(
         "currentSpeed" to statistics.currentSpeedMetersPerSecond.toString(),
+        // Оценка фильтра — не то же самое, что `currentSpeed`: та на стоянке обнуляется
+        // и показывает уже принятое решение. Без этих двух полей по логу нельзя понять,
+        // почему сработала пауза, — разбирать приходилось, повторяя цикл детектора
+        // отдельным прогоном.
+        "filterSpeed" to (update.filterSpeed?.metersPerSecond?.toString() ?: ""),
+        "filterSpeedUncertainty" to (update.filterSpeed?.uncertaintyMetersPerSecond?.toString() ?: ""),
+        // Медиана доплера по окну детектора за вычетом его же погрешности: ровно та
+        // величина, которая теперь и решает, отменять ли стоянку.
+        "windowDopplerLowerBound" to (windowDopplerLowerBound()?.toString() ?: ""),
+        "windowPointCount" to stopWindowPoints().size.toString(),
         "stopSpeedMetersPerSecond" to processingConfig.stopSpeedMetersPerSecond.toString(),
         "resumeSpeedMetersPerSecond" to processingConfig.resumeSpeedMetersPerSecond.toString(),
         "stopWindowMillis" to processingConfig.stopWindowMillis.toString(),
     )
+
+    /** Точки, попадающие в окно детектора остановок на текущий момент. */
+    private fun stopWindowPoints(): List<GeoPoint> {
+        val last = sessionPoints.lastOrNull() ?: return emptyList()
+        return sessionPoints.filter {
+            last.timestampEpochMillis - it.timestampEpochMillis <= processingConfig.stopWindowMillis
+        }
+    }
+
+    private fun windowDopplerLowerBound(): Double? {
+        val bounds = stopWindowPoints().mapNotNull { point ->
+            val speed = point.speedMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it >= 0.0 }
+                ?: return@mapNotNull null
+            val sigma = point.speedAccuracyMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
+                ?: processingConfig.defaultSpeedAccuracyMetersPerSecond
+            speed - sigma
+        }.sorted()
+        return bounds.getOrNull(bounds.size / 2)
+    }
 
     /**
      * Почему точка признана выбросом. Пустая строка означает, что она принята.
@@ -416,6 +514,9 @@ internal class TrackingSessionCoordinator(
         sample: LocationSample,
         previousPoint: GeoPoint? = sessionPoints.lastOrNull(),
     ): Map<String, String> = mapOf(
+        // Время фикса, а не время записи в лог: между ними лежит очередь логгера, и по
+        // второму нельзя ни восстановить шаг опроса, ни сшить запись с координатами.
+        "sampleTimestamp" to sample.timestampEpochMillis.toString(),
         "reportedSpeed" to sample.speedMetersPerSecond.toString(),
         "accuracyMeters" to sample.accuracyMeters.toString(),
         "sampleIntervalMillis" to previousPoint
@@ -425,6 +526,8 @@ internal class TrackingSessionCoordinator(
         "ageMillis" to sample.ageMillis.toString(),
         "verticalAccuracyMeters" to sample.verticalAccuracyMeters.toString(),
         "speedAccuracyMetersPerSecond" to sample.speedAccuracyMetersPerSecond.toString(),
+        "bearingDegrees" to sample.bearingDegrees.toString(),
+        "bearingAccuracyDegrees" to sample.bearingAccuracyDegrees.toString(),
         "satelliteCount" to sample.satelliteCount.toString(),
     )
 
@@ -434,6 +537,21 @@ internal class TrackingSessionCoordinator(
      * а после [FIX_WAIT_RELAXATION_MILLIS] ожидания подходит любая точка: грубый трек
      * лучше, чем секундомер, который так и не тронулся с места.
      */
+    /**
+     * Почему сэмпл не годится даже как сырое измерение; `null` — годится.
+     *
+     * Проверки намеренно стоят до фильтров трека, а не внутри них. Фильтр рассуждает о
+     * правдоподобии движения и решает, верить ли измерению; здесь же отсекается то, что
+     * измерением текущего положения не является вовсе — устаревший кэш и координата,
+     * посчитанная не по спутникам. Такому фиксу нечего противопоставить: он выглядит
+     * совершенно правдоподобно, просто относится к другому месту или другому времени.
+     */
+    private fun LocationSample.usabilityRejection(): String? = when {
+        (ageMillis ?: 0L) > MAXIMUM_FIX_AGE_MILLIS -> "STALE"
+        provider == NETWORK_PROVIDER -> "PROVIDER"
+        else -> null
+    }
+
     private fun LocationSample.isReliableFixAt(now: Long): Boolean {
         val accuracy = accuracyMeters ?: return true
         if (accuracy <= RELIABLE_FIX_ACCURACY_METERS) return true

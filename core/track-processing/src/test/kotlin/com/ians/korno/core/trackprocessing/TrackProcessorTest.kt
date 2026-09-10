@@ -3,7 +3,6 @@ package com.ians.korno.core.trackprocessing
 import assertk.assertThat
 import assertk.assertions.hasSize
 import assertk.assertions.isEqualTo
-import assertk.assertions.isCloseTo
 import assertk.assertions.isFalse
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThan
@@ -12,6 +11,18 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
 import org.junit.jupiter.api.Test
+
+/**
+ * Ускорение, при котором модель движения ничего не ограничивает и фильтр практически
+ * повторяет измерения.
+ *
+ * Это замена прежнему `smoothingRadius = 0`: тестам детектора остановок и статистики
+ * нужны ровно те координаты, которые в них записаны, а не оценка по ним. Выключателя у
+ * фильтра нет и быть не должно, но физически «выключить» его можно — сказав, что человек
+ * вправе ускоряться как угодно. Тогда предсказанию верить нечему, и вес целиком уходит
+ * измерению.
+ */
+private const val UNCONSTRAINED_ACCELERATION = 50.0
 
 class TrackProcessorTest {
     private val processor = TrackProcessor()
@@ -29,7 +40,10 @@ class TrackProcessorTest {
 
         assertThat(result.points[1].isOutlier).isTrue()
         assertThat(result.points[2].isOutlier).isFalse()
-        assertThat(result.statistics.distanceMeters).isGreaterThan(10.0)
+        // Между уцелевшими точками 11 м. Оценка выходит чуть короче: на второй точке
+        // фильтр ещё не знает скорости и потому не берёт смещение целиком. Это плата за
+        // холодный старт, и длится она первые пару фиксов.
+        assertThat(result.statistics.distanceMeters).isGreaterThan(8.0)
         assertThat(result.statistics.distanceMeters).isLessThan(12.0)
     }
 
@@ -47,27 +61,48 @@ class TrackProcessorTest {
     }
 
     @Test
-    fun `smoothing averages an interior point but keeps endpoints`() {
+    fun `filter pulls a lone excursion back towards its neighbours`() {
+        // Средняя точка уехала на 33 м в сторону при погрешности 10 м — это дрожание,
+        // а не манёвр, и модель движения ему не верит.
         val points = listOf(
-            point(id = 1L, latitude = 0.0, timestamp = 0L),
-            point(id = 2L, latitude = 0.0003, timestamp = 5_000L),
-            point(id = 3L, latitude = 0.0, timestamp = 10_000L),
+            point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 10f),
+            point(id = 2L, latitude = 0.0003, timestamp = 5_000L, accuracy = 10f),
+            point(id = 3L, latitude = 0.0, timestamp = 10_000L, accuracy = 10f),
         )
 
-        val smoothed = SmoothingUseCase()(points, radius = 1)
+        val filtered = processor.process(points, ActivityType.WALKING).points
 
-        assertThat(smoothed.first().latitude).isEqualTo(0.0)
-        assertThat(smoothed[1].latitude).isCloseTo(0.0001, 0.0000001)
-        assertThat(smoothed.last().latitude).isEqualTo(0.0)
+        assertThat(filtered[1].latitude).isLessThan(0.0002)
+        assertThat(filtered[1].latitude).isGreaterThan(0.0)
+    }
+
+    @Test
+    fun `filter keeps the last point smoothed just like the rest`() {
+        // Скользящее среднее по определению не могло сгладить конец трека: соседей справа
+        // нет. Именно эта точка уходила на живую карту, поэтому маркер во время записи
+        // показывал сырой фикс. Каузальная оценка обрабатывает её наравне со всеми.
+        val points = listOf(
+            point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 8f),
+            point(id = 2L, latitude = 0.000_009, timestamp = 5_000L, accuracy = 8f),
+            point(id = 3L, latitude = 0.000_018, timestamp = 10_000L, accuracy = 8f),
+            point(id = 4L, latitude = 0.000_027, timestamp = 15_000L, accuracy = 8f),
+            point(id = 5L, latitude = 0.000_200, timestamp = 20_000L, accuracy = 8f),
+        )
+
+        val filtered = processor.process(points, ActivityType.WALKING).points
+
+        // Последний фикс прыгнул на 19 м вбок от ровного хода в 1 м за пять секунд.
+        // Оценка обязана оказаться заметно ближе к продолжению траектории, чем к нему.
+        assertThat(filtered.last().latitude).isLessThan(0.000_150)
+        assertThat(filtered.last().isOutlier).isFalse()
     }
 
     @Test
     fun `stationary window is marked as stop and excluded from moving time`() {
         val config = TrackProcessingConfig(
             maximumSpeedMetersPerSecond = 10.0,
-            maximumAccelerationMetersPerSecondSquared = 10.0,
             maximumAccuracyMeters = 40.0,
-            smoothingRadius = 0,
+            processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION,
             stopWindowMillis = 15_000L,
             minimumStopDurationMillis = 10_000L,
             stopRadiusMeters = 15.0,
@@ -94,9 +129,8 @@ class TrackProcessorTest {
     fun `movement after a stop resumes statistics`() {
         val config = TrackProcessingConfig(
             maximumSpeedMetersPerSecond = 20.0,
-            maximumAccelerationMetersPerSecondSquared = 20.0,
             maximumAccuracyMeters = 40.0,
-            smoothingRadius = 0,
+            processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION,
             stopWindowMillis = 10_000L,
             minimumStopDurationMillis = 10_000L,
             stopRadiusMeters = 12.0,
@@ -219,7 +253,7 @@ class TrackProcessorTest {
         // Раньше проверка возобновления в этом случае просто не выполнялась, и запись
         // оставалась на автопаузе всю поездку.
         val config = TrackProcessingConfig.forActivityType(ActivityType.DRIVING)
-            .copy(smoothingRadius = 0)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
                 point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 8f, speed = 0f),
@@ -245,7 +279,7 @@ class TrackProcessorTest {
         // Точки стоянки оставались в окне и после возобновления, поэтому следующий же
         // сэмпл возвращал автопаузу — в логах это видно как переход туда-обратно за 100 мс.
         val config = TrackProcessingConfig.forActivityType(ActivityType.DRIVING)
-            .copy(smoothingRadius = 0)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
                 point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 8f, speed = 0f),
@@ -354,22 +388,63 @@ class TrackProcessorTest {
     }
 
     @Test
-    fun `outlier threshold does not inflate with the accuracy of the fixes`() {
-        // Раньше из отрезка вычиталась сумма погрешностей обеих точек. При типичных для
-        // города 20–25 м порог отъезжал за 40 км/ч, и на прогулке фильтр не срабатывал
-        // ни разу за всю запись: 123 точки, ноль выбросов.
-        val result = processor.process(
-            points = listOf(
-                point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 25f),
-                point(id = 2L, latitude = 43.000_063, timestamp = 7_000L, accuracy = 25f),
-                // 78 м за 7 с — это 40 км/ч, и погрешность 25 м этого не объясняет.
-                point(id = 3L, latitude = 43.000_764, timestamp = 14_000L, accuracy = 25f),
-            ),
-            activityType = ActivityType.WALKING,
+    fun `a walk does not accelerate to forty kilometres an hour`() {
+        // Регрессия: на прогулке фильтр не срабатывал ни разу за всю запись — 123 точки,
+        // ноль выбросов, потому что из отрезка вычиталась сумма погрешностей обеих точек.
+        // Допуск теперь растёт вместе с погрешностью, но остаётся допуском: при хорошем
+        // сигнале 78 м за 7 с шумом не объяснить, и предельная скорость такую точку ловит.
+        val steady = (0..9).map { index ->
+            point(
+                id = index.toLong(),
+                latitude = 43.0 + index * 0.000_063,
+                timestamp = index * 7_000L,
+                accuracy = 8f,
+            )
+        }
+        val leap = point(
+            id = 99L,
+            latitude = 43.0 + 9 * 0.000_063 + 0.000_701,
+            timestamp = 70_000L,
+            accuracy = 8f,
         )
 
+        val result = processor.process(steady + leap, ActivityType.WALKING)
+
         assertThat(result.points.last().isOutlier).isTrue()
+        assertThat(result.points.dropLast(1).none(GeoPoint::isOutlier)).isTrue()
     }
+
+    @Test
+    fun `the same leap on a poor signal is damped instead of dropped`() {
+        // А вот при погрешности 25 м тот же рывок шумом объясняется: 38 м прошёл, 40 м
+        // намерил — это чуть больше сигмы, ничего невероятного. Отбрасывать такую точку
+        // не за что, и раньше это была настоящая проблема, потому что отбросить было
+        // единственным, что фильтр умел. Теперь есть третий вариант: точку взять, но
+        // сдвинуться на малую часть её рывка.
+        val steady = (0..9).map { index ->
+            point(
+                id = index.toLong(),
+                latitude = 43.0 + index * 0.000_063,
+                timestamp = index * 7_000L,
+                accuracy = 25f,
+            )
+        }
+        val leapLatitude = 43.0 + 9 * 0.000_063 + 0.000_701
+        val leap = point(id = 99L, latitude = leapLatitude, timestamp = 70_000L, accuracy = 25f)
+
+        val result = processor.process(steady + leap, ActivityType.WALKING)
+
+        assertThat(result.points.last().isOutlier).isFalse()
+        // Сырая точка ушла бы на все 71 м от продолжения прогулки; оценка проходит около
+        // 38 м — примерно половину. Больше на таком сигнале и не выжать: при погрешности
+        // 25 м и шаге 7 с сама модель знает положение с точностью порядка 27 м, и повода
+        // предпочесть предсказание измерению у неё немного.
+        val estimated = result.points.last().latitude
+        val expectedWithoutLeap = 43.0 + 10 * 0.000_063
+        val leapOffset = leapLatitude - expectedWithoutLeap
+        assertThat(estimated - expectedWithoutLeap).isLessThan(leapOffset * 0.65)
+    }
+
 
     @Test
     fun `sparse stationary fixes are detected as a stop`() {
@@ -420,6 +495,50 @@ class TrackProcessorTest {
     }
 
     @Test
+    fun `a stop is detected on a track with no provider speed at all`() {
+        // Регрессия, существовавшая до фильтра: необходимая длительность окна считалась
+        // как время, за которое пешеход со скоростью порога вышел бы из круга погрешности.
+        // При 15 м и 0.5 м/с это тридцать секунд, а само окно ограничено пятнадцатью —
+        // условие не выполнялось никогда, и без доплеровской скорости стоянка не
+        // объявлялась вовсе. Смещение считается по сглаженным координатам, и такого
+        // запаса больше не требуется.
+        val walking = (0..9).map { index ->
+            point(id = index + 1L, latitude = 43.0 + index * 0.000_063, timestamp = index * 5_000L, accuracy = 15f)
+        }
+        val standing = (0..9).map { index ->
+            point(
+                id = 100L + index,
+                latitude = 43.0 + 9 * 0.000_063,
+                timestamp = 50_000L + index * 5_000L,
+                accuracy = 15f,
+            )
+        }
+
+        val result = processor.process(walking + standing, ActivityType.WALKING)
+
+        assertThat(result.points.takeLast(5).all(GeoPoint::isStop)).isTrue()
+    }
+
+    @Test
+    fun `the first seconds of a walk are not mistaken for a stop`() {
+        // Оценка скорости стартует с нуля и подбирается к истинной не сразу. Если решать
+        // по ней, начало каждой прогулки читается как стоянка: на этих данных так терялись
+        // первые двадцать восемь секунд. Смещение за окно стартовой оценки не имеет.
+        val points = (0..14).map { index ->
+            point(
+                id = index + 1L,
+                latitude = 43.0 + index * 0.000_041_3,
+                timestamp = index * 4_000L,
+                accuracy = 12f,
+            )
+        }
+
+        val result = processor.process(points, ActivityType.WALKING)
+
+        assertThat(result.points.none(GeoPoint::isStop)).isTrue()
+    }
+
+    @Test
     fun `a walker leaving the stop circle resumes without any provider speed`() {
         // Выход из автопаузы по одной лишь пороговой скорости недостижим для пешехода:
         // после вычитания погрешности он её просто не набирает, и запись залипает
@@ -443,19 +562,21 @@ class TrackProcessorTest {
         assertThat(result.points.take(8).all(GeoPoint::isStop)).isTrue()
         assertThat(result.points.last().isStop).isFalse()
         // Путь до выхода из круга стоянки в дистанцию не идёт — это цена гистерезиса:
-        // из пройденных 55 м засчитываются те, что после возобновления.
-        assertThat(result.statistics.distanceMeters).isGreaterThan(20.0)
+        // из пройденных 55 м засчитываются те, что после возобновления. Порог выхода
+        // теперь в полтора раза дальше круга стоянки, и цена соответственно выросла:
+        // так стоянка перестаёт разваливаться надвое от обычного сноса координат.
+        assertThat(result.statistics.distanceMeters).isGreaterThan(10.0)
     }
 
     @Test
     fun `stale evidence does not turn a long gap into a stop`() {
         val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
-            .copy(smoothingRadius = 0, maximumStopEvidenceGapMillis = 60_000L)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
                 point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 11f),
-                // Между фиксами прошло больше, чем стоянка вообще может доказывать:
-                // за это время можно уйти и вернуться.
+                // Между фиксами прошло на порядок больше окна детектора: за это время
+                // можно уйти и вернуться, и прямая между концами ничего не доказывает.
                 point(id = 2L, latitude = 43.000_001, timestamp = 600_000L, accuracy = 11f),
             ),
             activityType = ActivityType.WALKING,
@@ -463,6 +584,114 @@ class TrackProcessorTest {
         )
 
         assertThat(result.points.last().isStop).isFalse()
+    }
+
+    @Test
+    fun `the walk up to a stop is not swallowed by it`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Человек подошёл и встал. Стоянка объявляется по окну целиком, а окно к этому
+        // моменту дотягивается до подхода: раньше та ходьба помечалась стоянкой заодно
+        // и пропадала из трека дважды — временем из движения и дистанцией вместе
+        // с переносом опорной точки.
+        val walking = (0..5).map { index ->
+            point(
+                id = index + 1L,
+                latitude = 43.0 + index * 0.000_045,
+                timestamp = index * 4_000L,
+                accuracy = 8f,
+                speed = 1.25f,
+                speedAccuracy = 0.3f,
+            )
+        }
+        val standing = (0..7).map { index ->
+            point(
+                id = 100L + index,
+                latitude = 43.000_225,
+                timestamp = 24_000L + index * 4_000L,
+                accuracy = 8f,
+                speed = 0.05f,
+                speedAccuracy = 0.2f,
+            )
+        }
+
+        val result = processor.process(walking + standing, ActivityType.WALKING, config)
+
+        assertThat(result.points.take(walking.size).none(GeoPoint::isStop)).isTrue()
+        assertThat(result.points.last().isStop).isTrue()
+    }
+
+    @Test
+    fun `a point without provider speed stays inside the stop`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Обрезается только то, про что доплер прямо говорит «идёт». Отсутствие скорости
+        // ничего не доказывает, и вырезать по нему начало стоянки значило бы терять её
+        // всякий раз, когда провайдер скорость не отдаёт.
+        val standing = (0..9).map { index ->
+            point(
+                id = index + 1L,
+                latitude = 43.0,
+                timestamp = index * 4_000L,
+                accuracy = 8f,
+            )
+        }
+
+        val result = processor.process(standing, ActivityType.WALKING, config)
+
+        assertThat(result.points.first().isStop).isTrue()
+    }
+
+    @Test
+    fun `doppler overrides a collapsed window that looks like rest`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Схлопнутое окно: два фикса в 34 секундах друг от друга, между ними всё
+        // отбраковано по погрешности. Прямая между концами короткая и сама по себе
+        // читается как покой — но приёмник всё это время меряет скорость по сдвигу
+        // несущей и знает её с точностью до трети метра в секунду.
+        val result = processor.process(
+            points = listOf(
+                point(id = 1L, latitude = 43.0, timestamp = 0L, accuracy = 30f, speed = 1.35f, speedAccuracy = 0.36f),
+                point(
+                    id = 2L,
+                    latitude = 43.000_100,
+                    timestamp = 34_000L,
+                    accuracy = 30f,
+                    speed = 1.35f,
+                    speedAccuracy = 0.36f,
+                ),
+            ),
+            activityType = ActivityType.WALKING,
+            config = config,
+        )
+
+        assertThat(result.points.none(GeoPoint::isStop)).isTrue()
+    }
+
+    @Test
+    fun `doppler speed keeps a curved walk out of auto pause`() {
+        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+            .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
+        // Ходьба по дуге: смещение по прямой за окно мало и само по себе читается как
+        // покой, но приёмник всё это время меряет скорость по сдвигу несущей и уверенно
+        // показывает шаг. Именно так на прогулке включалась автопауза посреди движения.
+        val walking = (0..14).map { index ->
+            val angle = Math.PI * index / 14.0
+            point(
+                id = index + 1L,
+                latitude = 43.0 + 0.000_06 * kotlin.math.sin(angle),
+                longitude = 76.0 + 0.000_06 * (1 - kotlin.math.cos(angle)),
+                timestamp = index * 1_000L,
+                accuracy = 8f,
+                speed = 1.2f,
+                speedAccuracy = 0.3f,
+            )
+        }
+
+        val result = processor.process(walking, ActivityType.WALKING, config)
+
+        assertThat(result.points.none(GeoPoint::isStop)).isTrue()
     }
 
     @Test
@@ -509,20 +738,21 @@ class TrackProcessorTest {
     }
 
     @Test
-    fun `smoothing follows the better fix of the two`() {
-        // Невзвешенное среднее тянуло координату к худшему фиксу окна ровно так же,
-        // как к лучшему.
-        val smoothed = SmoothingUseCase()(
-            points = listOf(
-                point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 5f),
-                point(id = 2L, latitude = 0.0, timestamp = 5_000L, accuracy = 5f),
-                point(id = 3L, latitude = 0.001, timestamp = 10_000L, accuracy = 50f),
-            ),
-            radius = 1,
+    fun `filter weighs a fix by the accuracy it reports`() {
+        // Точный фикс и грубый описывают разные вещи: первый — положение, второй — круг,
+        // в котором оно где-то есть. Вес должен это различать.
+        val points = listOf(
+            point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 5f),
+            point(id = 2L, latitude = 0.0, timestamp = 5_000L, accuracy = 5f),
+            point(id = 3L, latitude = 0.000_300, timestamp = 10_000L, accuracy = 39f),
         )
 
-        // Со старым невзвешенным средним середина уехала бы на 0.000333.
-        assertThat(smoothed[1].latitude).isLessThan(0.0001)
+        val filtered = processor.process(points, ActivityType.WALKING).points
+
+        // 33 м при заявленных 39 м погрешности — фикс проходит гейт, но сдвинуть оценку
+        // на всю свою величину не вправе.
+        assertThat(filtered.last().isOutlier).isFalse()
+        assertThat(filtered.last().latitude).isLessThan(0.000_200)
     }
 
     @Test
@@ -576,19 +806,22 @@ class TrackProcessorTest {
         id: Long,
         latitude: Double,
         timestamp: Long,
+        longitude: Double = 0.0,
         accuracy: Float? = null,
         altitude: Double? = null,
         speed: Float? = null,
+        speedAccuracy: Float? = null,
         recordingStatus: RecordingStatus = RecordingStatus.RECORDING,
     ) = GeoPoint(
         id = id,
         activityId = 1L,
         latitude = latitude,
-        longitude = 0.0,
+        longitude = longitude,
         altitudeMeters = altitude,
         timestampEpochMillis = timestamp,
         accuracyMeters = accuracy,
         speedMetersPerSecond = speed,
+        speedAccuracyMetersPerSecond = speedAccuracy,
         recordingStatus = recordingStatus,
     )
 }

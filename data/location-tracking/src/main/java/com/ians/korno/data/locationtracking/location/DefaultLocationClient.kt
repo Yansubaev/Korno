@@ -31,7 +31,10 @@ internal class DefaultLocationClient(
             GpsAccuracy.BATTERY_SAVER -> Priority.PRIORITY_LOW_POWER
         }
         val request = LocationRequest.Builder(priority, config.intervalMillis)
-            .setMinUpdateIntervalMillis(config.minIntervalMillis)
+            // Ровно тот же интервал, а не доля от него: по нижней границе провайдер и
+            // выдаёт фиксы, и оставленный запас превращал запрошенную частоту в вдвое
+            // большую. Просить нечего сверх того, что уже сказано интервалом.
+            .setMinUpdateIntervalMillis(config.intervalMillis)
             // Без явной гранулярности Fused Location Provider выдаёт координаты по уровню
             // выданного разрешения. Приложение просит ACCESS_FINE_LOCATION, но при
             // умолчании система вправе огрубить фикс до сетевого — в логах это стометровая
@@ -69,6 +72,8 @@ private fun Location.toSample(): LocationSample = LocationSample(
     ageMillis = ageMillis(),
     verticalAccuracyMeters = verticalAccuracyOrNull(),
     speedAccuracyMetersPerSecond = speedAccuracyOrNull(),
+    bearingDegrees = bearing.takeIf { hasBearing() },
+    bearingAccuracyDegrees = bearingAccuracyOrNull(),
     satelliteCount = extras?.getInt(EXTRA_SATELLITES, -1)?.takeIf { it >= 0 },
 )
 
@@ -81,6 +86,11 @@ private fun Location.verticalAccuracyOrNull(): Float? {
 private fun Location.speedAccuracyOrNull(): Float? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !hasSpeedAccuracy()) return null
     return speedAccuracyMetersPerSecond
+}
+
+private fun Location.bearingAccuracyOrNull(): Float? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !hasBearingAccuracy()) return null
+    return bearingAccuracyDegrees
 }
 
 /**

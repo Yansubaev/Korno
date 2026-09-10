@@ -27,7 +27,7 @@ enum class TrackSource {
 
 class TrackProcessor(
     private val outlierFilter: OutlierFilterUseCase = OutlierFilterUseCase(),
-    private val smoothing: SmoothingUseCase = SmoothingUseCase(),
+    private val kalmanFilter: KalmanTrackFilterUseCase = KalmanTrackFilterUseCase(),
     private val stopDetection: StopDetectionUseCase = StopDetectionUseCase(),
     private val statisticsCalculator: StatisticsCalculatorUseCase = StatisticsCalculatorUseCase(),
 ) {
@@ -54,32 +54,65 @@ class TrackProcessor(
     /**
      * Вердикты по точкам без подсчёта статистики: живой записи статистика нужна
      * накопительная, а не пересчитанная с нуля (см. [IncrementalTrackProcessor]).
+     *
+     * @param backwardPass разрешён ли фильтру обратный проход. Он смотрит в будущее точки,
+     *   поэтому доступен только готовому треку; живой записи будущего взять негде, и она
+     *   получает каузальную оценку. Это единственное, чем обработка на экране записи
+     *   отличается от итоговой.
      */
     internal fun processPoints(
         points: List<GeoPoint>,
         config: TrackProcessingConfig,
-    ): List<GeoPoint> = points
+        backwardPass: Boolean = true,
+    ): List<GeoPoint> = processTrack(points, config, backwardPass).points
+
+    /**
+     * То же самое вместе с оценкой скорости фильтром.
+     *
+     * Оценка нужна не расчёту, а диагностике: по логу должно быть видно, почему включилась
+     * автопауза. Статистика для этого не годится — её `currentSpeed` на стоянке равен нулю
+     * по определению (см. [TrackStatisticsAccumulator]), то есть показывает уже принятое
+     * решение, а не то, из чего оно принято.
+     */
+    internal fun processTrack(
+        points: List<GeoPoint>,
+        config: TrackProcessingConfig,
+        backwardPass: Boolean = true,
+    ): ProcessedPoints = points
         .sortedWith(compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id))
         .splitWhen { previous, current ->
             previous.recordingStatus.isManualPause != current.recordingStatus.isManualPause
         }
-        .flatMap { segment ->
+        .map { segment ->
+            // Грубые проверки идут до фильтра, а не вместо него. Гейт невязки судит
+            // измерение по тому, насколько оно расходится с предсказанием, — но пока
+            // фильтр не сошёлся, предсказывать ему нечем, и первую же дикую точку он
+            // принял бы за истину и построил бы состояние вокруг неё.
             val filtered = outlierFilter(segment, config)
-            // Остановки ищутся по отфильтрованным, но ещё не сглаженным точкам.
-            // Пороги детектора выражены в погрешности исходного фикса, а сглаживание
-            // эту погрешность как раз и размывает: соседние точки затягивают в стоянку
-            // движение, которое началось после неё, и наоборот. На границе «стоял —
-            // пошёл» это давало сдвиг вердикта на радиус окна.
+            val estimated = kalmanFilter(filtered, config, backwardPass)
+            // Остановки ищутся по каузальной оценке, до обратного прохода. Обратный
+            // проход подмешивает в точку её будущее, а детектор как раз и решает, когда
+            // движение началось: сглаженная точка уже «знает», что через десять секунд
+            // вы пошли, и граница стоянки уезжает назад по времени.
             val detected = if (segment.first().recordingStatus.isManualPause) {
                 // Ручное перемещение на паузе нужно сохранить для карты, но оно не
                 // участвует ни в автопаузе, ни в расчёте остановок.
-                filtered.map { it.copy(isStop = false) }
+                estimated.points.map { it.copy(isStop = false) }
             } else {
-                stopDetection(filtered, config)
+                stopDetection(estimated.points, config, estimated.speeds)
             }
-            smoothing(detected, config.smoothingRadius, config.maximumSegmentDurationMillis)
+            ProcessedPoints(estimated.withSmoothedPositions(detected), estimated.speeds)
+        }
+        .fold(ProcessedPoints(emptyList(), emptyList())) { accumulated, segment ->
+            ProcessedPoints(accumulated.points + segment.points, accumulated.speeds + segment.speeds)
         }
 }
+
+/** Точки с вердиктами и оценка скорости фильтром для каждой из них; индексы совпадают. */
+internal class ProcessedPoints(
+    val points: List<GeoPoint>,
+    val speeds: List<EstimatedSpeed?>,
+)
 
 private val RecordingStatus.isManualPause: Boolean
     get() = this == RecordingStatus.MANUAL_PAUSE

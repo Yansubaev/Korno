@@ -1,22 +1,25 @@
 package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.model.GeoPoint
-import kotlin.math.abs
 
 /**
- * Отсев точек, которые не могут быть результатом движения.
+ * Отсев точек, которые не являются измерением положения.
  *
- * Проверок три, и они намеренно смотрят на разное:
+ * Это не основной фильтр выбросов — им стал гейт невязки в
+ * [KalmanTrackFilterUseCase]. Здесь остались только те проверки, которые гейт сделать
+ * не может, потому что до них он ещё не дошёл: пока фильтр не сошёлся, ему нечем
+ * предсказывать, и первую же дикую точку он принял бы за истину и построил бы вокруг неё
+ * всё состояние. Отсюда и разделение — грубая правдоподобность до фильтра,
+ * статистическая после.
  *
- * 1. **Погрешность.** Фикс грубее [TrackProcessingConfig.maximumAccuracyMeters] выбрасывается
- *    сразу, без сравнения с соседями. Такой точке нечего сказать о положении, и хуже всего
- *    то, что она портит и предыдущий отрезок, и следующий.
- * 2. **Скорость.** Сравнивается сырое расстояние, а не уменьшенное на погрешность. Раньше из
- *    каждого отрезка вычиталась сумма погрешностей обеих точек, и при типичных 20–25 м порог
- *    отъезжал за 40 км/ч — на прогулке фильтр не срабатывал ни разу. Погрешность теперь
- *    смягчает порог справа и ограничена [TrackProcessingConfig.outlierAccuracyAllowanceMeters].
- * 3. **Ускорение.** Считается по скорости, из которой погрешность уже вычтена: этот признак
- *    вторичен, и ложное срабатывание на дрожании координат хуже пропуска.
+ * Проверки ускорения здесь больше нет, и это не упрощение ради упрощения. Она считала
+ * производную от скорости, которая сама считалась по разнице шумных координат. При
+ * погрешности 15 м два соседних фикса расходятся в среднем на 19 м, и на секундном шаге
+ * «ускорение» такой пары измеряется десятками м/с² независимо от того, шёл человек или
+ * стоял. На калибровочном треке эта проверка браковала 146 точек из 400 — то есть треть
+ * совершенно нормальных измерений, — и ни один порог на это не влиял. Ровно то, что она
+ * должна была ловить, гейт ловит правильно: несовпадение с предсказанием модели движения
+ * и есть проверка ускорения, только сделанная с учётом того, насколько измерению верят.
  */
 class OutlierFilterUseCase {
     operator fun invoke(
@@ -24,7 +27,6 @@ class OutlierFilterUseCase {
         config: TrackProcessingConfig,
     ): List<GeoPoint> {
         var previousAccepted: GeoPoint? = null
-        var previousAdjustedSpeed: Double? = null
 
         return points.sortedWith(compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id)).map { point ->
             val previous = previousAccepted
@@ -37,32 +39,19 @@ class OutlierFilterUseCase {
             val elapsedSeconds = previous
                 ?.let { (point.timestampEpochMillis - it.timestampEpochMillis) / 1_000.0 }
                 ?.takeIf { it > 0.0 }
-            val rawDistance = previous?.let { distanceMeters(it, point) } ?: 0.0
-            val allowance = previous
-                ?.let { accuracyAllowanceMeters(it, point, config.outlierAccuracyAllowanceMeters) }
-                ?: 0.0
-            val adjustedSpeed = elapsedSeconds
-                ?.let { (rawDistance - allowance).coerceAtLeast(0.0) / it }
-                ?: 0.0
-            val acceleration = elapsedSeconds?.let { seconds ->
-                previousAdjustedSpeed?.let { abs(adjustedSpeed - it) / seconds }
-            }
             val invalidTimestamp = previous != null && elapsedSeconds == null
-            val implausibleMovement = elapsedSeconds != null &&
-                (
-                    rawDistance > allowance + config.maximumSpeedMetersPerSecond * elapsedSeconds ||
-                        (acceleration ?: 0.0) > config.maximumAccelerationMetersPerSecondSquared
-                    )
+            val impossibleDisplacement = previous != null && elapsedSeconds != null &&
+                distanceMeters(previous, point) >
+                accuracyAllowanceMeters(previous, point, config.outlierAccuracySigmas) +
+                config.maximumSpeedMetersPerSecond * elapsedSeconds
+
             val isOutlier = point.isOutlier ||
                 invalidCoordinates ||
                 unreliableAccuracy ||
                 invalidTimestamp ||
-                implausibleMovement
+                impossibleDisplacement
 
-            if (!isOutlier) {
-                previousAccepted = point
-                if (previous != null) previousAdjustedSpeed = adjustedSpeed
-            }
+            if (!isOutlier) previousAccepted = point
             point.copy(isOutlier = isOutlier, isStop = if (isOutlier) false else point.isStop)
         }
     }
