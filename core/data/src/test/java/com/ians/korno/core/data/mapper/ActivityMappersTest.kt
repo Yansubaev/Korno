@@ -24,6 +24,7 @@ class ActivityMappersTest {
             maxSpeedMetersPerSecond = 11.2,
             elevationGainMeters = 180.0,
             isManuallyEdited = true,
+            stepCount = 3_456,
         )
 
         assertThat(activity.toEntity().toDomain()).isEqualTo(activity)

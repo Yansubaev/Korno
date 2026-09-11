@@ -125,12 +125,26 @@ data class TrackProcessingConfig(
             // Порог остановки для пешехода долго стоял на 0.25 м/с — это 0.9 км/ч,
             // ниже шумового пола GPS на любой реальной погрешности, и автопауза
             // не срабатывала вовсе.
-            ActivityType.WALKING, ActivityType.HIKING -> TrackProcessingConfig(
+            ActivityType.WALKING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 5.5,
                 maximumAccuracyMeters = 40.0,
                 processNoiseAccelerationMetersPerSecondSquared = 0.25,
                 stopSpeedMetersPerSecond = 0.5,
                 resumeSpeedMetersPerSecond = 0.9,
+            )
+            // То же тело, что и у ходьбы, но с более терпимой автопаузой: на тропе шаг
+            // опроса шире (см. LocationUpdatePolicy), и окну детектора остановок нужно
+            // окно подлиннее, чтобы набрать несколько точек, а не одну-две. Короткая
+            // заминка — сфотографировать вид, завязать шнурки — не должна ставить паузу,
+            // а привал на тропе — должен.
+            ActivityType.HIKING -> TrackProcessingConfig(
+                maximumSpeedMetersPerSecond = 5.5,
+                maximumAccuracyMeters = 40.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.25,
+                stopSpeedMetersPerSecond = 0.5,
+                resumeSpeedMetersPerSecond = 0.9,
+                stopWindowMillis = 30_000L,
+                minimumStopDurationMillis = 20_000L,
             )
             ActivityType.RUNNING -> TrackProcessingConfig(
                 maximumSpeedMetersPerSecond = 10.0,
@@ -166,20 +180,27 @@ data class TrackProcessingConfig(
     }
 }
 
+/**
+ * Окна LOW/HIGH масштабируются от базового окна конфигурации, а не заданы абсолютно:
+ * у хайкинга оно шире, чем у ходьбы (см. [TrackProcessingConfig.forActivityType]), и
+ * фиксированные 25 000/10 000 схлопнули бы его обратно до значений ходьбы. Коэффициенты
+ * подобраны так, чтобы для базового окна 15 000/10 000 (все активности, кроме хайкинга)
+ * результат совпадал с прежними абсолютными числами.
+ */
 fun TrackProcessingConfig.withAutoPauseSensitivity(
     sensitivity: AutoPauseSensitivity,
 ): TrackProcessingConfig = when (sensitivity) {
     AutoPauseSensitivity.LOW -> copy(
-        stopWindowMillis = 25_000L,
-        minimumStopDurationMillis = 20_000L,
+        stopWindowMillis = stopWindowMillis * 5 / 3,
+        minimumStopDurationMillis = minimumStopDurationMillis * 2,
         stopRadiusMeters = 8.0,
         stopSpeedMetersPerSecond = stopSpeedMetersPerSecond * 0.7,
         resumeSpeedMetersPerSecond = resumeSpeedMetersPerSecond * 1.2,
     )
     AutoPauseSensitivity.MEDIUM -> this
     AutoPauseSensitivity.HIGH -> copy(
-        stopWindowMillis = 10_000L,
-        minimumStopDurationMillis = 5_000L,
+        stopWindowMillis = stopWindowMillis * 2 / 3,
+        minimumStopDurationMillis = minimumStopDurationMillis / 2,
         stopRadiusMeters = 16.0,
         stopSpeedMetersPerSecond = stopSpeedMetersPerSecond * 1.3,
         resumeSpeedMetersPerSecond = max(

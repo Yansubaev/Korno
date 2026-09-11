@@ -15,6 +15,8 @@ internal data class ActivityDetailState(
     val avgSpeedText: String = "",
     val maxSpeedText: String = "",
     val elevationText: String = "",
+    /** `null` — тип активности шаги не считает. */
+    val stepsText: String? = null,
     val routePoints: List<MapPoint> = emptyList(),
     /**
      * Всё, что посчитано по треку: линзы, графики, сплиты и остановки.

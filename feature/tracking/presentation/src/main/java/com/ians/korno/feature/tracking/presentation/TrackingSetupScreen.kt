@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -84,16 +85,18 @@ internal fun ActivityType.labelRes(): Int = when (this) {
     ActivityType.RUNNING -> R.string.tracking_type_run
     ActivityType.CYCLING -> R.string.tracking_type_ride
     ActivityType.WALKING -> R.string.tracking_type_walk
+    ActivityType.HIKING -> R.string.tracking_type_hike
     ActivityType.DRIVING -> R.string.tracking_type_drive
-    ActivityType.HIKING, ActivityType.OTHER -> R.string.tracking_type_walk
+    ActivityType.OTHER -> R.string.tracking_type_walk
 }
 
 internal fun ActivityType.icon(): ImageVector = when (this) {
     ActivityType.RUNNING -> Icons.Filled.DirectionsRun
     ActivityType.CYCLING -> Icons.Filled.DirectionsBike
     ActivityType.WALKING -> Icons.Filled.DirectionsWalk
+    ActivityType.HIKING -> Icons.Filled.Hiking
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.HIKING, ActivityType.OTHER -> Icons.Filled.DirectionsWalk
+    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
 }
 
 @Composable

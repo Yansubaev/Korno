@@ -12,7 +12,7 @@ import com.ians.korno.core.database.entity.GeoPointEntity
         ActivityEntity::class,
         GeoPointEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: activities.is_pending_summary (NOT NULL DEFAULT 0).
@@ -23,6 +23,9 @@ import com.ians.korno.core.database.entity.GeoPointEntity
         // Старые треки остаются с NULL: фильтр обходится без вектора скорости, просто
         // опирается на одни координаты, как и раньше.
         AutoMigration(from = 3, to = 4),
+        // 4 -> 5: activities.step_count (nullable). Старые активности шагов не считали,
+        // и NULL здесь означает именно это, а не ноль шагов.
+        AutoMigration(from = 4, to = 5),
     ],
 )
 abstract class KornoDatabase : RoomDatabase() {

@@ -4,6 +4,7 @@ import com.ians.korno.core.domain.error.onSuccess
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
+import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.RecordingStatus
@@ -113,6 +114,13 @@ internal class TrackingSessionCoordinator(
     private var waitingForFixSinceMillis: Long? = null
 
     /**
+     * Последнее показание TYPE_STEP_COUNTER — кумулятивного с последней перезагрузки
+     * устройства, а не за сессию. `null` — база ещё не поймана: следующее показание ляжет
+     * в неё, а не в счётчик шагов.
+     */
+    private var lastStepCounter: Long? = null
+
+    /**
      * Время последнего принятого фикса — ключ, по которому отсеиваются повторы.
      *
      * Провайдер регулярно отдаёт один и тот же фикс дважды: в разобранных логах так
@@ -148,11 +156,13 @@ internal class TrackingSessionCoordinator(
             liveProcessor.reset()
             lastFlushAtMillis = startTime
             waitingForFixSinceMillis = if (hasWarmFix) null else startTime
+            lastStepCounter = null
             _session.value = RecordingSession(
                 status = initialStatus,
                 activityId = id,
                 activityType = activityType,
                 startTimeEpochMillis = startTime,
+                stepCount = if (activityType.countsSteps) 0 else null,
             )
         }
 
@@ -225,6 +235,10 @@ internal class TrackingSessionCoordinator(
                 val processed = trackProcessor.process(rawPoints, activity.activityType, processingConfig)
                 lastFlushAtMillis = nowMillis()
                 waitingForFixSinceMillis = null
+                // Шаги не флашатся в БД по ходу записи (см. applyStepCounter), поэтому
+                // после восстановления процесса счёт продолжается с последнего
+                // подтверждённого значения активности, а не с накопленного в памяти.
+                lastStepCounter = null
                 _session.value = RecordingSession(
                     status = RecordingStatus.RECORDING,
                     activityId = activity.id,
@@ -236,6 +250,7 @@ internal class TrackingSessionCoordinator(
                     maxSpeedMetersPerSecond = processed.statistics.maxSpeedMetersPerSecond.toFloat(),
                     elevationGainMeters = processed.statistics.elevationGainMeters,
                     lastPoint = processed.points.lastOrNull { !it.isOutlier },
+                    stepCount = activity.stepCount,
                 )
                 recovered = true
             }
@@ -252,6 +267,42 @@ internal class TrackingSessionCoordinator(
             ) { "Active tracking session recovered" }
         }
         return recovered
+    }
+
+    /**
+     * Показание шагомера. Датчик кумулятивен с последней перезагрузки, а не за сессию:
+     * шаги активности — это разница между первым увиденным значением (базой) и всеми
+     * последующими. Разница засчитывается только в [RecordingStatus.RECORDING] и
+     * [RecordingStatus.AUTO_PAUSE] — так же, как и время: ручная пауза и ожидание сигнала
+     * из зачёта исключены.
+     *
+     * ponytail: значение не сохраняется в БД по ходу записи (в отличие от точек трека),
+     * поэтому при убийстве процесса счёт после восстановления сессии продолжается с
+     * последнего подтверждённого значения активности, а не с того, что было в памяти —
+     * см. [recoverActiveSessionIfNeeded]. Апгрейд, если это станет заметно на практике: то
+     * же периодическое сохранение, что и у точек ([flushBuffer]), но точечным UPDATE
+     * колонки `step_count`, а не перезаписью всей строки активности.
+     */
+    fun applyStepCounter(counter: Long) {
+        val current = _session.value
+        if (current.activityId == null || !current.activityType.countsSteps) return
+
+        val previous = lastStepCounter
+        lastStepCounter = counter
+        if (previous == null) {
+            // Первое показание — база, а не шаги: сама по себе она ничего не говорит о
+            // пройденном за сессию расстоянии.
+            _session.update { it.copy(stepCount = it.stepCount ?: 0) }
+            return
+        }
+
+        // Перезагрузка обнуляет датчик: отрицательная разница ничего не значит, а
+        // следующее показание само станет новой базой.
+        val delta = (counter - previous).coerceAtLeast(0L).toInt()
+        if (delta == 0 || current.status !in setOf(RecordingStatus.RECORDING, RecordingStatus.AUTO_PAUSE)) {
+            return
+        }
+        _session.update { it.copy(stepCount = (it.stepCount ?: 0) + delta) }
     }
 
     suspend fun applySample(sample: LocationSample) {
@@ -662,6 +713,7 @@ internal class TrackingSessionCoordinator(
                 maxSpeedMetersPerSecond = statistics.maxSpeedMetersPerSecond,
                 elevationGainMeters = statistics.elevationGainMeters,
                 isPendingSummary = pendingSummary,
+                stepCount = current.stepCount,
             ),
             points = processed.points,
         )
@@ -683,6 +735,7 @@ internal class TrackingSessionCoordinator(
         sessionPoints.clear()
         liveProcessor.reset()
         waitingForFixSinceMillis = null
+        lastStepCounter = null
         _session.value = RecordingSession(status = RecordingStatus.STOPPED)
         return activityId
     }

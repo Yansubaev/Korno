@@ -7,6 +7,7 @@
     <string name="tracking_type_run">Бег</string>
     <string name="tracking_type_ride">Велосипед</string>
     <string name="tracking_type_walk">Ходьба</string>
+    <string name="tracking_type_hike">Хайкинг</string>
     <string name="tracking_type_drive">Поездка</string>
 
     <string name="tracking_setup_title">Новая активность</string>
@@ -25,6 +26,13 @@
     <string name="tracking_setup_start">Начать</string>
 
     <string name="tracking_moving_value">В движении %1$s</string>
+    <string name="tracking_moving_value_with_steps">В движении %1$s · %2$s</string>
+    <plurals name="tracking_steps_count">
+        <item quantity="one">%1$d шаг</item>
+        <item quantity="few">%1$d шага</item>
+        <item quantity="many">%1$d шагов</item>
+        <item quantity="other">%1$d шага</item>
+    </plurals>
     <string name="tracking_distance_label">Дистанция</string>
     <string name="tracking_current_label">Сейчас</string>
     <string name="tracking_avg_label">Средняя</string>
@@ -50,6 +58,7 @@
     <string name="tracking_summary_map_empty">Точки маршрута не записаны</string>
     <string name="tracking_summary_time_label">Время</string>
     <string name="tracking_summary_pace_label">Темп</string>
+    <string name="tracking_summary_steps_label">Шаги</string>
     <string name="tracking_summary_title_field">Название</string>
     <string name="tracking_summary_note_field">Заметка</string>
     <string name="tracking_summary_note_placeholder">Добавьте заметку (необязательно)</string>

@@ -18,5 +18,6 @@
     <string name="activity_list_type_run">Run</string>
     <string name="activity_list_type_ride">Ride</string>
     <string name="activity_list_type_walk">Walk</string>
+    <string name="activity_list_type_hike">Hike</string>
     <string name="activity_list_type_drive">Drive</string>
 </resources>

@@ -155,6 +155,9 @@ internal class TrackingSummaryViewModel(
             } else {
                 "—"
             },
+            stepsText = stepCount?.let {
+                context.resources.getQuantityString(R.plurals.tracking_steps_count, it, it)
+            },
         )
     }
 
@@ -174,5 +177,6 @@ internal class TrackingSummaryViewModel(
         distanceText = stats.distanceText,
         durationText = stats.durationText,
         paceText = stats.paceText,
+        stepsText = stats.stepsText,
     )
 }

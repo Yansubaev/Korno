@@ -32,4 +32,6 @@ data class ActivityEntity(
     val isManuallyEdited: Boolean = false,
     @ColumnInfo(name = "is_pending_summary", defaultValue = "0")
     val isPendingSummary: Boolean = false,
+    @ColumnInfo(name = "step_count")
+    val stepCount: Int? = null,
 )

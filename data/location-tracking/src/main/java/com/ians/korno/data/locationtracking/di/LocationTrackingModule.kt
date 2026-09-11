@@ -9,6 +9,7 @@ import com.ians.korno.data.locationtracking.location.DefaultLocationClient
 import com.ians.korno.data.locationtracking.location.LocationClient
 import com.ians.korno.data.locationtracking.permission.DefaultLocationPermissionChecker
 import com.ians.korno.data.locationtracking.permission.LocationPermissionChecker
+import com.ians.korno.data.locationtracking.steps.StepCounterClient
 import org.koin.dsl.bind
 import org.koin.dsl.module
 
@@ -17,4 +18,5 @@ val locationTrackingModule = module {
     single { DefaultLocationClient(get()) } bind LocationClient::class
     single { DefaultLocationPermissionChecker(get()) } bind LocationPermissionChecker::class
     single { DefaultTrackingSignalSource(get(), get()) } bind TrackingSignalSource::class
+    single { StepCounterClient(get(), get()) }
 }

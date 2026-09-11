@@ -11,5 +11,6 @@
     <string name="home_type_run">Бег</string>
     <string name="home_type_ride">Велосипед</string>
     <string name="home_type_walk">Ходьба</string>
+    <string name="home_type_hike">Хайкинг</string>
     <string name="home_type_drive">Поездка</string>
 </resources>

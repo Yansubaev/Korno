@@ -9,6 +9,8 @@ internal data class TrackingSummaryState(
     val distanceText: String = "",
     val durationText: String = "",
     val paceText: String = "",
+    /** `null` — тип активности шаги не считает. */
+    val stepsText: String? = null,
     val title: String = "",
     val note: String = "",
     val routePoints: List<MapPoint> = emptyList(),

@@ -11,5 +11,6 @@
     <string name="home_type_run">Run</string>
     <string name="home_type_ride">Ride</string>
     <string name="home_type_walk">Walk</string>
+    <string name="home_type_hike">Hike</string>
     <string name="home_type_drive">Drive</string>
 </resources>

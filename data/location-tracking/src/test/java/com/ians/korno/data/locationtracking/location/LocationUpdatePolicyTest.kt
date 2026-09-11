@@ -62,6 +62,17 @@ class LocationUpdatePolicyTest {
     }
 
     @ParameterizedTest
+    @EnumSource(GpsAccuracy::class)
+    fun `hiking is polled less often than walking`(accuracy: GpsAccuracy) {
+        // Открытая местность обычно ловит сигнал увереннее города, а прогулка растягивается
+        // на часы — там экономия батареи стоит больше лишней точки, как и у машины.
+        val walking = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.WALKING)
+        val hiking = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.HIKING)
+
+        assertThat(hiking.intervalMillis).isGreaterThan(walking.intervalMillis)
+    }
+
+    @ParameterizedTest
     @EnumSource(ActivityType::class)
     fun `battery saver stays usable for the activity it records`(activityType: ActivityType) {
         // Порог отбраковки по погрешности для ходьбы — 40 м, и при опросе раз в пять

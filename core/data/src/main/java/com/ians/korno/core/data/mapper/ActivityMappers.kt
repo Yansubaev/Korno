@@ -20,6 +20,7 @@ internal fun ActivityEntity.toDomain(): Activity =
         elevationGainMeters = elevationGainMeters,
         isManuallyEdited = isManuallyEdited,
         isPendingSummary = isPendingSummary,
+        stepCount = stepCount,
     )
 
 internal fun Activity.toEntity(): ActivityEntity =
@@ -38,6 +39,7 @@ internal fun Activity.toEntity(): ActivityEntity =
         elevationGainMeters = elevationGainMeters,
         isManuallyEdited = isManuallyEdited,
         isPendingSummary = isPendingSummary,
+        stepCount = stepCount,
     )
 
 private fun String.toActivityType(): ActivityType =

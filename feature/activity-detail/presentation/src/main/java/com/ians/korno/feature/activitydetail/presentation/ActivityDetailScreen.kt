@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -138,8 +139,9 @@ internal fun ActivityType.icon(): ImageVector = when (this) {
     ActivityType.RUNNING -> Icons.Filled.DirectionsRun
     ActivityType.CYCLING -> Icons.Filled.DirectionsBike
     ActivityType.WALKING -> Icons.Filled.DirectionsWalk
+    ActivityType.HIKING -> Icons.Filled.Hiking
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.HIKING, ActivityType.OTHER -> Icons.Filled.DirectionsWalk
+    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
 }
 
 @Composable
@@ -317,7 +319,7 @@ private fun ActivityDetailContent(
 @Composable
 private fun SummaryGrid(state: ActivityDetailState, modifier: Modifier = Modifier) {
     val isPace = state.speedDisplay == SpeedDisplay.PACE
-    val stats = listOf(
+    val stats = listOfNotNull(
         stringResource(R.string.activity_detail_distance) to state.distanceText,
         stringResource(R.string.activity_detail_duration) to state.durationText,
         stringResource(R.string.activity_detail_moving) to state.movingText,
@@ -328,6 +330,7 @@ private fun SummaryGrid(state: ActivityDetailState, modifier: Modifier = Modifie
             if (isPace) R.string.activity_detail_best_pace else R.string.activity_detail_max_speed,
         ) to state.maxSpeedText,
         stringResource(R.string.activity_detail_elevation) to state.elevationText,
+        state.stepsText?.let { stringResource(R.string.activity_detail_steps) to it },
     )
     Column(modifier = modifier.padding(top = 20.dp)) {
         stats.chunked(3).forEach { row ->

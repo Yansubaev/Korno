@@ -17,6 +17,7 @@ import androidx.core.net.toUri
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.AppLogger
 import com.ians.korno.core.logging.LogCategory
@@ -26,6 +27,7 @@ import com.ians.korno.core.logging.error
 import com.ians.korno.data.locationtracking.diagnostics.TrackingSignalSource
 import com.ians.korno.data.locationtracking.location.LocationClient
 import com.ians.korno.data.locationtracking.location.LocationUpdatePolicy
+import com.ians.korno.data.locationtracking.steps.StepCounterClient
 import com.ians.korno.feature.tracking.data.R
 import com.ians.korno.feature.tracking.data.session.TrackingSessionCoordinator
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
@@ -68,9 +70,11 @@ internal class LocationTrackingService : Service() {
     private val logger: AppLogger by inject()
     private val logManager: LogManager by inject()
     private val signalSource: TrackingSignalSource by inject()
+    private val stepCounterClient: StepCounterClient by inject()
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var locationJob: Job? = null
+    private var stepJob: Job? = null
     private var signalJob: Job? = null
     private var preparationTimeoutJob: Job? = null
     private var isPreparing = false
@@ -107,6 +111,7 @@ internal class LocationTrackingService : Service() {
 
     override fun onDestroy() {
         locationJob?.cancel()
+        stepJob?.cancel()
         signalJob?.cancel()
         preparationTimeoutJob?.cancel()
         serviceScope.cancel()
@@ -142,7 +147,32 @@ internal class LocationTrackingService : Service() {
         preparationTimeoutJob = null
         startForegroundCompat(buildNotification(coordinator.session.value))
         startLocationUpdates()
+        startStepCollection()
         startSignalCollection()
+    }
+
+    /**
+     * Шагомер подписывается и отписывается вместе со сменой типа активности: у машины и
+     * велосипеда шаги не считаются, и держать датчик подписанным ради активности, которая
+     * им не пользуется, — просто лишний расход батареи.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun startStepCollection() {
+        if (stepJob?.isActive == true) return
+        stepJob = serviceScope.launch {
+            coordinator.session
+                .map { it.activityType.countsSteps }
+                .distinctUntilChanged()
+                .flatMapLatest { counts -> if (counts) stepCounterClient.stepCounts() else emptyFlow() }
+                .catch { error ->
+                    logger.error(
+                        category = LogCategory.SYSTEM,
+                        tag = TAG,
+                        throwable = error,
+                    ) { "Step counter stream failed" }
+                }
+                .collect(coordinator::applyStepCounter)
+        }
     }
 
     /**
@@ -260,6 +290,7 @@ internal class LocationTrackingService : Service() {
             isPreparing = false
             preparationTimeoutJob?.cancel()
             locationJob?.cancel()
+            stepJob?.cancel()
             signalJob?.cancel()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

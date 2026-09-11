@@ -90,13 +90,30 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
+    fun migration4To5KeepsActivitiesAndLeavesStepCountEmpty() {
+        helper.createDatabase(TEST_DATABASE_NAME, 4).use { database ->
+            database.insertActivity(id = 1L, title = "Evening walk")
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 5, true)
+
+        migrated.query("SELECT title, step_count FROM activities WHERE id = 1").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("Evening walk")
+            // Старые активности шагов не считали: NULL здесь значит «не измерялось»,
+            // а не ноль шагов.
+            assertThat(row.isNull(1)).isTrue()
+        }
+    }
+
+    @Test
     fun allMigrationsFromFirstVersionLeaveTheTrackReadableByRoom() = runTest {
         helper.createDatabase(TEST_DATABASE_NAME, 1).use { database ->
             database.insertActivity(id = 1L, title = "Hike")
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 4, true).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 5, true).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.

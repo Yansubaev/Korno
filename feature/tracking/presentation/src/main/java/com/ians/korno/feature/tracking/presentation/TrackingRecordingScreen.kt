@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -369,8 +370,15 @@ private fun MovingTimeLine(
             .clipToBounds()
             .wrapContentHeight(align = Alignment.Top, unbounded = true),
     ) {
+        val movingText = state.stepCount?.let { steps ->
+            stringResource(
+                R.string.tracking_moving_value_with_steps,
+                formatElapsed(state.movingTimeMillis),
+                pluralStringResource(R.plurals.tracking_steps_count, steps, steps),
+            )
+        } ?: stringResource(R.string.tracking_moving_value, formatElapsed(state.movingTimeMillis))
         Text(
-            text = stringResource(R.string.tracking_moving_value, formatElapsed(state.movingTimeMillis)),
+            text = movingText,
             style = MaterialTheme.typography.bodyMedium,
             fontSize = progress.lerp(13.sp, 15.sp, 19.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = progress.fade()),

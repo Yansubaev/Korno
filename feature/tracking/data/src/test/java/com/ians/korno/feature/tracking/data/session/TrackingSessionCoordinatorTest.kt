@@ -414,6 +414,81 @@ class TrackingSessionCoordinatorTest {
         assertThat(repository.updatedActivities.first().isPendingSummary).isEqualTo(true)
     }
 
+    @Test
+    fun `first step counter reading only sets the base, without counting steps`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+
+        coordinator.applyStepCounter(1_000L)
+
+        assertThat(coordinator.session.value.stepCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `steps accumulate while recording`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+
+        coordinator.applyStepCounter(1_000L)
+        coordinator.applyStepCounter(1_050L)
+        coordinator.applyStepCounter(1_120L)
+
+        assertThat(coordinator.session.value.stepCount).isEqualTo(120)
+    }
+
+    @Test
+    fun `steps do not accumulate during manual pause`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applyStepCounter(1_000L)
+
+        coordinator.pause()
+        coordinator.applyStepCounter(1_050L)
+        coordinator.resume()
+        coordinator.applyStepCounter(1_060L)
+
+        // Разница за время паузы (1000 -> 1050) отброшена; засчитан только шаг после
+        // возобновления (1050 -> 1060).
+        assertThat(coordinator.session.value.stepCount).isEqualTo(10)
+    }
+
+    @Test
+    fun `a sensor reset does not produce a negative step count`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applyStepCounter(1_000L)
+        coordinator.applyStepCounter(1_050L)
+
+        // Перезагрузка устройства обнуляет TYPE_STEP_COUNTER.
+        coordinator.applyStepCounter(5L)
+        coordinator.applyStepCounter(20L)
+
+        assertThat(coordinator.session.value.stepCount).isEqualTo(65)
+    }
+
+    @Test
+    fun `activities that do not count steps ignore the sensor`() = runTest {
+        coordinator.beginSession(ActivityType.DRIVING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+
+        coordinator.applyStepCounter(1_000L)
+        coordinator.applyStepCounter(1_050L)
+
+        assertThat(coordinator.session.value.stepCount).isNull()
+    }
+
+    @Test
+    fun `ending the session stores the accumulated step count on the activity`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applyStepCounter(1_000L)
+        coordinator.applyStepCounter(1_042L)
+
+        coordinator.endSession()
+
+        assertThat(repository.updatedActivities.first().stepCount).isEqualTo(42)
+    }
+
     /**
      * Прогрев перед стартом: пойманный сигнал позволяет начать запись сразу,
      * без ожидания на экране записи.

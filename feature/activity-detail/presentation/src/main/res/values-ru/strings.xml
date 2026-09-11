@@ -5,6 +5,13 @@
     <string name="activity_detail_avg_speed">Средняя скорость</string>
     <string name="activity_detail_max_speed">Макс. скорость</string>
     <string name="activity_detail_elevation">Набор высоты</string>
+    <string name="activity_detail_steps">Шаги</string>
+    <plurals name="activity_detail_steps_count">
+        <item quantity="one">%1$d шаг</item>
+        <item quantity="few">%1$d шага</item>
+        <item quantity="many">%1$d шагов</item>
+        <item quantity="other">%1$d шага</item>
+    </plurals>
     <string name="activity_detail_pace_chart">Темп по дистанции</string>
     <string name="activity_detail_avg_pace">Средний темп</string>
     <string name="activity_detail_best_pace">Лучший темп</string>

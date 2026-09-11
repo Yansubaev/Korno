@@ -5,6 +5,11 @@
     <string name="activity_detail_avg_speed">Avg speed</string>
     <string name="activity_detail_max_speed">Max speed</string>
     <string name="activity_detail_elevation">Elevation gain</string>
+    <string name="activity_detail_steps">Steps</string>
+    <plurals name="activity_detail_steps_count">
+        <item quantity="one">%1$d step</item>
+        <item quantity="other">%1$d steps</item>
+    </plurals>
     <string name="activity_detail_pace_chart">Pace over distance</string>
     <string name="activity_detail_avg_pace">Avg pace</string>
     <string name="activity_detail_best_pace">Best pace</string>

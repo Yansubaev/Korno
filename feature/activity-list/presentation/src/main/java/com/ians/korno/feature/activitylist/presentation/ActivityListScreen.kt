@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -110,16 +111,18 @@ private fun ActivityType.icon(): ImageVector = when (this) {
     ActivityType.RUNNING -> Icons.Filled.DirectionsRun
     ActivityType.CYCLING -> Icons.Filled.DirectionsBike
     ActivityType.WALKING -> Icons.Filled.DirectionsWalk
+    ActivityType.HIKING -> Icons.Filled.Hiking
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.HIKING, ActivityType.OTHER -> Icons.Filled.DirectionsWalk
+    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
 }
 
 private fun ActivityType.labelRes(): Int = when (this) {
     ActivityType.RUNNING -> R.string.activity_list_type_run
     ActivityType.CYCLING -> R.string.activity_list_type_ride
     ActivityType.WALKING -> R.string.activity_list_type_walk
+    ActivityType.HIKING -> R.string.activity_list_type_hike
     ActivityType.DRIVING -> R.string.activity_list_type_drive
-    ActivityType.HIKING, ActivityType.OTHER -> R.string.activity_list_type_walk
+    ActivityType.OTHER -> R.string.activity_list_type_walk
 }
 
 private fun ActivityPeriod.labelRes(): Int = when (this) {

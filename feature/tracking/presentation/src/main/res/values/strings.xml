@@ -7,6 +7,7 @@
     <string name="tracking_type_run">Run</string>
     <string name="tracking_type_ride">Ride</string>
     <string name="tracking_type_walk">Walk</string>
+    <string name="tracking_type_hike">Hike</string>
     <string name="tracking_type_drive">Drive</string>
 
     <string name="tracking_setup_title">New activity</string>
@@ -25,6 +26,11 @@
     <string name="tracking_setup_start">Start</string>
 
     <string name="tracking_moving_value">Moving %1$s</string>
+    <string name="tracking_moving_value_with_steps">Moving %1$s · %2$s</string>
+    <plurals name="tracking_steps_count">
+        <item quantity="one">%1$d step</item>
+        <item quantity="other">%1$d steps</item>
+    </plurals>
     <string name="tracking_distance_label">Distance</string>
     <string name="tracking_current_label">Current</string>
     <string name="tracking_avg_label">Average</string>
@@ -50,6 +56,7 @@
     <string name="tracking_summary_map_empty">No route points recorded</string>
     <string name="tracking_summary_time_label">Time</string>
     <string name="tracking_summary_pace_label">Pace</string>
+    <string name="tracking_summary_steps_label">Steps</string>
     <string name="tracking_summary_title_field">Title</string>
     <string name="tracking_summary_note_field">Note</string>
     <string name="tracking_summary_note_placeholder">Add a note (optional)</string>

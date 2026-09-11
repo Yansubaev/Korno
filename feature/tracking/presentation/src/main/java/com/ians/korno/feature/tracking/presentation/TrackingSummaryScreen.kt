@@ -108,6 +108,9 @@ private fun TrackingSummaryContent(
                 SummaryStat(stringResource(R.string.tracking_distance_label), state.distanceText, Modifier.weight(1f))
                 SummaryStat(stringResource(R.string.tracking_summary_time_label), state.durationText, Modifier.weight(1f))
                 SummaryStat(stringResource(R.string.tracking_summary_pace_label), state.paceText, Modifier.weight(1f))
+                state.stepsText?.let {
+                    SummaryStat(stringResource(R.string.tracking_summary_steps_label), it, Modifier.weight(1f))
+                }
             }
 
             Box(

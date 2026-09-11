@@ -40,5 +40,6 @@ internal val ACTIVITY_LIST_TYPES = listOf(
     ActivityType.RUNNING,
     ActivityType.CYCLING,
     ActivityType.WALKING,
+    ActivityType.HIKING,
     ActivityType.DRIVING,
 )

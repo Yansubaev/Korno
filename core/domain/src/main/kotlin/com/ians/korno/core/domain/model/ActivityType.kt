@@ -8,3 +8,7 @@ enum class ActivityType {
     HIKING,
     OTHER,
 }
+
+/** Активности на своих ногах, где шагомер что-то значит: велосипед и машина шагов не считают. */
+val ActivityType.countsSteps: Boolean
+    get() = this == ActivityType.WALKING || this == ActivityType.RUNNING || this == ActivityType.HIKING

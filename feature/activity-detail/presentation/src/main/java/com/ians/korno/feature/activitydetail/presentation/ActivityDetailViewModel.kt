@@ -299,6 +299,9 @@ internal class ActivityDetailViewModel(
                 track.analysis.elevation?.gainMeters ?: elevationGainMeters,
                 measurementSystem,
             ).text,
+            stepsText = stepCount?.let {
+                context.resources.getQuantityString(R.plurals.activity_detail_steps_count, it, it)
+            },
             routePoints = track.points.mapIndexed { index, point ->
                 MapPoint(
                     latitude = point.latitude,

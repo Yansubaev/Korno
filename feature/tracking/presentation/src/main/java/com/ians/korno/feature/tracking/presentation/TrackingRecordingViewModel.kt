@@ -113,6 +113,7 @@ internal class TrackingRecordingViewModel(
             currentSpeedValue = currentSpeedMetersPerSecond * if (isMetric) 3.6 else 2.2369362921,
             averageSpeedValue = averageSpeedMetersPerSecond() * if (isMetric) 3.6 else 2.2369362921,
             elevationGainValue = elevationGainMeters * if (isMetric) 1.0 else 3.280839895,
+            stepCount = stepCount,
             measurementSystem = measurementSystem,
             routePoints = route,
             currentPoint = lastPoint?.let {

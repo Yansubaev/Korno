@@ -17,6 +17,8 @@ data class RecordingSession(
     val maxSpeedMetersPerSecond: Float = 0f,
     val elevationGainMeters: Double = 0.0,
     val lastPoint: GeoPoint? = null,
+    /** `null` — шаги для этого типа активности не считаются (см. [ActivityType.countsSteps]). */
+    val stepCount: Int? = null,
 ) {
     val isActive: Boolean
         get() = status == RecordingStatus.WAITING_FOR_GPS ||

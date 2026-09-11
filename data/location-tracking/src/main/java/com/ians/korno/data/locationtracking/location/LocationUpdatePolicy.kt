@@ -101,12 +101,17 @@ object LocationUpdatePolicy {
      * шумная, а окну детектора остановок нужно набрать несколько штук. Машина за те же
      * десять секунд проезжает полтораста метров, её `maximumAccuracyMeters` вдвое шире,
      * и поездки длятся часами — там экономия батареи стоит больше лишней точки.
+     *
+     * Хайкинг стоит отдельно от ходьбы: то же тело, но открытая местность, где сигнал
+     * обычно ловится увереннее, чем в городе, а сама прогулка растягивается на часы —
+     * экономия батареи там окупается так же, как у машины.
      */
-    private enum class TrackingTempo { ON_FOOT, WHEELED, VEHICLE }
+    private enum class TrackingTempo { ON_FOOT, TRAIL, WHEELED, VEHICLE }
 
     private val ActivityType.tempo: TrackingTempo
         get() = when (this) {
-            ActivityType.WALKING, ActivityType.HIKING, ActivityType.RUNNING -> TrackingTempo.ON_FOOT
+            ActivityType.WALKING, ActivityType.RUNNING -> TrackingTempo.ON_FOOT
+            ActivityType.HIKING -> TrackingTempo.TRAIL
             ActivityType.CYCLING, ActivityType.OTHER -> TrackingTempo.WHEELED
             ActivityType.DRIVING -> TrackingTempo.VEHICLE
         }
@@ -135,6 +140,12 @@ object LocationUpdatePolicy {
             // пороге отбраковки в 40 м для ходьбы. Три точки из десяти не доживали до
             // трека вовсе, и режим переставал годиться для прогулки совсем.
             GpsAccuracy.BATTERY_SAVER -> 4_000L
+        }
+
+        TrackingTempo.TRAIL -> when (accuracy) {
+            GpsAccuracy.HIGH -> 2_000L
+            GpsAccuracy.BALANCED -> 5_000L
+            GpsAccuracy.BATTERY_SAVER -> 8_000L
         }
 
         TrackingTempo.WHEELED -> when (accuracy) {

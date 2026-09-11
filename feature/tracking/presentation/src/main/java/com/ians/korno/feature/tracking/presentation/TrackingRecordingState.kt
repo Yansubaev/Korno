@@ -14,6 +14,8 @@ internal data class TrackingRecordingState(
     val currentSpeedValue: Double = 0.0,
     val averageSpeedValue: Double = 0.0,
     val elevationGainValue: Double = 0.0,
+    /** `null` — тип активности шаги не считает. */
+    val stepCount: Int? = null,
     val measurementSystem: MeasurementSystem = MeasurementSystem.METRIC,
     val routePoints: List<MapPoint> = emptyList(),
     val currentPoint: MapPoint? = null,
