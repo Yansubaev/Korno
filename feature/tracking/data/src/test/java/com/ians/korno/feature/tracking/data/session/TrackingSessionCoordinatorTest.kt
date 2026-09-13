@@ -409,6 +409,35 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `the activity keeps the sensitivity it was recorded with, even if the setting changes`() = runTest {
+        preferencesRepository.preferences.value =
+            preferencesRepository.preferences.value.copy(autoPauseSensitivity = AutoPauseSensitivity.HIGH)
+        coordinator.beginSession(ActivityType.RUNNING)
+        preferencesRepository.preferences.value =
+            preferencesRepository.preferences.value.copy(autoPauseSensitivity = AutoPauseSensitivity.LOW)
+
+        coordinator.endSession()
+
+        assertThat(repository.createdActivities.single().autoPauseSensitivity).isEqualTo(AutoPauseSensitivity.HIGH)
+        assertThat(repository.updatedActivities.single().autoPauseSensitivity).isEqualTo(AutoPauseSensitivity.HIGH)
+    }
+
+    @Test
+    fun `a recovered session continues with the sensitivity of its activity`() = runTest {
+        repository.activeActivity = Activity(
+            id = 5L,
+            startTimeEpochMillis = clockMillis - 600_000L,
+            activityType = ActivityType.RUNNING,
+            autoPauseSensitivity = AutoPauseSensitivity.LOW,
+        )
+
+        coordinator.recoverActiveSessionIfNeeded()
+        coordinator.endSession()
+
+        assertThat(repository.updatedActivities.single().autoPauseSensitivity).isEqualTo(AutoPauseSensitivity.LOW)
+    }
+
+    @Test
     fun `end session from app confirms activity right away`() = runTest {
         coordinator.beginSession(ActivityType.RUNNING)
 

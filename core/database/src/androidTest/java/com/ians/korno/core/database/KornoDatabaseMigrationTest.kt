@@ -178,13 +178,40 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
+    fun migration8To9RecordsMediumSensitivityAndWhoChoseTheType() {
+        helper.createDatabase(TEST_DATABASE_NAME, 8).use { database ->
+            database.insertActivity(id = 1L, title = "Fixed walk")
+            database.insertActivity(id = 2L, title = "Auto ride", activityType = "CYCLING")
+            database.insertActivity(id = 3L, title = "Auto hike", activityType = "HIKING")
+            database.execSQL("UPDATE activities SET is_auto_mode = 1 WHERE id IN (2, 3)")
+            database.insertSegment(activityId = 2L, kind = "ON_FOOT", distanceMeters = 300.0)
+            database.insertSegment(activityId = 2L, kind = "CYCLING", distanceMeters = 5_000.0)
+            database.insertSegment(activityId = 3L, kind = "ON_FOOT", distanceMeters = 8_000.0)
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 9, true)
+
+        migrated.query(
+            "SELECT auto_pause_sensitivity, is_type_chosen_by_user FROM activities ORDER BY id",
+        ).use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("MEDIUM")
+            assertThat(row.getInt(1)).isEqualTo(1)
+            row.moveToNext()
+            assertThat(row.getInt(1)).isEqualTo(0)
+            row.moveToNext()
+            assertThat(row.getInt(1)).isEqualTo(1)
+        }
+    }
+
+    @Test
     fun allMigrationsFromFirstVersionLeaveTheTrackReadableByRoom() = runTest {
         helper.createDatabase(TEST_DATABASE_NAME, 1).use { database ->
             database.insertActivity(id = 1L, title = "Hike")
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 8, true).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 9, true).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.
@@ -206,6 +233,15 @@ class KornoDatabaseMigrationTest {
             database.close()
         }
     }
+}
+
+private fun SupportSQLiteDatabase.insertSegment(activityId: Long, kind: String, distanceMeters: Double) {
+    execSQL(
+        """
+        INSERT INTO activity_segments (activity_id, kind, start_ts, end_ts, steps, distance_meters, is_manually_edited)
+        VALUES ($activityId, '$kind', 1757052000000, 1757052600000, NULL, $distanceMeters, 0)
+        """.trimIndent(),
+    )
 }
 
 /** Колонки первой версии — те, что есть во всех версиях и вставляются одинаково. */

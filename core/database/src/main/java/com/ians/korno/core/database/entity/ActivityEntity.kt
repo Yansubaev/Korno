@@ -36,4 +36,8 @@ data class ActivityEntity(
     val stepCount: Int? = null,
     @ColumnInfo(name = "is_auto_mode", defaultValue = "0")
     val isAutoMode: Boolean = false,
+    @ColumnInfo(name = "auto_pause_sensitivity", defaultValue = "MEDIUM")
+    val autoPauseSensitivity: String = "MEDIUM",
+    @ColumnInfo(name = "is_type_chosen_by_user", defaultValue = "0")
+    val isTypeChosenByUser: Boolean = false,
 )

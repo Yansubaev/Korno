@@ -3,6 +3,7 @@ package com.ians.korno.core.data.mapper
 import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.AutoPauseSensitivity
 
 internal fun ActivityEntity.toDomain(): Activity =
     Activity(
@@ -22,6 +23,9 @@ internal fun ActivityEntity.toDomain(): Activity =
         isPendingSummary = isPendingSummary,
         stepCount = stepCount,
         isAutoMode = isAutoMode,
+        autoPauseSensitivity = AutoPauseSensitivity.entries.firstOrNull { it.name == autoPauseSensitivity }
+            ?: AutoPauseSensitivity.MEDIUM,
+        isTypeChosenByUser = isTypeChosenByUser,
     )
 
 internal fun Activity.toEntity(): ActivityEntity =
@@ -42,6 +46,8 @@ internal fun Activity.toEntity(): ActivityEntity =
         isPendingSummary = isPendingSummary,
         stepCount = stepCount,
         isAutoMode = isAutoMode,
+        autoPauseSensitivity = autoPauseSensitivity.name,
+        isTypeChosenByUser = isTypeChosenByUser,
     )
 
 private fun String.toActivityType(): ActivityType =

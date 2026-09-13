@@ -207,6 +207,8 @@ internal class TrackingSessionCoordinator(
             startTimeEpochMillis = startTime,
             activityType = sessionType,
             isAutoMode = autoMode,
+            autoPauseSensitivity = autoPauseSensitivity,
+            isTypeChosenByUser = !autoMode,
         )
         // Запись начинается с одного открытого сегмента: в фиксированном режиме он так
         // и останется единственным, в авторежиме его вид уточнит детектор.
@@ -297,7 +299,11 @@ internal class TrackingSessionCoordinator(
                     emptyList()
                 }
                 val segmentKind = segments.lastOrNull()?.kind
-                loadRecordingPreferences(segmentKind?.profileActivityType ?: activity.activityType)
+                // Чувствительность — та, с которой запись началась, а не текущая настройка.
+                loadRecordingPreferences(
+                    activityType = segmentKind?.profileActivityType ?: activity.activityType,
+                    sensitivity = activity.autoPauseSensitivity,
+                )
                 resetSegments(segments, stepCount = activity.stepCount)
                 pointBuffer.clear()
                 val restoredPoints = when (val result = trackRepository.observeGeoPoints(activity.id).first()) {
@@ -924,6 +930,8 @@ internal class TrackingSessionCoordinator(
                     startTimeEpochMillis = atMillis,
                     activityType = current.activityType,
                     isAutoMode = current.isAutoMode,
+                    autoPauseSensitivity = autoPauseSensitivity,
+                    isTypeChosenByUser = !current.isAutoMode,
                 ),
             )
         }
@@ -1050,6 +1058,8 @@ internal class TrackingSessionCoordinator(
                         .sumOf { it.stepCount ?: 0 }
                 },
                 isAutoMode = current.isAutoMode,
+                autoPauseSensitivity = autoPauseSensitivity,
+                isTypeChosenByUser = !current.isAutoMode,
             )
             trackRepository.replaceTrack(
                 activity = activity,
@@ -1216,13 +1226,16 @@ internal class TrackingSessionCoordinator(
             }
         }
 
-    private suspend fun loadRecordingPreferences(activityType: ActivityType) {
+    private suspend fun loadRecordingPreferences(
+        activityType: ActivityType,
+        sensitivity: AutoPauseSensitivity? = null,
+    ) {
         val preferences = preferencesRepository.observePreferences().first()
         autoPauseEnabled = preferences.autoPauseEnabled
-        autoPauseSensitivity = preferences.autoPauseSensitivity
+        autoPauseSensitivity = sensitivity ?: preferences.autoPauseSensitivity
         gpsAccuracy = preferences.gpsAccuracy
         processingConfig = TrackProcessingConfig.forActivityType(activityType)
-            .withAutoPauseSensitivity(preferences.autoPauseSensitivity)
+            .withAutoPauseSensitivity(autoPauseSensitivity)
         liveProcessor = IncrementalTrackProcessor(processingConfig)
     }
 
