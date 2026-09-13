@@ -351,25 +351,6 @@ class TrackProcessorTest {
     }
 
     @Test
-    fun `manual correction removes selected points and marks retained points`() {
-        val correction = ManualCorrectionUseCase(processor)
-
-        val result = correction(
-            points = listOf(
-                point(id = 1L, latitude = 0.0, timestamp = 0L),
-                point(id = 2L, latitude = 1.0, timestamp = 5_000L),
-                point(id = 3L, latitude = 0.0001, timestamp = 10_000L),
-            ),
-            removedPointIds = setOf(2L),
-            activityType = ActivityType.WALKING,
-        )
-
-        assertThat(result.points.map(GeoPoint::id)).isEqualTo(listOf(1L, 3L))
-        assertThat(result.points.all(GeoPoint::isManuallyEdited)).isTrue()
-        assertThat(result.statistics.distanceMeters).isGreaterThan(10.0)
-    }
-
-    @Test
     fun `poor accuracy fix is dropped instead of dragging the track`() {
         // Регрессия по логу прогулки: фиксы с погрешностью 100 м приходили от сети,
         // попадали в трек как есть и давали прыжки в полторы сотни метров.

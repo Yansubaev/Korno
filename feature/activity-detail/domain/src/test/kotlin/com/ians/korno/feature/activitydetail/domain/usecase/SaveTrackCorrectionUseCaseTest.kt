@@ -17,8 +17,8 @@ import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.TrackRepository
-import com.ians.korno.core.trackprocessing.ManualCorrectionUseCase
-import com.ians.korno.core.trackprocessing.TrackProcessor
+import com.ians.korno.core.domain.model.toSingleSegment
+import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -28,16 +28,14 @@ class SaveTrackCorrectionUseCaseTest {
     @Test
     fun `save removes selected point and persists recalculated activity atomically`() = runTest {
         val repository = FakeTrackRepository()
-        val useCase = SaveTrackCorrectionUseCase(
-            trackRepository = repository,
-            manualCorrection = ManualCorrectionUseCase(TrackProcessor()),
-        )
+        val useCase = SaveTrackCorrectionUseCase(repository, FinalizeTrackUseCase())
         val activity = Activity(
             id = 7L,
             startTimeEpochMillis = 0L,
             endTimeEpochMillis = 10_000L,
             activityType = ActivityType.WALKING,
             distanceMeters = 50_000.0,
+            isTypeChosenByUser = true,
         )
         val points = listOf(
             point(id = 1L, latitude = 0.0),
@@ -45,13 +43,30 @@ class SaveTrackCorrectionUseCaseTest {
             point(id = 3L, latitude = 0.0001),
         )
 
-        val result = useCase(activity, points, removedPointIds = setOf(2L))
+        val result = useCase(activity, points, listOf(activity.toSingleSegment()), removedPointIds = setOf(2L))
 
         assertThat(result).isEqualTo(Result.Success(Unit))
         assertThat(repository.replacedPoints).hasSize(2)
         assertThat(repository.replacedPoints.map(GeoPoint::id)).isEqualTo(listOf(1L, 3L))
         assertThat(repository.replacedActivity!!.isManuallyEdited).isTrue()
+        assertThat(repository.replacedPoints.all(GeoPoint::isManuallyEdited)).isTrue()
         assertThat(repository.replacedActivity!!.distanceMeters).isGreaterThan(10.0)
+    }
+
+    @Test
+    fun `correcting a mixed activity keeps each segment on its own profile, and the preview agrees`() = runTest {
+        val repository = FakeTrackRepository()
+        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, activityType = ActivityType.DRIVING, isAutoMode = true)
+        val removed = setOf(30L)
+
+        SaveTrackCorrectionUseCase(repository, FinalizeTrackUseCase())(activity, mixedPoints, mixedSegments, removed)
+        val preview = PreviewTrackCorrectionUseCase(FinalizeTrackUseCase())(activity, mixedPoints, mixedSegments, removed)
+
+        val segments = repository.replacedSegments!!
+        // Пешие пороги, которыми правка считалась раньше, выкинули бы автобус целиком.
+        assertThat(segments[1].distanceMeters).isGreaterThan(1_200.0)
+        assertThat(repository.replacedActivity!!.distanceMeters).isEqualTo(segments.sumOf { it.distanceMeters })
+        assertThat(preview).isEqualTo(repository.replacedActivity!!.distanceMeters)
     }
 
     @Test
@@ -72,7 +87,7 @@ class SaveTrackCorrectionUseCaseTest {
     @Test
     fun `changing a kind reprocesses the track and the derived type follows the new dominant kind`() = runTest {
         val repository = FakeTrackRepository()
-        val useCase = ChangeActivitySegmentKindUseCase(repository, TrackProcessor())
+        val useCase = ChangeActivitySegmentKindUseCase(repository, FinalizeTrackUseCase())
         val activity = Activity(
             id = 7L,
             startTimeEpochMillis = 0L,
@@ -96,9 +111,9 @@ class SaveTrackCorrectionUseCaseTest {
     @Test
     fun `a type chosen by the user survives a kind change`() = runTest {
         val repository = FakeTrackRepository()
-        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, activityType = ActivityType.HIKING, isAutoMode = true)
+        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, activityType = ActivityType.HIKING, isAutoMode = true, isTypeChosenByUser = true)
 
-        ChangeActivitySegmentKindUseCase(repository, TrackProcessor())(
+        ChangeActivitySegmentKindUseCase(repository, FinalizeTrackUseCase())(
             activity, mixedPoints, mixedSegments, segmentIndex = 1, kind = SegmentKind.CYCLING,
         )
 

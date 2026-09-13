@@ -62,6 +62,8 @@ class TrackProcessor(
     }
 
     /**
+     * Снаружи модуля — только через [FinalizeTrackUseCase].
+     *
      * Смешанная запись: точки делятся по времени сегментов, и каждый участок проходит
      * pipeline со своим профилем порогов — пешие пороги выкинули бы автобус, транспортные
      * пропустили бы дрожание пешехода.
@@ -77,7 +79,7 @@ class TrackProcessor(
      * @param segments сегменты одной записи по порядку, закрытые; первые точки до начала
      *   первого сегмента и после конца последнего достаются им.
      */
-    fun processSegments(
+    internal fun processSegments(
         points: List<GeoPoint>,
         segments: List<ActivitySegment>,
         configFor: (SegmentKind) -> TrackProcessingConfig,
