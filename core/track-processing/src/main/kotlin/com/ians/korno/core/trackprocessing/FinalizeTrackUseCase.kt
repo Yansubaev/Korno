@@ -14,6 +14,8 @@ data class FinalizedTrack(
     val activity: Activity,
     val points: List<GeoPoint>,
     val segments: List<ActivitySegment>,
+    /** Итоги вместе с диагностикой разрывов, которой в [Activity] нет. */
+    val statistics: TrackStatistics,
 )
 
 /**
@@ -64,6 +66,7 @@ class FinalizeTrackUseCase(
             ),
             points = track.points,
             segments = track.segments,
+            statistics = statistics,
         )
     }
 

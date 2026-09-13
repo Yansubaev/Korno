@@ -599,6 +599,16 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `a fixed-mode hike is saved as a hike, not as the walk its segment kind suggests`() = runTest {
+        beginWarmedSession(ActivityType.HIKING)
+
+        coordinator.endSession()
+
+        assertThat(repository.updatedActivities.single().activityType).isEqualTo(ActivityType.HIKING)
+        assertThat(repository.replacedSegments!!.single().kind).isEqualTo(SegmentKind.ON_FOOT)
+    }
+
+    @Test
     fun `auto mode starts with an unknown segment regardless of the chosen type`() = runTest {
         coordinator.beginSession(ActivityType.RUNNING, autoMode = true)
 

@@ -14,7 +14,6 @@ import com.ians.korno.core.domain.model.RecognizedActivity
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.activityType
-import com.ians.korno.core.domain.model.dominantKind
 import com.ians.korno.core.domain.model.toSingleSegment
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
@@ -29,6 +28,7 @@ import com.ians.korno.core.logging.warn
 import com.ians.korno.core.trackprocessing.ActivityModeDecoder
 import com.ians.korno.core.trackprocessing.DetectorEvent
 import com.ians.korno.core.trackprocessing.DetectorSignal
+import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
 import com.ians.korno.core.trackprocessing.LiveTrackUpdate
 import com.ians.korno.core.trackprocessing.ModeDecoderInput
@@ -38,7 +38,6 @@ import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
 import com.ians.korno.core.trackprocessing.TrackStatistics
 import com.ians.korno.core.trackprocessing.profileActivityType
-import com.ians.korno.core.trackprocessing.SegmentedTrack
 import com.ians.korno.core.trackprocessing.withAutoPauseSensitivity
 import com.ians.korno.data.locationtracking.diagnostics.TrackingSignal
 import com.ians.korno.data.locationtracking.location.LocationSample
@@ -118,6 +117,7 @@ internal class TrackingSessionCoordinator(
     private val activityLogScope: ActivityLogScope = NoOpActivityLogScope,
     private val segmentDetector: SegmentDetector = SegmentDetector(),
     private val modeDecoder: ActivityModeDecoder = ActivityModeDecoder(),
+    private val finalizeTrack: FinalizeTrackUseCase = FinalizeTrackUseCase(trackProcessor, segmentDetector),
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     private val _session = MutableStateFlow(RecordingSession())
@@ -1013,62 +1013,30 @@ internal class TrackingSessionCoordinator(
         }
         // Под тем же мьютексом, что и границы сегментов: отложенная запись границы, выполненная
         // после перезаписи, вставила бы лишний открытый сегмент в уже закрытую запись.
-        val processedPointCount: Int
-        val statistics: TrackStatistics
-        val qualityPoints: List<GeoPoint>
-        segmentWriteMutex.withLock {
-            val track = if (current.isAutoMode) {
-                // Короткие сегменты сливаются по грубой дистанции, и только потом каждый
-                // оставшийся проходит pipeline со своим профилем: так дистанция итоговых
-                // сегментов считается по их собственным порогам.
-                val merged = segmentDetector.mergeShortSegments(decodedSessionSegments(current, activityId, endTime))
-                trackProcessor.processSegments(sessionPoints, merged) { kind ->
-                    TrackProcessingConfig.forActivityType(kind.profileActivityType)
-                        .withAutoPauseSensitivity(autoPauseSensitivity)
-                }
-            } else {
-                val processed = trackProcessor.process(sessionPoints, current.activityType, processingConfig)
-                SegmentedTrack(processed.points, processed.statistics, segments = emptyList())
-            }
-            statistics = track.statistics
-            qualityPoints = track.points
-            processedPointCount = track.points.size
-            val segments = track.segments.takeIf { current.isAutoMode }
+        val finalized = segmentWriteMutex.withLock {
             val activity = Activity(
                 id = activityId,
                 startTimeEpochMillis = current.startTimeEpochMillis,
                 endTimeEpochMillis = endTime,
-                // Авторежим: тип — по виду с наибольшей дистанцией; на экране итога его
-                // можно сменить, например на хайкинг.
-                activityType = segments?.let { it.dominantKind()?.activityType ?: ActivityType.OTHER }
-                    ?: current.activityType,
-                distanceMeters = statistics.distanceMeters,
-                movingTimeMillis = statistics.movingTimeMillis,
+                activityType = current.activityType,
                 elapsedTimeMillis = elapsedTime,
-                averageSpeedMetersPerSecond = statistics.averageSpeedMetersPerSecond,
-                maxSpeedMetersPerSecond = statistics.maxSpeedMetersPerSecond,
-                elevationGainMeters = statistics.elevationGainMeters,
                 isPendingSummary = pendingSummary,
-                // В сводку идут только шаги на ногах: при педалировании шагомер может считать
-                // шаги, но человек их не делал.
-                stepCount = if (segments == null || current.stepCount == null) {
-                    current.stepCount
-                } else {
-                    segments.filter { it.kind == SegmentKind.ON_FOOT || it.kind == SegmentKind.RUNNING }
-                        .sumOf { it.stepCount ?: 0 }
-                },
+                stepCount = current.stepCount,
                 isAutoMode = current.isAutoMode,
                 autoPauseSensitivity = autoPauseSensitivity,
                 isTypeChosenByUser = !current.isAutoMode,
             )
-            trackRepository.replaceTrack(
-                activity = activity,
-                points = track.points,
-                // Открытый сегмент перезаписывается закрытым целиком из сессии: так он
-                // переживает и восстановление после смерти процесса, и сдвиг старта к фиксу.
-                segments = segments ?: listOf(activity.toSingleSegment()),
-            )
-            resetSegments(emptyList(), stepCount = null)
+            // Открытый сегмент перезаписывается закрытым целиком из сессии: так он
+            // переживает и восстановление после смерти процесса, и сдвиг старта к фиксу.
+            val segments = if (current.isAutoMode) {
+                decodedSessionSegments(current, activityId, endTime)
+            } else {
+                listOf(activity.toSingleSegment())
+            }
+            finalizeTrack(activity, sessionPoints, segments).also { track ->
+                trackRepository.replaceTrack(track.activity, track.points, track.segments)
+                resetSegments(emptyList(), stepCount = null)
+            }
         }
 
         logger.info(
@@ -1076,10 +1044,10 @@ internal class TrackingSessionCoordinator(
             tag = TAG,
             fields = mapOf(
                 "activityId" to activityId.toString(),
-                "pointCount" to processedPointCount.toString(),
+                "pointCount" to finalized.points.size.toString(),
                 "elapsedTimeMillis" to elapsedTime.toString(),
                 "pendingSummary" to pendingSummary.toString(),
-            ) + trackQualityFields(qualityPoints, statistics, elapsedTime),
+            ) + trackQualityFields(finalized.points, finalized.statistics, elapsedTime),
         ) { "Tracking session stopped" }
 
         // Область закрывается последней: запись об остановке должна попасть в лог активности.
