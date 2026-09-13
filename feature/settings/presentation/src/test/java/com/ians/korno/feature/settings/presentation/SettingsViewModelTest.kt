@@ -374,6 +374,8 @@ class SettingsViewModelTest {
         override suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local> = success()
         override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
 
+        override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
+
         override suspend fun setPrivacyZone(value: PrivacyZone): EmptyResult<DataError.Local> {
             preferences.value = preferences.value.copy(privacyZone = value)
             return success()

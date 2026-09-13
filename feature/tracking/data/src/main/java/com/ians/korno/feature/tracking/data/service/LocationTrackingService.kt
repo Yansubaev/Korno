@@ -17,6 +17,7 @@ import androidx.core.net.toUri
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.AppLogger
@@ -24,6 +25,8 @@ import com.ians.korno.core.logging.LogCategory
 import com.ians.korno.core.logging.LogManager
 import com.ians.korno.core.logging.info
 import com.ians.korno.core.logging.error
+import com.ians.korno.data.locationtracking.diagnostics.ActivityRecognitionSignalSource
+import com.ians.korno.data.locationtracking.diagnostics.TrackingSignal
 import com.ians.korno.data.locationtracking.diagnostics.TrackingSignalSource
 import com.ians.korno.data.locationtracking.location.LocationClient
 import com.ians.korno.data.locationtracking.location.LocationUpdatePolicy
@@ -70,12 +73,14 @@ internal class LocationTrackingService : Service() {
     private val logger: AppLogger by inject()
     private val logManager: LogManager by inject()
     private val signalSource: TrackingSignalSource by inject()
+    private val activityRecognitionSource: ActivityRecognitionSignalSource by inject()
     private val stepCounterClient: StepCounterClient by inject()
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var locationJob: Job? = null
     private var stepJob: Job? = null
     private var signalJob: Job? = null
+    private var recognitionJob: Job? = null
     private var preparationTimeoutJob: Job? = null
     private var isPreparing = false
     private var measurementSystem = MeasurementSystem.METRIC
@@ -113,6 +118,7 @@ internal class LocationTrackingService : Service() {
         locationJob?.cancel()
         stepJob?.cancel()
         signalJob?.cancel()
+        recognitionJob?.cancel()
         preparationTimeoutJob?.cancel()
         serviceScope.cancel()
         super.onDestroy()
@@ -149,21 +155,25 @@ internal class LocationTrackingService : Service() {
         startLocationUpdates()
         startStepCollection()
         startSignalCollection()
+        startRecognitionCollection()
     }
 
     /**
-     * Шагомер подписывается и отписывается вместе со сменой типа активности: у машины и
-     * велосипеда шаги не считаются, и держать датчик подписанным ради активности, которая
-     * им не пользуется, — просто лишний расход батареи.
+     * Шагомер подписывается только тогда, когда он чем-то полезен: шаги считаются у пеших
+     * типов и всю запись в авторежиме, а при диагностическом логировании показания пишутся
+     * для всех — по ним калибруется детектор вида движения. Держать датчик ради машины без
+     * лога — просто лишний расход батареи.
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun startStepCollection() {
         if (stepJob?.isActive == true) return
         stepJob = serviceScope.launch {
-            coordinator.session
-                .map { it.activityType.countsSteps }
+            combine(
+                coordinator.session.map { it.isAutoMode || it.activityType.countsSteps },
+                logManager.observeSettings().map { settings -> settings.isAvailable && settings.enabled },
+            ) { counts, loggingActive -> counts || loggingActive }
                 .distinctUntilChanged()
-                .flatMapLatest { counts -> if (counts) stepCounterClient.stepCounts() else emptyFlow() }
+                .flatMapLatest { needed -> if (needed) stepCounterClient.stepCounts() else emptyFlow() }
                 .catch { error ->
                     logger.error(
                         category = LogCategory.SYSTEM,
@@ -176,8 +186,36 @@ internal class LocationTrackingService : Service() {
     }
 
     /**
-     * Системные сигналы стоят батареи (особенно распознавание активности), а нужны только
-     * для разбора логов. Поэтому подписка живёт под флагом логирования: в release-сборке
+     * Распознавание активности нужно авторежиму всегда, а фиксированному — только для
+     * разбора логов. Вердикт пишется в лог (логгер сам молчит, если логирование выключено)
+     * и отдаётся координатору, который без авторежима его игнорирует.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun startRecognitionCollection() {
+        if (recognitionJob?.isActive == true) return
+        recognitionJob = serviceScope.launch {
+            combine(
+                coordinator.session.map { it.isAutoMode },
+                logManager.observeSettings().map { settings -> settings.isAvailable && settings.enabled },
+            ) { autoMode, loggingActive -> autoMode || loggingActive }
+                .distinctUntilChanged()
+                .flatMapLatest { needed -> if (needed) activityRecognitionSource.observeSignals() else emptyFlow() }
+                .catch { error ->
+                    logger.error(
+                        category = LogCategory.SYSTEM,
+                        tag = TAG,
+                        throwable = error,
+                    ) { "Activity recognition stream failed" }
+                }
+                .collect { signal ->
+                    logger.info(category = LogCategory.SYSTEM, tag = TAG, fields = signal.fields) { signal.name }
+                    if (signal is TrackingSignal.ActivityRecognized) coordinator.applyActivityRecognition(signal)
+                }
+        }
+    }
+
+    /**
+     * Системные сигналы нужны только для разбора логов. Поэтому подписка живёт под флагом логирования: в release-сборке
      * логгер недоступен, и она не включается никогда.
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -292,6 +330,7 @@ internal class LocationTrackingService : Service() {
             locationJob?.cancel()
             stepJob?.cancel()
             signalJob?.cancel()
+            recognitionJob?.cancel()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -316,7 +355,7 @@ internal class LocationTrackingService : Service() {
             return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
                 .setContentTitle(getString(R.string.tracking_notification_title))
                 .setContentText(getString(R.string.tracking_notification_status_waiting_gps))
-                .setSmallIcon(session.activityType.notificationIconRes())
+                .setSmallIcon(session.notificationIconRes())
                 .addExtras(Bundle().apply { putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true) })
                 .setContentIntent(recordingScreenPendingIntent())
                 .setOngoing(true)
@@ -375,7 +414,7 @@ internal class LocationTrackingService : Service() {
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle(getString(R.string.tracking_notification_title))
             .setContentText(statusText)
-            .setSmallIcon(session.activityType.notificationIconRes())
+            .setSmallIcon(session.notificationIconRes())
             // Начиная с Android 17 (API 37) в теле уведомления по умолчанию рисуется иконка
             // лаунчера, а small icon остаётся только в статус-баре. Здесь тип активности важнее
             // узнаваемости приложения — уведомление и так одно и всегда наше.
@@ -401,6 +440,11 @@ internal class LocationTrackingService : Service() {
      * Маппинг повторяет иконки типов активности на экранах записи и списка,
      * чтобы уведомление читалось как продолжение того же экрана.
      */
+    @DrawableRes
+    private fun RecordingSession.notificationIconRes(): Int =
+        // В авторежиме иконка — вид текущего сегмента, пока он не определён — компас.
+        if (segmentKind == SegmentKind.UNKNOWN) R.drawable.ic_activity_auto else activityType.notificationIconRes()
+
     @DrawableRes
     private fun ActivityType.notificationIconRes(): Int = when (this) {
         ActivityType.RUNNING -> R.drawable.ic_activity_running

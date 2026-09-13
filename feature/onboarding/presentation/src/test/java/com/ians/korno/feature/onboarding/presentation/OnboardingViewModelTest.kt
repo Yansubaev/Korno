@@ -189,6 +189,8 @@ class OnboardingViewModelTest {
         }
         override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
 
+        override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
+
         private fun success(): EmptyResult<DataError.Local> = Result.Success(Unit)
 
         private companion object {

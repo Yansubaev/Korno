@@ -4,7 +4,9 @@ import app.cash.turbine.test
 import assertk.assertThat
 import assertk.assertions.isEqualTo
 import com.ians.korno.core.database.dao.TrackDao
+import com.ians.korno.core.database.entity.RecognitionSampleEntity
 import com.ians.korno.core.database.entity.ActivityEntity
+import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
 import com.ians.korno.core.database.entity.RoutePointProjection
 import com.ians.korno.core.domain.error.DataError
@@ -84,7 +86,7 @@ class RoomTrackLocalDataSourceTest {
             timestampEpochMillis = 1_000L,
         )
 
-        val result = dataSource.replaceTrack(activity, listOf(point))
+        val result = dataSource.replaceTrack(activity, listOf(point), segments = null)
 
         assertThat(result).isEqualTo(Result.Success(Unit))
         assertThat(dao.deletedGeoPointsForActivity).isEqualTo(8L)
@@ -128,6 +130,27 @@ class RoomTrackLocalDataSourceTest {
             deletedGeoPointsForActivity = activityId
             return 1
         }
+
+        override suspend fun insertSegments(segments: List<ActivitySegmentEntity>): List<Long> =
+            segments.indices.map { it.toLong() + 1L }
+
+        override suspend fun deleteSegments(activityId: Long): Int = 1
+
+        override suspend fun segments(activityId: Long): List<ActivitySegmentEntity> = emptyList()
+
+        override suspend fun updateOpenSegment(
+            activityId: Long,
+            kind: String,
+            startTs: Long,
+            endTs: Long?,
+            steps: Int?,
+            distanceMeters: Double,
+            isManuallyEdited: Boolean,
+        ): Int = 1
+
+        override suspend fun insertRecognitionSample(sample: RecognitionSampleEntity): Long = 1L
+
+        override suspend fun recognitionSamples(activityId: Long): List<RecognitionSampleEntity> = emptyList()
 
         override suspend fun deleteActivity(activityId: Long): Int = updatedRows
     }

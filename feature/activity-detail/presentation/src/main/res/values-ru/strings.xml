@@ -17,6 +17,13 @@
     <string name="activity_detail_best_pace">Лучший темп</string>
     <string name="activity_detail_value_unavailable">—</string>
 
+    <string name="activity_detail_lens_kinds">Виды</string>
+    <string name="activity_detail_kinds">По видам движения</string>
+    <string name="activity_detail_segments">Участки</string>
+    <string name="activity_detail_segment_manual">изменён</string>
+    <string name="activity_detail_segment_kind_title">Вид движения</string>
+    <string name="activity_detail_segment_kind_body">Трек и статистика пересчитаются с порогами нового вида</string>
+    <string name="activity_detail_segment_recalculating">Пересчитываем…</string>
     <string name="activity_detail_lens_route">Маршрут</string>
     <string name="activity_detail_lens_pace">Темп</string>
     <string name="activity_detail_lens_speed">Скорость</string>

@@ -7,9 +7,11 @@ import assertk.assertions.isFalse
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThan
 import assertk.assertions.isTrue
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
 import org.junit.jupiter.api.Test
 
 /**
@@ -800,6 +802,34 @@ class TrackProcessorTest {
         )
 
         assertThat(result.points.map(GeoPoint::id)).isEqualTo(listOf(1L, 2L, 3L))
+    }
+
+    @Test
+    fun `each segment is processed with its own profile and the vehicle stays out of the speed`() {
+        // 100 с пешком на 1.4 м/с, затем 100 с автобусом на 15 м/с, фикс раз в 5 с.
+        val walk = (0..20).map { i -> point(id = i.toLong(), latitude = i * 0.000_063, timestamp = i * 5_000L) }
+        val bus = (1..20).map { i ->
+            point(id = 20L + i, latitude = 20 * 0.000_063 + i * 0.000_674, timestamp = 100_000L + i * 5_000L)
+        }
+        val segments = listOf(
+            ActivitySegment(kind = SegmentKind.ON_FOOT, startTimeEpochMillis = 0L, endTimeEpochMillis = 100_000L),
+            ActivitySegment(kind = SegmentKind.VEHICLE, startTimeEpochMillis = 100_000L, endTimeEpochMillis = 200_000L),
+        )
+        val profiles = mapOf(
+            SegmentKind.ON_FOOT to TrackProcessingConfig.forActivityType(ActivityType.WALKING),
+            SegmentKind.VEHICLE to TrackProcessingConfig.forActivityType(ActivityType.DRIVING),
+        )
+
+        val result = processor.processSegments(walk + bus, segments) { profiles.getValue(it) }
+        val walkingOnly = processor.processSegments(walk + bus, segments) { profiles.getValue(SegmentKind.ON_FOOT) }
+
+        // Пешие пороги выкинули бы автобус целиком: 15 м/с — выброс для пешехода.
+        assertThat(result.segments[1].distanceMeters).isGreaterThan(1_200.0)
+        assertThat(walkingOnly.segments[1].distanceMeters).isLessThan(1_000.0)
+        assertThat(result.statistics.distanceMeters).isGreaterThan(1_300.0)
+        // Средняя и максимальная — только по ходьбе.
+        assertThat(result.statistics.averageSpeedMetersPerSecond).isLessThan(3.0)
+        assertThat(result.statistics.maxSpeedMetersPerSecond).isLessThan(5.0)
     }
 
     private fun point(

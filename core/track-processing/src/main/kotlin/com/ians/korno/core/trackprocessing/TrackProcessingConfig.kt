@@ -2,7 +2,9 @@ package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TRACK_GAP_THRESHOLD_MILLIS
+import com.ians.korno.core.domain.model.activityType
 import kotlin.math.max
 
 data class TrackProcessingConfig(
@@ -121,6 +123,9 @@ data class TrackProcessingConfig(
     }
 
     companion object {
+        /** Профиль порогов для сегмента смешанной записи (см. [profileActivityType]). */
+        fun forSegmentKind(kind: SegmentKind): TrackProcessingConfig = forActivityType(kind.profileActivityType)
+
         fun forActivityType(activityType: ActivityType): TrackProcessingConfig = when (activityType) {
             // Порог остановки для пешехода долго стоял на 0.25 м/с — это 0.9 км/ч,
             // ниже шумового пола GPS на любой реальной погрешности, и автопауза
@@ -209,3 +214,10 @@ fun TrackProcessingConfig.withAutoPauseSensitivity(
         ),
     )
 }
+
+/**
+ * Тип активности, чьи пороги трека действуют для вида. Пока вид не определён, действует
+ * самый терпимый — транспортный: пешие пороги выкинули бы все точки автобуса.
+ */
+val SegmentKind.profileActivityType: ActivityType
+    get() = if (this == SegmentKind.UNKNOWN) ActivityType.DRIVING else activityType

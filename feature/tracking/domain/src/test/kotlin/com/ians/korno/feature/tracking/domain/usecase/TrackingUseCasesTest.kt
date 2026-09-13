@@ -7,6 +7,7 @@ import assertk.assertions.isTrue
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
 import com.ians.korno.feature.tracking.domain.repository.TrackingController
 import kotlinx.coroutines.flow.Flow
@@ -19,7 +20,7 @@ class TrackingUseCasesTest {
 
     @Test
     fun `start delegates the selected activity type to the controller`() = runTest {
-        StartTrackingUseCase(controller)(ActivityType.CYCLING)
+        StartTrackingUseCase(controller)(ActivityType.CYCLING, autoMode = false)
 
         assertThat(controller.startedWith).isEqualTo(ActivityType.CYCLING)
     }
@@ -90,9 +91,13 @@ class TrackingUseCasesTest {
             cancelPreparationCalled = true
         }
 
-        override suspend fun start(activityType: ActivityType) {
+        override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
             startedWith = activityType
         }
+
+        override fun isAutoModeAvailable(): Boolean = true
+
+        override suspend fun changeSegmentKind(kind: SegmentKind) = Unit
 
         override fun pause() {
             pauseCalled = true

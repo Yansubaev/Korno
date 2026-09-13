@@ -6,6 +6,12 @@ import com.ians.korno.core.domain.model.GpsAccuracy
 
 internal data class TrackingSetupState(
     val activityType: ActivityType = ActivityType.RUNNING,
+    /** Вид движения определяет детектор; [activityType] при этом не выбран. */
+    val autoMode: Boolean = false,
+    /** Распознавание активности доступно: разрешение выдано и Play Services на месте. */
+    val autoModeAvailable: Boolean = false,
+    /** Авто выбрали, но включить не вышло — объяснить, почему остался тип. */
+    val autoModeUnavailableHint: Boolean = false,
     val autoPause: Boolean = true,
     val gpsAccuracy: GpsAccuracy = GpsAccuracy.BALANCED,
     val autoPauseSensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,

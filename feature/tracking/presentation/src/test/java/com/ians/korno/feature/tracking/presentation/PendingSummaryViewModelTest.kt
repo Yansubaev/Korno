@@ -7,8 +7,11 @@ import assertk.assertions.isNull
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
+import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.model.RecordingStatus
@@ -123,7 +126,11 @@ class PendingSummaryViewModelTest {
 
         override fun cancelPreparation() = Unit
 
-        override suspend fun start(activityType: ActivityType) = Unit
+        override suspend fun start(activityType: ActivityType, autoMode: Boolean) = Unit
+
+        override fun isAutoModeAvailable(): Boolean = true
+
+        override suspend fun changeSegmentKind(kind: SegmentKind) = Unit
 
         override fun pause() = Unit
 
@@ -156,11 +163,28 @@ class PendingSummaryViewModelTest {
         override suspend fun findActiveActivity(): Result<Activity?, DataError.Local> =
             Result.Success(null)
 
-        override suspend fun createActivity(activity: Activity): Result<Long, DataError.Local> =
+        override suspend fun createActivity(
+            activity: Activity,
+            segments: List<ActivitySegment>,
+        ): Result<Long, DataError.Local> =
             Result.Success(0L)
 
         override suspend fun updateActivity(activity: Activity): EmptyResult<DataError.Local> =
             Result.Success(Unit)
+
+        override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
+            Result.Success(emptyList())
+
+        override suspend fun saveOpenSegment(
+            current: ActivitySegment,
+            next: ActivitySegment?,
+        ): EmptyResult<DataError.Local> = Result.Success(Unit)
+
+        override suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local> =
+            Result.Success(Unit)
+
+        override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
+            Result.Success(emptyList())
 
         override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> =
             Result.Success(Unit)
@@ -173,11 +197,13 @@ class PendingSummaryViewModelTest {
         override suspend fun insertTrack(
             activity: Activity,
             points: List<GeoPoint>,
+            segments: List<ActivitySegment>,
         ): Result<Long, DataError.Local> = Result.Success(activity.id)
 
         override suspend fun replaceTrack(
             activity: Activity,
             points: List<GeoPoint>,
+            segments: List<ActivitySegment>?,
         ): EmptyResult<DataError.Local> = Result.Success(Unit)
 
         override suspend fun deleteActivity(activityId: Long): EmptyResult<DataError.Local> =

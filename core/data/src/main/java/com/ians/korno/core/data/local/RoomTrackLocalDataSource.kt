@@ -7,7 +7,9 @@ import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RoutePoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -56,8 +58,12 @@ internal class RoomTrackLocalDataSource(
             .map { entities -> entities.map { it.toDomain() } }
             .asLocalResult()
 
-    override suspend fun createActivity(activity: Activity): Result<Long, DataError.Local> =
-        safeLocalCall { trackDao.insertActivity(activity.toEntity()) }
+    override suspend fun createActivity(
+        activity: Activity,
+        segments: List<ActivitySegment>,
+    ): Result<Long, DataError.Local> = safeLocalCall {
+        trackDao.insertActivityWithSegments(activity.toEntity(), segments.map { it.toEntity() })
+    }
 
     override suspend fun updateActivity(activity: Activity): EmptyResult<DataError.Local> =
         when (val result = safeLocalCall { trackDao.updateActivity(activity.toEntity()) }) {
@@ -68,6 +74,19 @@ internal class RoomTrackLocalDataSource(
             is Result.Error -> result
         }
 
+    override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
+        safeLocalCall { trackDao.segments(activityId).map { it.toDomain() } }
+
+    override suspend fun saveOpenSegment(
+        current: ActivitySegment,
+        next: ActivitySegment?,
+    ): EmptyResult<DataError.Local> = when (
+        val result = safeLocalCall { trackDao.saveOpenSegment(current.toEntity(), next?.toEntity()) }
+    ) {
+        is Result.Success -> Result.Success(Unit)
+        is Result.Error -> result
+    }
+
     override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> {
         if (points.isEmpty()) return Result.Success(Unit)
 
@@ -77,19 +96,34 @@ internal class RoomTrackLocalDataSource(
         }
     }
 
+    override suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local> =
+        when (val result = safeLocalCall { trackDao.insertRecognitionSample(sample.toEntity()) }) {
+            is Result.Success -> Result.Success(Unit)
+            is Result.Error -> result
+        }
+
+    override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
+        safeLocalCall { trackDao.recognitionSamples(activityId).map { it.toDomain() } }
+
     override suspend fun insertTrack(
         activity: Activity,
         points: List<GeoPoint>,
+        segments: List<ActivitySegment>,
     ): Result<Long, DataError.Local> = safeLocalCall {
-        trackDao.insertTrack(activity.toEntity(), points.map { it.toEntity() })
+        trackDao.insertTrack(activity.toEntity(), points.map { it.toEntity() }, segments.map { it.toEntity() })
     }
 
     override suspend fun replaceTrack(
         activity: Activity,
         points: List<GeoPoint>,
+        segments: List<ActivitySegment>?,
     ): EmptyResult<DataError.Local> = when (
         val result = safeLocalCall {
-            trackDao.replaceTrack(activity.toEntity(), points.map { it.toEntity() })
+            trackDao.replaceTrack(
+                activity.toEntity(),
+                points.map { it.toEntity() },
+                segments?.map { it.toEntity() },
+            )
         }
     ) {
         is Result.Success -> {

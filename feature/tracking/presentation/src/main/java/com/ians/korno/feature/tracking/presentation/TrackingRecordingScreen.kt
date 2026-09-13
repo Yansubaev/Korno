@@ -28,12 +28,16 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -70,7 +74,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.MeasurementSystem
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.presentation.R as CoreR
+import com.ians.korno.core.presentation.SELECTABLE_SEGMENT_KINDS
+import com.ians.korno.core.presentation.icon
+import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.map.TrackMap
 import com.ians.korno.core.map.TrackMapCamera
 import java.util.Locale
@@ -108,7 +116,7 @@ private fun TrackingRecordingContent(
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            RecordingHeader(state = state)
+            RecordingHeader(state = state, onAction = onAction)
 
             MapWithSheet(
                 state = state,
@@ -140,7 +148,11 @@ private fun TrackingRecordingContent(
 }
 
 @Composable
-private fun RecordingHeader(state: TrackingRecordingState, modifier: Modifier = Modifier) {
+private fun RecordingHeader(
+    state: TrackingRecordingState,
+    onAction: (TrackingRecordingAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -149,7 +161,14 @@ private fun RecordingHeader(state: TrackingRecordingState, modifier: Modifier = 
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        val segmentKind = state.segmentKind
+        if (segmentKind != null) {
+            SegmentKindChip(
+                kind = segmentKind,
+                menuOpen = state.segmentMenuOpen,
+                onAction = onAction,
+            )
+        } else Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -166,6 +185,52 @@ private fun RecordingHeader(state: TrackingRecordingState, modifier: Modifier = 
             )
         }
         GpsIndicator(hasFix = state.currentPoint != null)
+    }
+}
+
+/**
+ * Вид текущего сегмента в авторежиме. Тап — ручная поправка: детектор ошибается, а
+ * человек знает, спешился он или нет.
+ */
+@Composable
+private fun SegmentKindChip(
+    kind: SegmentKind,
+    menuOpen: Boolean,
+    onAction: (TrackingRecordingAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
+        AssistChip(
+            onClick = { onAction(TrackingRecordingAction.ToggleSegmentMenu) },
+            leadingIcon = { Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
+            trailingIcon = {
+                Icon(
+                    Icons.Filled.ArrowDropDown,
+                    contentDescription = stringResource(R.string.tracking_cd_change_segment_kind),
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+            label = {
+                Text(stringResource(R.string.tracking_segment_auto_label, stringResource(kind.labelRes())))
+            },
+        )
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { onAction(TrackingRecordingAction.ToggleSegmentMenu) },
+        ) {
+            SELECTABLE_SEGMENT_KINDS.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(option.labelRes())) },
+                    leadingIcon = { Icon(option.icon(), contentDescription = null) },
+                    trailingIcon = if (option == kind) {
+                        { Icon(Icons.Filled.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                    onClick = { onAction(TrackingRecordingAction.ChangeSegmentKind(option)) },
+                )
+            }
+        }
     }
 }
 
@@ -348,6 +413,9 @@ private fun RecordingSheet(
                     maxLines = 1,
                 )
                 MovingTimeLine(state = state, progress = progress)
+                if (state.segmentDistances.isNotEmpty()) {
+                    SegmentBreakdownLine(state = state, progress = progress)
+                }
                 StatsGrid(state = state, progress = progress)
             }
         }
@@ -388,6 +456,51 @@ private fun MovingTimeLine(
 }
 
 /**
+ * Разбивка дистанции по встреченным видам: «🚶 1.20 · 🚲 8.40 · 🚗 3.00 км». Как и
+ * «в движении», сворачивается в режиме карты.
+ */
+@Composable
+private fun SegmentBreakdownLine(
+    state: TrackingRecordingState,
+    progress: SheetProgress,
+    modifier: Modifier = Modifier,
+) {
+    val distanceUnit = stringResource(
+        if (state.measurementSystem == MeasurementSystem.METRIC) CoreR.string.unit_km else CoreR.string.unit_mi,
+    )
+    val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = progress.fade())
+    val fontSize = progress.lerp(13.sp, 15.sp, 19.sp)
+    Box(
+        modifier = modifier
+            .height(progress.lerp(0.dp, 22.dp, 28.dp))
+            .clipToBounds()
+            .wrapContentHeight(align = Alignment.Top, unbounded = true),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            state.segmentDistances.forEachIndexed { index, (kind, distance) ->
+                if (index > 0) Text("·", color = color, fontSize = fontSize)
+                Icon(
+                    imageVector = kind.icon(),
+                    contentDescription = stringResource(kind.labelRes()),
+                    tint = color,
+                    modifier = Modifier.size(with(LocalDensity.current) { fontSize.toDp() }),
+                )
+                Text(
+                    text = "${formatDistance(distance)} $distanceUnit",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = fontSize,
+                    color = color,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
  * Сетка 2×2: слева «путь» (дистанция и набор высоты), справа скорости —
  * связанные величины стоят в одной колонке и сравниваются взглядом сверху вниз.
  *
@@ -400,6 +513,7 @@ private fun StatsGrid(state: TrackingRecordingState, progress: SheetProgress, mo
     val isMetric = state.measurementSystem == MeasurementSystem.METRIC
     val distanceUnit = stringResource(if (isMetric) CoreR.string.unit_km else CoreR.string.unit_mi)
     val speedUnit = stringResource(if (isMetric) CoreR.string.unit_kmh else CoreR.string.unit_mph)
+    val paceUnit = stringResource(if (isMetric) CoreR.string.unit_pace_km else CoreR.string.unit_pace_mi)
     val elevationUnit = stringResource(if (isMetric) CoreR.string.unit_m else CoreR.string.unit_ft)
     val visibility = progress.fade()
     val gap = progress.lerp(6.dp, 10.dp, 14.dp)
@@ -435,15 +549,28 @@ private fun StatsGrid(state: TrackingRecordingState, progress: SheetProgress, mo
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(gap * visibility),
         ) {
+            // В авторежиме на ногах главная метрика — темп: «5:30» читается, «10,9 км/ч» — нет.
             StatTile(
-                label = "${stringResource(R.string.tracking_current_label)}, $speedUnit",
-                value = formatSpeed(state.currentSpeedValue),
+                label = if (state.showsPace) {
+                    "${stringResource(R.string.tracking_pace_label)}, $paceUnit"
+                } else {
+                    "${stringResource(R.string.tracking_current_label)}, $speedUnit"
+                },
+                value = if (state.showsPace) formatPace(state.currentSpeedValue) else formatSpeed(state.currentSpeedValue),
                 progress = progress,
             )
             CollapsingTile(height = tileHeight * visibility, contentAlpha = visibility) {
                 StatTile(
-                    label = "${stringResource(R.string.tracking_avg_label)}, $speedUnit",
-                    value = formatSpeed(state.averageSpeedValue),
+                    label = if (state.showsPace) {
+                        "${stringResource(R.string.tracking_avg_pace_label)}, $paceUnit"
+                    } else {
+                        "${stringResource(R.string.tracking_avg_label)}, $speedUnit"
+                    },
+                    value = if (state.showsPace) {
+                        formatPace(state.averageSpeedValue)
+                    } else {
+                        formatSpeed(state.averageSpeedValue)
+                    },
                     progress = progress,
                 )
             }
@@ -703,6 +830,16 @@ private fun formatDistance(value: Double): String = String.format(Locale.US, "%.
 
 private fun formatSpeed(value: Double): String = String.format(Locale.US, "%.1f", value)
 
+/**
+ * Темп из скорости в км/ч или миль/ч: минуты на единицу. Стоянка и ползание медленнее
+ * часа на единицу темпа не имеют.
+ */
+private fun formatPace(speedPerHour: Double): String {
+    if (speedPerHour <= 1.0 || !speedPerHour.isFinite()) return "—"
+    val secondsPerUnit = (3_600.0 / speedPerHour).toLong()
+    return String.format(Locale.US, "%d:%02d", secondsPerUnit / 60, secondsPerUnit % 60)
+}
+
 private fun formatElevation(value: Double): String = String.format(Locale.US, "%.0f", value)
 
 private val HEADER_HEIGHT = 48.dp
@@ -759,6 +896,22 @@ private fun TrackingRecordingTextPreview() {
     KornoTheme {
         TrackingRecordingContent(
             state = previewState(MapSheetMode.TEXT),
+            onAction = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, heightDp = 780)
+@Composable
+private fun TrackingRecordingAutoModePreview() {
+    KornoTheme {
+        TrackingRecordingContent(
+            state = previewState(MapSheetMode.SPLIT).copy(
+                segmentKind = SegmentKind.ON_FOOT,
+                segmentDistances = listOf(SegmentKind.ON_FOOT to 1.2, SegmentKind.CYCLING to 8.4, SegmentKind.VEHICLE to 3.0),
+                currentSpeedValue = 5.1,
+                averageSpeedValue = 4.8,
+            ),
             onAction = {},
         )
     }

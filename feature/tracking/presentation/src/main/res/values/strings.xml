@@ -23,6 +23,10 @@
     <string name="tracking_gps_high">High</string>
     <string name="tracking_gps_balanced">Balanced</string>
     <string name="tracking_gps_saver">Battery saver</string>
+    <string name="tracking_setup_auto">Auto</string>
+    <string name="tracking_setup_auto_subtitle">Detects walking, running, cycling and vehicles by itself and splits the recording into segments</string>
+    <string name="tracking_setup_type_subtitle">The whole recording is one activity type</string>
+    <string name="tracking_setup_auto_unavailable">Auto needs the physical activity permission and Google Play services</string>
     <string name="tracking_setup_start">Start</string>
 
     <string name="tracking_moving_value">Moving %1$s</string>
@@ -31,6 +35,10 @@
         <item quantity="one">%1$d step</item>
         <item quantity="other">%1$d steps</item>
     </plurals>
+    <string name="tracking_segment_auto_label">Auto · %1$s</string>
+    <string name="tracking_cd_change_segment_kind">Change the kind of movement</string>
+    <string name="tracking_pace_label">Pace</string>
+    <string name="tracking_avg_pace_label">Avg pace</string>
     <string name="tracking_distance_label">Distance</string>
     <string name="tracking_current_label">Current</string>
     <string name="tracking_avg_label">Average</string>

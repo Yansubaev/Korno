@@ -1,5 +1,6 @@
 package com.ians.korno.feature.activitydetail.presentation
 
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 
 /** Что пользователь собирается сделать с файлом трека после выбора формата. */
@@ -42,6 +43,14 @@ internal sealed interface ActivityDetailAction {
 
     /** Отдать ZIP с логом только этой активности (debug-сборка). */
     data object ShareActivityLogsClicked : ActivityDetailAction
+
+    /** Нажатие на участок: открыть выбор вида. */
+    data class SelectSegment(val index: Int) : ActivityDetailAction
+
+    data object DismissSegmentKindChoice : ActivityDetailAction
+
+    /** Новый вид выбранного участка — с пересчётом трека и статистики. */
+    data class ChangeSegmentKind(val kind: SegmentKind) : ActivityDetailAction
 
     data object DismissSnackbar : ActivityDetailAction
 }

@@ -3,7 +3,8 @@ package com.ians.korno.data.locationtracking.di
 import android.content.Context
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.ians.korno.data.locationtracking.diagnostics.DefaultTrackingSignalSource
+import com.ians.korno.data.locationtracking.diagnostics.ActivityRecognitionSignalSource
+import com.ians.korno.data.locationtracking.diagnostics.SystemStateSignalSource
 import com.ians.korno.data.locationtracking.diagnostics.TrackingSignalSource
 import com.ians.korno.data.locationtracking.location.DefaultLocationClient
 import com.ians.korno.data.locationtracking.location.LocationClient
@@ -17,6 +18,7 @@ val locationTrackingModule = module {
     single<FusedLocationProviderClient> { LocationServices.getFusedLocationProviderClient(get<Context>()) }
     single { DefaultLocationClient(get()) } bind LocationClient::class
     single { DefaultLocationPermissionChecker(get()) } bind LocationPermissionChecker::class
-    single { DefaultTrackingSignalSource(get(), get()) } bind TrackingSignalSource::class
+    single { SystemStateSignalSource(get()) } bind TrackingSignalSource::class
+    single { ActivityRecognitionSignalSource(get(), get()) }
     single { StepCounterClient(get(), get()) }
 }

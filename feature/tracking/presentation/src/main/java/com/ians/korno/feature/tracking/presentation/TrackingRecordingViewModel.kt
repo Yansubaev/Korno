@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.MeasurementSystem
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.isTrackGap
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
+import com.ians.korno.feature.tracking.domain.usecase.ChangeSegmentKindUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveSessionTrackUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackingSessionUseCase
 import com.ians.korno.feature.tracking.domain.usecase.PauseTrackingUseCase
@@ -31,6 +33,7 @@ private data class LocalUi(
     val mapSheetMode: MapSheetMode = MapSheetMode.SPLIT,
     val finishDialogOpen: Boolean = false,
     val finishedActivityId: Long? = null,
+    val segmentMenuOpen: Boolean = false,
 )
 
 internal class TrackingRecordingViewModel(
@@ -40,6 +43,7 @@ internal class TrackingRecordingViewModel(
     private val resumeTracking: ResumeTrackingUseCase,
     private val stopTracking: StopTrackingUseCase,
     preferencesRepository: UserPreferencesRepository,
+    private val changeSegmentKind: ChangeSegmentKindUseCase,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(LocalUi())
@@ -85,6 +89,11 @@ internal class TrackingRecordingViewModel(
             TrackingRecordingAction.ResumeClicked -> resumeTracking()
             TrackingRecordingAction.CycleMapSheetMode -> local.update { it.copy(mapSheetMode = it.mapSheetMode.next()) }
             is TrackingRecordingAction.MapSheetModeChanged -> local.update { it.copy(mapSheetMode = action.mode) }
+            TrackingRecordingAction.ToggleSegmentMenu -> local.update { it.copy(segmentMenuOpen = !it.segmentMenuOpen) }
+            is TrackingRecordingAction.ChangeSegmentKind -> {
+                local.update { it.copy(segmentMenuOpen = false) }
+                viewModelScope.launch { changeSegmentKind(action.kind) }
+            }
             TrackingRecordingAction.RequestFinish -> local.update { it.copy(finishDialogOpen = true) }
             TrackingRecordingAction.CancelFinish -> local.update { it.copy(finishDialogOpen = false) }
             TrackingRecordingAction.ConfirmFinish -> viewModelScope.launch {
@@ -107,6 +116,12 @@ internal class TrackingRecordingViewModel(
         return TrackingRecordingState(
             recordingStatus = status,
             activityType = activityType,
+            segmentKind = segmentKind,
+            segmentDistances = segmentDistancesMeters
+                .filterKeys { it != SegmentKind.UNKNOWN }
+                .toSortedMap()
+                .map { (kind, meters) -> kind to meters / if (isMetric) 1_000.0 else 1_609.344 },
+            segmentMenuOpen = localUi.segmentMenuOpen,
             elapsedTimeMillis = elapsedMillisAt(now),
             movingTimeMillis = movingTimeMillis,
             distanceValue = distanceMeters / if (isMetric) 1_000.0 else 1_609.344,

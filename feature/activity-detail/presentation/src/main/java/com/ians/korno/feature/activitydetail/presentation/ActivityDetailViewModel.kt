@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.error.TrackFileError
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.model.TrackFileOperation
 import com.ians.korno.core.domain.model.isTrackGap
+import com.ians.korno.core.domain.model.slicePoints
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.ActivityLogInfo
 import com.ians.korno.core.logging.LogArchiveResult
@@ -25,6 +28,10 @@ import com.ians.korno.core.presentation.formatTimerDuration
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.core.trackanalytics.TrackAnalysis
 import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
+import com.ians.korno.feature.activitydetail.domain.usecase.ChangeActivitySegmentKindUseCase
+import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivitySegmentsUseCase
+import com.ians.korno.feature.activitydetail.domain.usecase.SegmentKindSummary
+import com.ians.korno.feature.activitydetail.domain.usecase.summarizeSegmentKinds
 import com.ians.korno.feature.activitydetail.domain.usecase.DeleteActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ExportActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivityUseCase
@@ -32,7 +39,9 @@ import com.ians.korno.feature.activitydetail.domain.usecase.ObserveGeoPointsUseC
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveTrackExportUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.PrepareActivityExportUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.PrepareActivityShareUseCase
+import java.text.DateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -41,17 +50,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal class ActivityDetailViewModel(
     private val context: Context,
     private val activityId: Long,
-    observeActivity: ObserveActivityUseCase,
-    observeGeoPoints: ObserveGeoPointsUseCase,
+    private val observeActivity: ObserveActivityUseCase,
+    private val observeGeoPoints: ObserveGeoPointsUseCase,
     private val analyzeActivity: AnalyzeActivityUseCase,
     private val deleteActivity: DeleteActivityUseCase,
     private val exportActivity: ExportActivityUseCase,
@@ -60,10 +71,15 @@ internal class ActivityDetailViewModel(
     private val logManager: LogManager,
     observeTrackExport: ObserveTrackExportUseCase,
     preferencesRepository: UserPreferencesRepository,
+    private val observeSegments: ObserveActivitySegmentsUseCase,
+    private val changeSegmentKind: ChangeActivitySegmentKindUseCase,
 ) : ViewModel() {
 
     private data class LocalUi(
-        val lens: MapLens = MapLens.ROUTE,
+        /** `null` — линза по умолчанию: «Виды» у смешанной записи, иначе маршрут. */
+        val lens: MapLens? = null,
+        val segmentKindChoice: Int? = null,
+        val isRecalculating: Boolean = false,
         /** Доля дистанции, выбранная касанием графика; `null` — ничего не выбрано. */
         val selectedFraction: Float? = null,
         val selectedSplitNumber: Int? = null,
@@ -79,7 +95,11 @@ internal class ActivityDetailViewModel(
     /** Точки трека вместе с их разбором: считаются вместе и устаревают вместе. */
     private data class TrackData(
         val points: List<GeoPoint>,
+        val segments: List<ActivitySegment>,
         val analysis: TrackAnalysis,
+        val kindSummaries: List<SegmentKindSummary>,
+        /** Вид каждой точки из [points]; пусто, если вид в записи один. */
+        val pointKinds: List<SegmentKind>,
     )
 
     private val local = MutableStateFlow(LocalUi())
@@ -96,10 +116,24 @@ internal class ActivityDetailViewModel(
      */
     private val trackData: Flow<TrackData> = combine(
         observeGeoPoints(activityId),
+        observeSegments(activityId),
         preferencesRepository.observePreferences(),
-    ) { pointsResult, preferences ->
+    ) { pointsResult, segments, preferences ->
         val points = (pointsResult as? Result.Success)?.data.orEmpty()
-        TrackData(points, analyzeActivity(points, preferences.measurementSystem))
+        val summaries = summarizeSegmentKinds(points, segments)
+        val isMixed = summaries.size > 1
+        TrackData(
+            points = points,
+            segments = segments,
+            analysis = analyzeActivity(points, segments, preferences.measurementSystem),
+            kindSummaries = summaries,
+            // Точки приходят из БД по времени — в том же порядке, в каком их режут сегменты.
+            pointKinds = if (isMixed) {
+                segments.slicePoints(points).flatMap { (segment, slice) -> List(slice.size) { segment.kind } }
+            } else {
+                emptyList()
+            },
+        )
     }.flowOn(Dispatchers.Default)
 
     val state: StateFlow<ActivityDetailState> = combine(
@@ -179,7 +213,26 @@ internal class ActivityDetailViewModel(
                 local.update { it.copy(deleted = true) }
             }
             ActivityDetailAction.ShareActivityLogsClicked -> shareActivityLogs()
+            is ActivityDetailAction.SelectSegment -> local.update { it.copy(segmentKindChoice = action.index) }
+            ActivityDetailAction.DismissSegmentKindChoice -> local.update { it.copy(segmentKindChoice = null) }
+            is ActivityDetailAction.ChangeSegmentKind -> changeKindOfChosenSegment(action.kind)
             ActivityDetailAction.DismissSnackbar -> local.update { it.copy(snackbarMessageRes = null) }
+        }
+    }
+
+    private fun changeKindOfChosenSegment(kind: SegmentKind) {
+        val index = local.value.segmentKindChoice ?: return
+        local.update { it.copy(segmentKindChoice = null, isRecalculating = true) }
+        viewModelScope.launch {
+            // Всё читается заново, а не берётся из экрана: пересчёт должен идти по тому, что
+            // лежит в БД, иначе быстрая вторая смена затёрла бы первую.
+            val activity = (observeActivity(activityId).first() as? Result.Success)?.data
+            val points = (observeGeoPoints(activityId).first() as? Result.Success)?.data
+            val segments = observeSegments(activityId).first()
+            if (activity != null && points != null && index in segments.indices) {
+                withContext(Dispatchers.Default) { changeSegmentKind(activity, points, segments, index, kind) }
+            }
+            local.update { it.copy(isRecalculating = false) }
         }
     }
 
@@ -272,7 +325,20 @@ internal class ActivityDetailViewModel(
         localUi: LocalUi,
         measurementSystem: MeasurementSystem,
     ): ActivityDetailState {
-        val insights = context.toInsightsUi(track.analysis, activityType, measurementSystem)
+        val isMixed = track.kindSummaries.size > 1
+        val insights = context.toInsightsUi(track.analysis, activityType, measurementSystem)?.let {
+            if (!isMixed) {
+                it
+            } else {
+                it.copy(
+                    availableLenses = listOf(MapLens.KINDS) + it.availableLenses,
+                    // Отметки считают дистанцию только доминирующего вида, а маршрут на карте —
+                    // вся запись: километр «3» посреди автобуса ничего бы не значил.
+                    distanceMarkers = emptyList(),
+                )
+            }
+        }
+        val defaultLens = if (isMixed) MapLens.KINDS else MapLens.ROUTE
         val display = activityType.speedDisplay
         return ActivityDetailState(
             isLoading = false,
@@ -302,6 +368,27 @@ internal class ActivityDetailViewModel(
             stepsText = stepCount?.let {
                 context.resources.getQuantityString(R.plurals.activity_detail_steps_count, it, it)
             },
+            routeKinds = track.pointKinds,
+            kindBreakdown = if (isMixed) {
+                track.kindSummaries.map { summary -> context.toKindSummaryUi(summary, measurementSystem) }
+            } else {
+                emptyList()
+            },
+            segments = if (isAutoMode) {
+                track.segments.mapIndexed { index, segment ->
+                    SegmentUi(
+                        index = index,
+                        kind = segment.kind,
+                        timeRangeText = timeRange(segment),
+                        distanceText = context.formatDistance(segment.distanceMeters, measurementSystem).text,
+                        isManuallyEdited = segment.isManuallyEdited,
+                    )
+                }
+            } else {
+                emptyList()
+            },
+            segmentKindChoice = localUi.segmentKindChoice,
+            isRecalculating = localUi.isRecalculating,
             routePoints = track.points.mapIndexed { index, point ->
                 MapPoint(
                     latitude = point.latitude,
@@ -313,8 +400,8 @@ internal class ActivityDetailViewModel(
             insights = insights,
             // Линза может исчезнуть вместе с данными, на которых держалась: после
             // ручной правки трека выбранной высоты или остановок может уже не быть.
-            lens = localUi.lens.takeIf { insights == null || it in insights.availableLenses }
-                ?: MapLens.ROUTE,
+            lens = localUi.lens?.takeIf { insights == null || it in insights.availableLenses }
+                ?: defaultLens,
             selection = localUi.selectedFraction?.let {
                 context.toSelectionUi(track.analysis, it, activityType, measurementSystem)
             },
@@ -327,6 +414,12 @@ internal class ActivityDetailViewModel(
             activityLog = localUi.activityLog,
             isPreparingLogArchive = localUi.isPreparingLogArchive,
         )
+    }
+
+    private fun timeRange(segment: ActivitySegment): String {
+        val format = DateFormat.getTimeInstance(DateFormat.SHORT)
+        val end = segment.endTimeEpochMillis ?: return format.format(Date(segment.startTimeEpochMillis))
+        return "${format.format(Date(segment.startTimeEpochMillis))}–${format.format(Date(end))}"
     }
 
     private fun dateLabel(epochMillis: Long): String {
@@ -343,6 +436,16 @@ internal class ActivityDetailViewModel(
     private fun isSameDay(a: Calendar, b: Calendar): Boolean =
         a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
 }
+
+private fun Context.toKindSummaryUi(summary: SegmentKindSummary, system: MeasurementSystem) = KindSummaryUi(
+    kind = summary.kind,
+    distanceText = formatDistance(summary.distanceMeters, system).text,
+    movingText = formatTimerDuration(summary.movingTimeMillis),
+    movementText = movementText(summary.averageSpeedMetersPerSecond, summary.kind.speedDisplay, system),
+    stepsText = summary.stepCount
+        ?.takeIf { summary.kind.speedDisplay == SpeedDisplay.PACE }
+        ?.let { resources.getQuantityString(R.plurals.activity_detail_steps_count, it, it) },
+)
 
 /** Темп или скорость — смотря чем меряют эту активность. */
 private fun Context.movementText(

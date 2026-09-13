@@ -22,4 +22,6 @@ data class Activity(
     val isPendingSummary: Boolean = false,
     /** `null` — шаги не считались (тип активности, нет датчика или разрешения); иначе счётчик. */
     val stepCount: Int? = null,
+    /** Запись велась в авторежиме: вид движения определял детектор, сегментов может быть много. */
+    val isAutoMode: Boolean = false,
 )

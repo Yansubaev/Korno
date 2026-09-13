@@ -6,11 +6,14 @@ import assertk.assertions.isNull
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
+import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
@@ -21,6 +24,7 @@ import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
 import com.ians.korno.feature.tracking.domain.repository.TrackingController
+import com.ians.korno.feature.tracking.domain.usecase.ChangeSegmentKindUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveSessionTrackUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackPointsUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackingSessionUseCase
@@ -63,6 +67,7 @@ class TrackingRecordingViewModelTest {
             resumeTracking = ResumeTrackingUseCase(controller),
             stopTracking = StopTrackingUseCase(controller),
             preferencesRepository = preferencesRepository,
+            changeSegmentKind = ChangeSegmentKindUseCase(controller),
         )
     }
 
@@ -90,6 +95,33 @@ class TrackingRecordingViewModelTest {
         assertThat(viewModel.state.value.recordingStatus).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
         assertThat(viewModel.state.value.elapsedTimeMillis).isEqualTo(0L)
     }
+
+    @Test
+    fun `auto mode shows pace on foot, the distance breakdown without unknown, and applies a manual kind`() =
+        runTest(testDispatcher) {
+            backgroundScope.launch { viewModel.state.collect {} }
+            controller.emitAutoSegments(
+                kind = SegmentKind.ON_FOOT,
+                distancesMeters = mapOf(
+                    SegmentKind.CYCLING to 8_400.0,
+                    SegmentKind.UNKNOWN to 30.0,
+                    SegmentKind.ON_FOOT to 1_200.0,
+                ),
+            )
+            runCurrent()
+
+            val state = viewModel.state.value
+            assertThat(state.showsPace).isEqualTo(true)
+            assertThat(state.segmentDistances).isEqualTo(listOf(SegmentKind.ON_FOOT to 1.2, SegmentKind.CYCLING to 8.4))
+
+            viewModel.onAction(TrackingRecordingAction.ToggleSegmentMenu)
+            viewModel.onAction(TrackingRecordingAction.ChangeSegmentKind(SegmentKind.CYCLING))
+            runCurrent()
+
+            assertThat(controller.changedKind).isEqualTo(SegmentKind.CYCLING)
+            assertThat(viewModel.state.value.segmentMenuOpen).isEqualTo(false)
+            assertThat(viewModel.state.value.showsPace).isEqualTo(false)
+        }
 
     @Test
     fun `pause and resume actions round-trip the recording status`() = runTest(testDispatcher) {
@@ -230,7 +262,24 @@ class TrackingRecordingViewModelTest {
 
         override fun cancelPreparation() = Unit
 
-        override suspend fun start(activityType: ActivityType) {
+        var changedKind: SegmentKind? = null
+
+        override fun isAutoModeAvailable(): Boolean = true
+
+        override suspend fun changeSegmentKind(kind: SegmentKind) {
+            changedKind = kind
+            sessionFlow.value = sessionFlow.value.copy(segmentKind = kind)
+        }
+
+        fun emitAutoSegments(kind: SegmentKind, distancesMeters: Map<SegmentKind, Double>) {
+            sessionFlow.value = sessionFlow.value.copy(
+                isAutoMode = true,
+                segmentKind = kind,
+                segmentDistancesMeters = distancesMeters,
+            )
+        }
+
+        override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
             sessionFlow.value = sessionFlow.value.copy(status = RecordingStatus.RECORDING, activityType = activityType)
         }
 
@@ -301,6 +350,8 @@ class TrackingRecordingViewModelTest {
         override suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local> = success()
         override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
 
+        override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
+
         private fun success(): EmptyResult<DataError.Local> = Result.Success(Unit)
     }
 
@@ -327,11 +378,28 @@ class TrackingRecordingViewModelTest {
         override fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>> =
             throw UnsupportedOperationException()
 
-        override suspend fun createActivity(activity: Activity): Result<Long, DataError.Local> =
+        override suspend fun createActivity(
+            activity: Activity,
+            segments: List<ActivitySegment>,
+        ): Result<Long, DataError.Local> =
             Result.Success(ACTIVITY_ID)
 
         override suspend fun updateActivity(activity: Activity): EmptyResult<DataError.Local> =
             Result.Success(Unit)
+
+        override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
+            Result.Success(emptyList())
+
+        override suspend fun saveOpenSegment(
+            current: ActivitySegment,
+            next: ActivitySegment?,
+        ): EmptyResult<DataError.Local> = Result.Success(Unit)
+
+        override suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local> =
+            Result.Success(Unit)
+
+        override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
+            Result.Success(emptyList())
 
         override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> =
             Result.Success(Unit)
@@ -344,11 +412,13 @@ class TrackingRecordingViewModelTest {
         override suspend fun insertTrack(
             activity: Activity,
             points: List<GeoPoint>,
+            segments: List<ActivitySegment>,
         ): Result<Long, DataError.Local> = Result.Success(activity.id)
 
         override suspend fun replaceTrack(
             activity: Activity,
             points: List<GeoPoint>,
+            segments: List<ActivitySegment>?,
         ): EmptyResult<DataError.Local> = Result.Success(Unit)
 
         override suspend fun deleteActivity(activityId: Long): EmptyResult<DataError.Local> =

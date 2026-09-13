@@ -21,6 +21,7 @@ internal fun ActivityEntity.toDomain(): Activity =
         isManuallyEdited = isManuallyEdited,
         isPendingSummary = isPendingSummary,
         stepCount = stepCount,
+        isAutoMode = isAutoMode,
     )
 
 internal fun Activity.toEntity(): ActivityEntity =
@@ -40,6 +41,7 @@ internal fun Activity.toEntity(): ActivityEntity =
         isManuallyEdited = isManuallyEdited,
         isPendingSummary = isPendingSummary,
         stepCount = stepCount,
+        isAutoMode = isAutoMode,
     )
 
 private fun String.toActivityType(): ActivityType =

@@ -23,6 +23,10 @@
     <string name="tracking_autopause_sensitivity_low">Низкая</string>
     <string name="tracking_autopause_sensitivity_medium">Средняя</string>
     <string name="tracking_autopause_sensitivity_high">Высокая</string>
+    <string name="tracking_setup_auto">Авто</string>
+    <string name="tracking_setup_auto_subtitle">Сам различает ходьбу, бег, велосипед и транспорт и делит запись на участки</string>
+    <string name="tracking_setup_type_subtitle">Вся запись — один тип активности</string>
+    <string name="tracking_setup_auto_unavailable">Для «Авто» нужны разрешение на физическую активность и Google Play Services</string>
     <string name="tracking_setup_start">Начать</string>
 
     <string name="tracking_moving_value">В движении %1$s</string>
@@ -33,6 +37,10 @@
         <item quantity="many">%1$d шагов</item>
         <item quantity="other">%1$d шага</item>
     </plurals>
+    <string name="tracking_segment_auto_label">Авто · %1$s</string>
+    <string name="tracking_cd_change_segment_kind">Сменить вид движения</string>
+    <string name="tracking_pace_label">Темп</string>
+    <string name="tracking_avg_pace_label">Средний темп</string>
     <string name="tracking_distance_label">Дистанция</string>
     <string name="tracking_current_label">Сейчас</string>
     <string name="tracking_avg_label">Средняя</string>

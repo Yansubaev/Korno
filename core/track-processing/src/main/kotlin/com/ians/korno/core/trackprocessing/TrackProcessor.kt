@@ -1,12 +1,22 @@
 package com.ians.korno.core.trackprocessing
 
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.slicePoints
 
 data class ProcessedTrack(
     val points: List<GeoPoint>,
     val statistics: TrackStatistics,
+)
+
+/** Запись из нескольких сегментов после обработки: сегменты — с дистанцией по своим порогам. */
+data class SegmentedTrack(
+    val points: List<GeoPoint>,
+    val statistics: TrackStatistics,
+    val segments: List<ActivitySegment>,
 )
 
 /** Откуда пришли точки — от этого зависит, нужна ли им обработка вообще. */
@@ -50,6 +60,62 @@ class TrackProcessor(
             statistics = statisticsCalculator(processedPoints, config),
         )
     }
+
+    /**
+     * Смешанная запись: точки делятся по времени сегментов, и каждый участок проходит
+     * pipeline со своим профилем порогов — пешие пороги выкинули бы автобус, транспортные
+     * пропустили бы дрожание пешехода.
+     *
+     * Дистанция, время и набор высоты — по всей записи. Средняя и максимальная скорость —
+     * без транспорта: проеханный автобус не делает прогулку быстрее. Если кроме транспорта
+     * ничего нет, скорость считается по нему.
+     *
+     * ponytail: участки обрабатываются независимо, фильтр на каждой границе стартует заново,
+     * а отрезок между последней точкой одного участка и первой следующего в дистанцию не
+     * входит (метры на границу). Сквозной проход с профилем на точку — если это станет видно.
+     *
+     * @param segments сегменты одной записи по порядку, закрытые; первые точки до начала
+     *   первого сегмента и после конца последнего достаются им.
+     */
+    fun processSegments(
+        points: List<GeoPoint>,
+        segments: List<ActivitySegment>,
+        configFor: (SegmentKind) -> TrackProcessingConfig,
+    ): SegmentedTrack {
+        val parts = segments.slicePoints(points).map { (segment, slice) ->
+            val config = configFor(segment.kind)
+            val processed = processPoints(slice, config)
+            val statistics = statisticsCalculator(processed, config)
+            SegmentPart(segment.copy(distanceMeters = statistics.distanceMeters), processed, statistics)
+        }
+        val speedParts = parts.filter { it.segment.kind != SegmentKind.VEHICLE }.ifEmpty { parts }
+        val speedDistance = speedParts.sumOf { it.statistics.distanceMeters }
+        val speedMovingTime = speedParts.sumOf { it.statistics.movingTimeMillis }
+        return SegmentedTrack(
+            points = parts.flatMap(SegmentPart::points),
+            statistics = TrackStatistics(
+                distanceMeters = parts.sumOf { it.statistics.distanceMeters },
+                movingTimeMillis = parts.sumOf { it.statistics.movingTimeMillis },
+                elapsedTimeMillis = parts.sumOf { it.statistics.elapsedTimeMillis },
+                averageSpeedMetersPerSecond = if (speedMovingTime > 0L) {
+                    speedDistance / (speedMovingTime / 1_000.0)
+                } else {
+                    0.0
+                },
+                maxSpeedMetersPerSecond = speedParts.maxOfOrNull { it.statistics.maxSpeedMetersPerSecond } ?: 0.0,
+                elevationGainMeters = parts.sumOf { it.statistics.elevationGainMeters },
+                unmeasuredTimeMillis = parts.sumOf { it.statistics.unmeasuredTimeMillis },
+                gapCount = parts.sumOf { it.statistics.gapCount },
+            ),
+            segments = parts.map(SegmentPart::segment),
+        )
+    }
+
+    private class SegmentPart(
+        val segment: ActivitySegment,
+        val points: List<GeoPoint>,
+        val statistics: TrackStatistics,
+    )
 
     /**
      * Вердикты по точкам без подсчёта статистики: живой записи статистика нужна

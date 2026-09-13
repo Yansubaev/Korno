@@ -30,4 +30,6 @@ interface UserPreferencesRepository {
     suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local>
 
     suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local>
+
+    suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local>
 }

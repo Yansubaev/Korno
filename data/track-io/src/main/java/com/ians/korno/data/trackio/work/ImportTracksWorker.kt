@@ -7,6 +7,7 @@ import com.ians.korno.core.domain.error.Result as DomainResult
 import com.ians.korno.core.domain.error.TrackFileError
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.toSingleSegment
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.logging.AppLogger
 import com.ians.korno.core.logging.LogCategory
@@ -118,7 +119,7 @@ internal class ImportTracksWorker(
         if (processed.points.isEmpty()) return DomainResult.Error(TrackFileError.NO_TRACK_POINTS)
 
         val activity = document.toActivity(processed.points, processed.statistics, fileName)
-        return when (val result = trackRepository.insertTrack(activity, processed.points)) {
+        return when (val result = trackRepository.insertTrack(activity, processed.points, listOf(activity.toSingleSegment()))) {
             is DomainResult.Success -> DomainResult.Success(result.data)
             is DomainResult.Error -> DomainResult.Error(TrackFileError.STORAGE_FAILURE)
         }

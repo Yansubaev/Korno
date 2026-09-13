@@ -34,4 +34,6 @@ data class ActivityEntity(
     val isPendingSummary: Boolean = false,
     @ColumnInfo(name = "step_count")
     val stepCount: Int? = null,
+    @ColumnInfo(name = "is_auto_mode", defaultValue = "0")
+    val isAutoMode: Boolean = false,
 )

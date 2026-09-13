@@ -89,7 +89,7 @@ data class LiveTrackUpdate(
  * [TrackProcessor.process] — там нет ни спешки, ни ограничений на память.
  */
 class IncrementalTrackProcessor(
-    private val config: TrackProcessingConfig,
+    @Volatile private var config: TrackProcessingConfig,
     private val processor: TrackProcessor = TrackProcessor(),
 ) {
     private val rawPoints = mutableListOf<GeoPoint>()
@@ -98,6 +98,18 @@ class IncrementalTrackProcessor(
     private var accumulatedCount = 0
     private var accumulator = TrackStatisticsAccumulator(config)
     private var lastUpdate = EMPTY_UPDATE
+
+    /**
+     * Смена профиля порогов посреди записи — вместе с видом движения в авторежиме.
+     * Трек не пересобирается: уже учтённые дистанция и время остаются как были, по новым
+     * порогам пересчитывается только хвост, и траектория идёт дальше непрерывно.
+     *
+     * ponytail: накопитель статистики остаётся на пороге разрывов старого профиля; отдельный
+     * накопитель на профиль — если разрывы в смешанных записях начнут считаться неверно.
+     */
+    fun switchConfig(config: TrackProcessingConfig) {
+        this.config = config
+    }
 
     /** Полностью заменяет содержимое — для восстановления сессии после перезапуска процесса. */
     fun reset(points: List<GeoPoint> = emptyList()) {
