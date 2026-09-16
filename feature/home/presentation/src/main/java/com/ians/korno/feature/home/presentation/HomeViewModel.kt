@@ -9,6 +9,7 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.presentation.formatDistance
+import com.ians.korno.core.presentation.formatDuration
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.feature.home.domain.model.HomeSummary
 import com.ians.korno.feature.home.domain.usecase.ObserveHomeSummaryUseCase
@@ -51,7 +52,7 @@ internal class HomeViewModel(
             is Result.Success -> HomeState(
                 isLoading = false,
                 weekDistanceText = context.formatDistance(data.weekDistanceMeters, measurementSystem, 1).text,
-                weekTimeText = formatDuration(data.weekMovingTimeMillis),
+                weekTimeText = context.formatDuration(data.weekMovingTimeMillis),
                 recentActivities = data.recentActivities.map { it.toUi(measurementSystem) },
                 hasMoreActivities = data.hasMoreActivitiesThisWeek,
                 selectedType = type,
@@ -63,21 +64,10 @@ internal class HomeViewModel(
         id = id,
         title = title ?: activityType.name,
         dateLabel = dateLabel(startTimeEpochMillis),
-        durationText = formatDuration(elapsedTimeMillis),
+        durationText = context.formatDuration(elapsedTimeMillis),
         distanceText = context.formatDistance(distanceMeters, measurementSystem, 1).text,
         type = activityType,
     )
-
-    private fun formatDuration(millis: Long): String {
-        val totalMinutes = millis / 60_000
-        val hours = totalMinutes / 60
-        val minutes = totalMinutes % 60
-        return if (hours > 0) {
-            context.getString(CoreR.string.duration_hours_minutes, hours, minutes)
-        } else {
-            context.getString(CoreR.string.duration_minutes, minutes)
-        }
-    }
 
     private fun dateLabel(epochMillis: Long): String {
         val today = Calendar.getInstance()

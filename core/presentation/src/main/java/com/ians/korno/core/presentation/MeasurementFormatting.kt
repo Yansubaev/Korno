@@ -104,3 +104,14 @@ fun Context.formatElevation(
     )
     return FormattedMeasurement(String.format(Locale.getDefault(), "%.0f", value), unit)
 }
+
+fun Context.formatDuration(millis: Long): String {
+    val totalMinutes = millis / 60_000
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) {
+        getString(R.string.duration_hours_minutes, hours, minutes)
+    } else {
+        getString(R.string.duration_minutes, minutes)
+    }
+}

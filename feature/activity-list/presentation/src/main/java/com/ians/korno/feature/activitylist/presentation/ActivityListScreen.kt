@@ -211,6 +211,26 @@ internal fun ActivityListContent(
             }
         }
 
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(20.dp, 4.dp, 20.dp, 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            StatCard(stringResource(R.string.activity_list_stats_distance), state.statsDistanceText, Modifier.weight(1f))
+            StatCard(stringResource(R.string.activity_list_stats_time), state.statsTimeText, Modifier.weight(1f))
+        }
+        if (state.excludedFromStatsCount > 0) {
+            Text(
+                text = pluralStringResource(
+                    R.plurals.activity_list_stats_excluded,
+                    state.excludedFromStatsCount,
+                    state.excludedFromStatsCount,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(20.dp, 0.dp, 20.dp, 8.dp),
+            )
+        }
+
         if (state.items.isEmpty() && !state.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -283,6 +303,18 @@ private fun ActivityRow(
 
 private fun Modifier.clickableRow(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)
 
+@Composable
+private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+    ) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
 @Preview(showBackground = true)
 @Composable
 private fun ActivityListContentPreview() {
@@ -294,6 +326,9 @@ private fun ActivityListContentPreview() {
                 items = listOf(
                     ActivityListItemUi(1, "Morning run", "29:40", "5.2 km", ActivityType.RUNNING),
                 ),
+                statsDistanceText = "5.2 km",
+                statsTimeText = "29 min",
+                excludedFromStatsCount = 2,
                 routePreviews = mapOf(
                     1L to listOf(
                         MapPoint(55.7512, 37.6175),

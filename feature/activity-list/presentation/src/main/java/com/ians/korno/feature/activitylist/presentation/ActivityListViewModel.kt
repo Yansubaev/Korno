@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.CalendarPeriodUnit
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.TrackFileOperation
+import com.ians.korno.core.domain.model.startOfCalendarPeriodMillis
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.presentation.formatDistance
+import com.ians.korno.core.presentation.formatDuration
 import com.ians.korno.feature.activitylist.domain.usecase.GetRoutePreviewUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ImportTracksUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ObserveActivitiesUseCase
@@ -23,8 +26,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-private const val DAY_MILLIS = 24L * 60 * 60 * 1000
 
 internal class ActivityListViewModel(
     private val context: Context,
@@ -68,6 +69,7 @@ internal class ActivityListViewModel(
             .filter { type == null || it.activityType == type }
             .filter { period == ActivityPeriod.ALL || it.isWithin(period) }
             .filter { query.isBlank() || (it.title ?: "").contains(query, ignoreCase = true) }
+        val statsActivities = filtered.filter { it.activityType != ActivityType.OTHER }
         ActivityListState(
             isLoading = false,
             searchQuery = query,
@@ -75,6 +77,13 @@ internal class ActivityListViewModel(
             filterPeriod = period,
             availableTypes = ACTIVITY_LIST_TYPES.filter { candidate -> activities.any { it.activityType == candidate } },
             items = filtered.map { it.toUi(preferences.measurementSystem) },
+            statsDistanceText = context.formatDistance(
+                statsActivities.sumOf { it.distanceMeters },
+                preferences.measurementSystem,
+                1,
+            ).text,
+            statsTimeText = context.formatDuration(statsActivities.sumOf { it.movingTimeMillis }),
+            excludedFromStatsCount = filtered.size - statsActivities.size,
             routePreviews = localUi.routePreviews,
             isImporting = localUi.isImporting,
             snackbarMessage = localUi.snackbarMessage,
@@ -152,13 +161,13 @@ internal class ActivityListViewModel(
     }
 
     private fun Activity.isWithin(period: ActivityPeriod): Boolean {
-        val windowMillis = when (period) {
-            ActivityPeriod.WEEK -> 7 * DAY_MILLIS
-            ActivityPeriod.MONTH -> 30 * DAY_MILLIS
-            ActivityPeriod.YEAR -> 365 * DAY_MILLIS
+        val unit = when (period) {
+            ActivityPeriod.WEEK -> CalendarPeriodUnit.WEEK
+            ActivityPeriod.MONTH -> CalendarPeriodUnit.MONTH
+            ActivityPeriod.YEAR -> CalendarPeriodUnit.YEAR
             ActivityPeriod.ALL -> return true
         }
-        return startTimeEpochMillis >= System.currentTimeMillis() - windowMillis
+        return startTimeEpochMillis >= startOfCalendarPeriodMillis(unit)
     }
 
     private fun Activity.toUi(measurementSystem: MeasurementSystem): ActivityListItemUi = ActivityListItemUi(

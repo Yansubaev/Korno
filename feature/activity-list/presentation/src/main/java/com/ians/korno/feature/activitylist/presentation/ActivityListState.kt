@@ -20,6 +20,10 @@ internal data class ActivityListState(
     val filterPeriod: ActivityPeriod = ActivityPeriod.ALL,
     val availableTypes: List<ActivityType> = emptyList(),
     val items: List<ActivityListItemUi> = emptyList(),
+    val statsDistanceText: String = "",
+    val statsTimeText: String = "",
+    /** Сколько активностей из [items] не учтено в статистике — нераспознанный авто-детект тип. */
+    val excludedFromStatsCount: Int = 0,
     /** Маршруты для миниатюр; заполняются по мере появления строк на экране. */
     val routePreviews: Map<Long, List<MapPoint>> = emptyMap(),
     val isImporting: Boolean = false,

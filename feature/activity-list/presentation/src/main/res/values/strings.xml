@@ -15,6 +15,13 @@
     </plurals>
     <string name="activity_list_import_failed">Could not import the selected files.</string>
 
+    <string name="activity_list_stats_distance">Distance</string>
+    <string name="activity_list_stats_time">Time</string>
+    <plurals name="activity_list_stats_excluded">
+        <item quantity="one">Not counted: %1$d auto-detected activity</item>
+        <item quantity="other">Not counted: %1$d auto-detected activities</item>
+    </plurals>
+
     <string name="activity_list_type_run">Run</string>
     <string name="activity_list_type_ride">Ride</string>
     <string name="activity_list_type_walk">Walk</string>
