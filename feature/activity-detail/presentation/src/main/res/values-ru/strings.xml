@@ -63,8 +63,7 @@
     <string name="activity_detail_elevation_range_value">%1$s \u2013 %2$s</string>
 
     <string name="activity_detail_edit_track">Изменить трек</string>
-    <string name="activity_map_back">Назад к активности</string>
-    <string name="activity_detail_open_map">Открыть карту на весь экран</string>
+    <string name="activity_detail_toggle_sheet">Свернуть или развернуть статистику</string>
     <string name="activity_detail_share">Поделиться файлом трека</string>
     <string name="activity_detail_export">Экспортировать файл трека</string>
     <string name="activity_detail_export_done">Файл трека сохранён</string>

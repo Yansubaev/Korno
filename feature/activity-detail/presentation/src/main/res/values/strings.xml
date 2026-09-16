@@ -61,8 +61,7 @@
     <string name="activity_detail_elevation_range_value">%1$s \u2013 %2$s</string>
 
     <string name="activity_detail_edit_track">Edit track</string>
-    <string name="activity_map_back">Back to the activity</string>
-    <string name="activity_detail_open_map">Open the map full screen</string>
+    <string name="activity_detail_toggle_sheet">Expand or collapse stats</string>
     <string name="activity_detail_share">Share track file</string>
     <string name="activity_detail_export">Export track file</string>
     <string name="activity_detail_export_done">Track file saved</string>

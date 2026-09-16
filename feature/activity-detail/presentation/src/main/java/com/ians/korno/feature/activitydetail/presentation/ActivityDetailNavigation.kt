@@ -14,9 +14,6 @@ data class ActivityDetailRoute(val activityId: Long)
 @Serializable
 data class TrackCorrectionRoute(val activityId: Long)
 
-@Serializable
-data class ActivityMapRoute(val activityId: Long)
-
 fun NavGraphBuilder.activityDetailGraph(
     navController: NavController,
 ) {
@@ -35,14 +32,6 @@ fun NavGraphBuilder.activityDetailGraph(
                 navController.popBackStack()
             },
             onEditTrack = { activityId -> navController.navigate(TrackCorrectionRoute(activityId)) },
-            onOpenMap = { activityId -> navController.navigate(ActivityMapRoute(activityId)) },
-        )
-    }
-    composable<ActivityMapRoute> { backStackEntry ->
-        val route: ActivityMapRoute = backStackEntry.toRoute()
-        ActivityMapScreen(
-            activityId = route.activityId,
-            onBack = { navController.popBackStack() },
         )
     }
     composable<TrackCorrectionRoute> { backStackEntry ->

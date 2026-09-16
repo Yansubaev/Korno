@@ -4,8 +4,14 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +32,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -40,16 +47,23 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,6 +74,8 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackMap
+import kotlin.math.abs
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -70,7 +86,6 @@ internal fun ActivityDetailScreen(
     onBack: () -> Unit,
     onDeleted: () -> Unit,
     onEditTrack: (Long) -> Unit,
-    onOpenMap: (Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ActivityDetailViewModel = koinViewModel(parameters = { parametersOf(activityId) }),
 ) {
@@ -129,7 +144,6 @@ internal fun ActivityDetailScreen(
             },
             onBack = onBack,
             onEditTrack = { onEditTrack(activityId) },
-            onOpenMap = { onOpenMap(activityId) },
             modifier = Modifier.padding(padding),
         )
     }
@@ -150,7 +164,6 @@ private fun ActivityDetailContent(
     onAction: (ActivityDetailAction) -> Unit,
     onBack: () -> Unit,
     onEditTrack: () -> Unit,
-    onOpenMap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val route = rememberLensRoute(state)
@@ -195,108 +208,72 @@ private fun ActivityDetailContent(
             }
         }
 
-        Column(
-            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+        val density = LocalDensity.current
+        var containerHeightPx by remember { mutableFloatStateOf(0f) }
+        val anchors = remember(containerHeightPx, density) { sheetAnchors(containerHeightPx, density) }
+        val sheetHeight = remember { Animatable(0f) }
+        val scope = rememberCoroutineScope()
+
+        LaunchedEffect(anchors) {
+            val target = anchors?.peek ?: return@LaunchedEffect
+            if (sheetHeight.value == 0f) sheetHeight.snapTo(target)
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onSizeChanged { containerHeightPx = it.height.toFloat() },
         ) {
-            // Карта прокручивается вместе с содержимым: без неё на экране помещается
-            // ещё один график, а разглядывать трек всё равно уводит на полный экран.
-            Box(
+            // Карта всегда видна и сразу интерактивна: раньше жесты были выключены
+            // (карта внутри прокрутки перехватывала бы вертикальный скролл, см. ADR 0002),
+            // а разглядывать трек уводило на отдельный полноэкранный экран.
+            TrackMap(
+                points = route,
+                overlay = overlay,
+                modifier = Modifier.fillMaxSize(),
+                interactive = true,
+                // Не живая высота шторки, а высота peek: когда шторка развёрнута, карта
+                // всё равно почти не видна, и подгонять камеру под неё незачем — только
+                // лишний перелёт при следующем сворачивании (тот же приём, что в
+                // TrackingRecordingScreen.MapWithSheet).
+                bottomInset = PEEK_SHEET_HEIGHT,
+            )
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp)
-                    .padding(horizontal = 20.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainer),
+                    .align(Alignment.TopStart)
+                    .padding(12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(100))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // Жесты выключены: внутри прокрутки карта перехватывала бы вертикальный
-                // скролл. Разглядывать трек можно на отдельном полноэкранном экране —
-                // туда и ведёт нажатие.
-                TrackMap(
-                    points = route,
-                    overlay = overlay,
-                    modifier = Modifier.fillMaxSize(),
-                    interactive = false,
-                )
-                Row(
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(100))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(state.type.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(state.dateLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-                }
-
-                // Прозрачный слой поверх карты: MapView забирает касания себе даже с
-                // выключенными жестами, и без него нажатие на карточку не доходило бы
-                // до обработчика.
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable(
-                            onClickLabel = stringResource(R.string.activity_detail_open_map),
-                            onClick = onOpenMap,
-                        ),
-                )
+                Icon(state.type.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(state.dateLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
             }
 
-            // Переключатель линз и легенда стоят вплотную к карте: они объясняют именно
-            // её, и уезжать за экран должны вместе с ней.
-            state.insights?.let { insights ->
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                    MapLensSelector(
-                        lenses = insights.availableLenses,
-                        selected = state.lens,
-                        speedDisplay = insights.speedDisplay,
-                        onSelect = { onAction(ActivityDetailAction.SelectLens(it)) },
-                    )
-                    LensLegend(
-                        lens = state.lens,
-                        insights = insights,
-                        kinds = state.kindBreakdown.map { it.kind },
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
-            }
-
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                state.selection?.let { selection ->
-                    SelectionCard(
-                        selection = selection,
-                        speedDisplay = state.speedDisplay,
-                        onClear = { onAction(ActivityDetailAction.ClearSelection) },
-                        modifier = Modifier.padding(bottom = 16.dp),
-                    )
-                }
-
-                SummaryGrid(state = state)
-
-                KindBreakdownSection(breakdown = state.kindBreakdown)
-
-                state.insights?.let { insights ->
-                    InsightsSections(
-                        state = state,
-                        insights = insights,
-                        onAction = onAction,
-                    )
-                }
-
-                SegmentsSection(
-                    segments = state.segments,
-                    isRecalculating = state.isRecalculating,
+            if (anchors != null) {
+                StatsSheet(
+                    state = state,
                     onAction = onAction,
+                    onEditTrack = onEditTrack,
+                    heightPx = sheetHeight.value,
+                    anchors = anchors,
+                    onDrag = { delta ->
+                        scope.launch {
+                            sheetHeight.snapTo((sheetHeight.value - delta).coerceIn(anchors.peek, anchors.expanded))
+                        }
+                    },
+                    onDragStopped = {
+                        val nearest = anchors.nearestHeight(sheetHeight.value)
+                        scope.launch { sheetHeight.animateTo(nearest, SHEET_ANIMATION) }
+                    },
+                    onToggle = {
+                        val target = if (sheetHeight.value <= anchors.peek) anchors.expanded else anchors.peek
+                        scope.launch { sheetHeight.animateTo(target, SHEET_ANIMATION) }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
-
-                OutlinedButton(
-                    onClick = onEditTrack,
-                    modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(56.dp),
-                ) {
-                    Text(stringResource(R.string.activity_detail_edit_track))
-                }
-
-                ActivityLogSection(state = state, onAction = onAction)
             }
         }
     }
@@ -329,6 +306,150 @@ private fun ActivityDetailContent(
         )
     }
 }
+
+/**
+ * Статистика поверх карты: свёрнута — только ручка и компактная строка сводки,
+ * развёрнута — весь набор ниже, со своим скроллом. По мотивам
+ * `TrackingRecordingScreen.MapWithSheet`/`RecordingSheet`, но с двумя опорными
+ * точками вместо трёх — контент не переливается по размерам, а просто скроллится.
+ */
+@Composable
+private fun StatsSheet(
+    state: ActivityDetailState,
+    onAction: (ActivityDetailAction) -> Unit,
+    onEditTrack: () -> Unit,
+    heightPx: Float,
+    anchors: SheetAnchors,
+    onDrag: (Float) -> Unit,
+    onDragStopped: () -> Unit,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val height = with(density) { heightPx.toDp() }
+    val draggableState = rememberDraggableState(onDelta = onDrag)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+            .background(MaterialTheme.colorScheme.background)
+            // Жест висит на всей шторке, не только на ручке — так же, как в
+            // TrackingRecordingScreen: ни одно касание не проваливается на карту под ней.
+            .draggable(
+                state = draggableState,
+                orientation = Orientation.Vertical,
+                onDragStopped = { onDragStopped() },
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(34.dp)
+                .clickable(onClickLabel = stringResource(R.string.activity_detail_toggle_sheet), onClick = onToggle),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.DragHandle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            CompactStat(stringResource(R.string.activity_detail_distance), state.distanceText)
+            CompactStat(stringResource(R.string.activity_detail_duration), state.durationText)
+            CompactStat(
+                stringResource(if (state.speedDisplay == SpeedDisplay.PACE) R.string.activity_detail_avg_pace else R.string.activity_detail_avg_speed),
+                state.avgSpeedText,
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+        ) {
+            state.insights?.let { insights ->
+                Column(modifier = Modifier.padding(top = 12.dp)) {
+                    MapLensSelector(
+                        lenses = insights.availableLenses,
+                        selected = state.lens,
+                        speedDisplay = insights.speedDisplay,
+                        onSelect = { onAction(ActivityDetailAction.SelectLens(it)) },
+                    )
+                    LensLegend(
+                        lens = state.lens,
+                        insights = insights,
+                        kinds = state.kindBreakdown.map { it.kind },
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+
+            state.selection?.let { selection ->
+                SelectionCard(
+                    selection = selection,
+                    speedDisplay = state.speedDisplay,
+                    onClear = { onAction(ActivityDetailAction.ClearSelection) },
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+            }
+
+            SummaryGrid(state = state)
+
+            KindBreakdownSection(breakdown = state.kindBreakdown)
+
+            state.insights?.let { insights ->
+                InsightsSections(
+                    state = state,
+                    insights = insights,
+                    onAction = onAction,
+                )
+            }
+
+            SegmentsSection(
+                segments = state.segments,
+                isRecalculating = state.isRecalculating,
+                onAction = onAction,
+            )
+
+            OutlinedButton(
+                onClick = onEditTrack,
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(56.dp),
+            ) {
+                Text(stringResource(R.string.activity_detail_edit_track))
+            }
+
+            ActivityLogSection(state = state, onAction = onAction)
+
+            Box(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun CompactStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** Две опорные высоты шторки в пикселях: свёрнута и развёрнута на всю доступную высоту. */
+@Immutable
+private data class SheetAnchors(val peek: Float, val expanded: Float) {
+    fun nearestHeight(heightPx: Float): Float =
+        if (abs(heightPx - peek) <= abs(heightPx - expanded)) peek else expanded
+}
+
+private fun sheetAnchors(containerHeightPx: Float, density: Density): SheetAnchors? {
+    if (containerHeightPx <= 0f) return null
+    val peekPx = with(density) { PEEK_SHEET_HEIGHT.toPx() }.coerceAtMost(containerHeightPx)
+    return SheetAnchors(peek = peekPx, expanded = containerHeightPx)
+}
+
+private val PEEK_SHEET_HEIGHT = 128.dp
+
+private val SHEET_ANIMATION = tween<Float>(durationMillis = 360, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
 
 /** Итоговые показатели активности. Названия зависят от того, чем меряется эта активность. */
 @Composable
@@ -503,7 +624,6 @@ private fun ActivityDetailContentPreview() {
             onAction = {},
             onBack = {},
             onEditTrack = {},
-            onOpenMap = {},
         )
     }
 }
