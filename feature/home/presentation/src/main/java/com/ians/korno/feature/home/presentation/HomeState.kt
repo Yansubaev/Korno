@@ -16,13 +16,6 @@ internal data class HomeState(
     val weekDistanceText: String = "",
     val weekTimeText: String = "",
     val recentActivities: List<RecentActivityUi> = emptyList(),
+    val hasMoreActivities: Boolean = false,
     val selectedType: ActivityType = ActivityType.RUNNING,
-)
-
-internal val HOME_ACTIVITY_TYPES = listOf(
-    ActivityType.RUNNING,
-    ActivityType.CYCLING,
-    ActivityType.WALKING,
-    ActivityType.HIKING,
-    ActivityType.DRIVING,
 )

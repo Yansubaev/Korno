@@ -1,22 +1,18 @@
 package com.ians.korno.feature.home.presentation
 
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
@@ -26,11 +22,13 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Hiking
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,15 +40,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ians.korno.core.designsystem.animation.StartRecordingTransition
-import com.ians.korno.core.designsystem.animation.startRecordingSharedBounds
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import org.koin.androidx.compose.koinViewModel
 
+private val RECENT_LIST_BOTTOM_PADDING = 96.dp
+
 @Composable
 internal fun HomeScreen(
-    animatedVisibilityScope: AnimatedVisibilityScope,
     onStartSetup: (ActivityType) -> Unit,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (Long) -> Unit,
@@ -68,7 +65,6 @@ internal fun HomeScreen(
         onOpenActivity = onOpenActivity,
         onOpenSettings = onOpenSettings,
         modifier = modifier,
-        animatedVisibilityScope = animatedVisibilityScope,
     )
 }
 
@@ -81,15 +77,6 @@ private fun ActivityType.icon(): ImageVector = when (this) {
     ActivityType.OTHER -> Icons.Filled.DirectionsWalk
 }
 
-private fun ActivityType.labelRes(): Int = when (this) {
-    ActivityType.RUNNING -> R.string.home_type_run
-    ActivityType.CYCLING -> R.string.home_type_ride
-    ActivityType.WALKING -> R.string.home_type_walk
-    ActivityType.HIKING -> R.string.home_type_hike
-    ActivityType.DRIVING -> R.string.home_type_drive
-    ActivityType.OTHER -> R.string.home_type_walk
-}
-
 @Composable
 private fun HomeContent(
     state: HomeState,
@@ -99,139 +86,78 @@ private fun HomeContent(
     onOpenActivity: (Long) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(64.dp).padding(start = 20.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.home_title),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = null)
+    Scaffold(
+        modifier = modifier,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        floatingActionButton = {
+            FloatingActionButton(onClick = onStartSetup) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(R.string.home_start_recording_button),
+                )
             }
-        }
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp, 4.dp, 20.dp, 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp))
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+        },
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(64.dp).padding(start = 20.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = stringResource(R.string.home_start_recording_label),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    text = stringResource(R.string.home_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    HOME_ACTIVITY_TYPES.forEach { type ->
-                        val selected = type == state.selectedType
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(100))
-                                .background(
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.surface
-                                    } else {
-                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f)
-                                    },
-                                    shape = RoundedCornerShape(100),
-                                )
-                                .then(
-                                    Modifier.clickableChip { onAction(HomeAction.SelectActivityType(type)) },
-                                )
-                                .padding(10.dp, 6.dp, 14.dp, 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = type.icon(),
-                                contentDescription = null,
-                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                text = stringResource(type.labelRes()),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        }
-                    }
-                }
-                // Box под кнопкой раскрывается в экран настройки; сама кнопка летит отдельно
-                // и становится кнопкой «Старт». Без своего фона: цветная подложка во время
-                // перехода выглядела второй кнопкой рядом с настоящей.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .startRecordingSharedBounds(
-                            key = StartRecordingTransition.CONTAINER_KEY,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            clipShape = RoundedCornerShape(28.dp),
-                        ),
-                ) {
-                    Button(
-                        onClick = onStartSetup,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .startRecordingSharedBounds(
-                                key = StartRecordingTransition.BUTTON_KEY,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                clipShape = CircleShape,
-                            ),
-                    ) {
-                        Text(stringResource(R.string.home_start_recording_button))
-                    }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = null)
                 }
             }
 
-            Column {
-                Text(
-                    text = stringResource(R.string.home_this_week),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    WeekStatCard(stringResource(R.string.home_distance_label), state.weekDistanceText, Modifier.weight(1f))
-                    WeekStatCard(stringResource(R.string.home_time_label), state.weekTimeText, Modifier.weight(1f))
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp, 4.dp, 20.dp, RECENT_LIST_BOTTOM_PADDING),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                Column {
                     Text(
-                        text = stringResource(R.string.home_recent_activity),
+                        text = stringResource(R.string.home_this_week),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
                     )
-                    TextButton(onClick = onSeeAllActivities) {
-                        Text(stringResource(R.string.home_see_all))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        WeekStatCard(stringResource(R.string.home_distance_label), state.weekDistanceText, Modifier.weight(1f))
+                        WeekStatCard(stringResource(R.string.home_time_label), state.weekTimeText, Modifier.weight(1f))
                     }
                 }
-                state.recentActivities.forEach { activity ->
-                    RecentActivityRow(activity = activity, onClick = { onOpenActivity(activity.id) })
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.home_recent_activity),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onSeeAllActivities) {
+                            Text(stringResource(R.string.home_see_all))
+                        }
+                    }
+                    state.recentActivities.forEach { activity ->
+                        RecentActivityRow(activity = activity, onClick = { onOpenActivity(activity.id) })
+                    }
+                    if (state.hasMoreActivities) {
+                        TextButton(onClick = onSeeAllActivities) {
+                            Text(stringResource(R.string.home_see_all))
+                        }
+                    }
                 }
             }
         }
@@ -325,6 +251,7 @@ private fun HomeContentPreview() {
                         type = ActivityType.CYCLING,
                     ),
                 ),
+                hasMoreActivities = true,
             ),
             onAction = {},
             onStartSetup = {},

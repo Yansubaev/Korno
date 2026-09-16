@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 internal class HomeViewModel(
     private val context: Context,
@@ -40,11 +39,6 @@ internal class HomeViewModel(
 
     fun onAction(action: HomeAction) {
         when (action) {
-            // Выбор сохраняется сразу, а не по нажатию «Начать»: на следующем запуске
-            // экран должен открыться с той же активностью, даже если запись не началась.
-            is HomeAction.SelectActivityType -> viewModelScope.launch {
-                preferencesRepository.setLastActivityType(action.type)
-            }
             HomeAction.StartRecordingClicked -> Unit
         }
     }
@@ -59,6 +53,7 @@ internal class HomeViewModel(
                 weekDistanceText = context.formatDistance(data.weekDistanceMeters, measurementSystem, 1).text,
                 weekTimeText = formatDuration(data.weekMovingTimeMillis),
                 recentActivities = data.recentActivities.map { it.toUi(measurementSystem) },
+                hasMoreActivities = data.hasMoreActivitiesThisWeek,
                 selectedType = type,
             )
             is Result.Error -> HomeState(isLoading = false, selectedType = type)

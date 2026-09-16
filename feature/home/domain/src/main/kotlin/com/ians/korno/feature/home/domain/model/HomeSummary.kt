@@ -6,4 +6,5 @@ data class HomeSummary(
     val weekDistanceMeters: Double,
     val weekMovingTimeMillis: Long,
     val recentActivities: List<Activity>,
+    val hasMoreActivitiesThisWeek: Boolean,
 )

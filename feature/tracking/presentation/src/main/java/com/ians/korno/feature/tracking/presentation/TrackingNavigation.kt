@@ -28,7 +28,6 @@ fun NavGraphBuilder.trackingGraph(
     composable<TrackingSetupRoute> { backStackEntry ->
         val route: TrackingSetupRoute = backStackEntry.toRoute()
         TrackingSetupScreen(
-            animatedVisibilityScope = this,
             initialActivityType = route.initialActivityType,
             onStartRecording = {
                 // Настройка отработала — возвращаться к ней уже некуда, а экран записи

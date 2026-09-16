@@ -4,7 +4,6 @@ import android.Manifest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -44,8 +41,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ians.korno.core.designsystem.animation.StartRecordingTransition
-import com.ians.korno.core.designsystem.animation.startRecordingSharedBounds
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
@@ -55,7 +50,6 @@ import org.koin.core.parameter.parametersOf
 
 @Composable
 internal fun TrackingSetupScreen(
-    animatedVisibilityScope: AnimatedVisibilityScope,
     initialActivityType: ActivityType,
     onStartRecording: () -> Unit,
     onBack: () -> Unit,
@@ -81,7 +75,6 @@ internal fun TrackingSetupScreen(
             onBack()
         },
         modifier = modifier,
-        animatedVisibilityScope = animatedVisibilityScope,
     )
 }
 
@@ -109,17 +102,10 @@ private fun TrackingSetupContent(
     onAction: (TrackingSetupAction) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .startRecordingSharedBounds(
-                key = StartRecordingTransition.CONTAINER_KEY,
-                animatedVisibilityScope = animatedVisibilityScope,
-                clipShape = RoundedCornerShape(28.dp),
-            )
-            // Фон обязателен: во время перехода экран рисуется поверх Home.
             .background(MaterialTheme.colorScheme.surface),
     ) {
         Row(
@@ -295,11 +281,6 @@ private fun TrackingSetupContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp, 12.dp, 20.dp, 28.dp)
-                .startRecordingSharedBounds(
-                    key = StartRecordingTransition.BUTTON_KEY,
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    clipShape = CircleShape,
-                )
                 .height(56.dp),
         ) {
             Text(text = stringResource(R.string.tracking_setup_start))
