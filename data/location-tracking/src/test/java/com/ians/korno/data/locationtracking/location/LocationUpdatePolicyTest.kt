@@ -121,6 +121,21 @@ class LocationUpdatePolicyTest {
 
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
+    fun `movement hint restores the recording interval during a settled auto pause`(accuracy: GpsAccuracy) {
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.CYCLING)
+        val waking = LocationUpdatePolicy.configFor(
+            accuracy = accuracy,
+            status = RecordingStatus.AUTO_PAUSE,
+            activityType = ActivityType.CYCLING,
+            autoPauseSettled = true,
+            autoPauseMovementHint = true,
+        )
+
+        assertThat(waking).isEqualTo(recording)
+    }
+
+    @ParameterizedTest
+    @EnumSource(GpsAccuracy::class)
     fun `manual pause drops to the cheapest mode regardless of the setting`(accuracy: GpsAccuracy) {
         val paused = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.MANUAL_PAUSE, ActivityType.WALKING)
 

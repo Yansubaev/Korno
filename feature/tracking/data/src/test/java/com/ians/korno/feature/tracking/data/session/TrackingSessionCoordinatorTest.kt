@@ -335,6 +335,54 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `trusted doppler resumes auto pause even when the position is an outlier`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+
+        // Как в activity-34: координата переехала невозможным скачком, но отдельное
+        // доплеровское измерение скорости уверенно говорит, что движение возобновилось.
+        repeat(3) { index ->
+            coordinator.applySample(
+                sample(
+                    latitude = 0.01 + index * 0.001,
+                    longitude = 0.0,
+                    timestamp = 15_000L + index * 5_000L,
+                    speedMetersPerSecond = 2.0f,
+                    speedAccuracyMetersPerSecond = 0.1f,
+                    accuracyMeters = 5f,
+                ),
+            )
+
+            assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+        }
+    }
+
+    @Test
+    fun `an uncertain doppler spike does not resume auto pause for an outlier`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
+
+        coordinator.applySample(
+            sample(
+                latitude = 0.01,
+                longitude = 0.0,
+                timestamp = 15_000L,
+                speedMetersPerSecond = 2.0f,
+                speedAccuracyMetersPerSecond = 2.0f,
+                accuracyMeters = 5f,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+    }
+
+    @Test
     fun `stationary samples remain recording when auto pause is disabled`() = runTest {
         preferencesRepository.preferences.value = preferencesRepository.preferences.value.copy(
             autoPauseEnabled = false,
@@ -677,6 +725,95 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `a walking candidate resumes a cycling auto pause before segment confirmation`() = runTest {
+        val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.beginSession(ActivityType.CYCLING, autoMode = true)
+
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+
+        var sampleTimestamp = clockMillis
+        repeat(3) {
+            coordinator.applySample(
+                sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
+            )
+            sampleTimestamp += 5_000L
+        }
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
+
+        clockMillis += 15_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+        // 1.2 м/с недостаточно для велосипедного порога 1.5, но это уверенное движение
+        // для пешего кандидата с порогом 0.9. Ждать подтверждения вида сорок секунд нельзя.
+        coordinator.applySample(
+            sample(
+                latitude = 0.000_01,
+                longitude = 0.0,
+                timestamp = sampleTimestamp,
+                speedMetersPerSecond = 1.2f,
+                speedAccuracyMetersPerSecond = 0.1f,
+                accuracyMeters = 5f,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
+
+        coordinator.applySample(
+            sample(
+                latitude = 0.000_02,
+                longitude = 0.0,
+                timestamp = sampleTimestamp + 5_000L,
+                speedMetersPerSecond = 1.2f,
+                speedAccuracyMetersPerSecond = 0.1f,
+                accuracyMeters = 5f,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+    }
+
+    @Test
+    fun `a confirmed movement hint returns to battery saving after a stationary sample`() = runTest {
+        val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.beginSession(ActivityType.CYCLING, autoMode = true)
+
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+
+        var sampleTimestamp = clockMillis
+        repeat(3) {
+            coordinator.applySample(
+                sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
+            )
+            sampleTimestamp += 5_000L
+        }
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+
+        clockMillis += 15_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+
+        coordinator.applySample(
+            sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
+    }
+
+    @Test
     fun `on save a vehicle verdict amid a ride without stops is decoded back into cycling`() = runTest {
         beginWarmedSession(autoMode = true)
         var latitude = 0.0
@@ -793,6 +930,7 @@ class TrackingSessionCoordinatorTest {
         longitude: Double,
         timestamp: Long,
         speedMetersPerSecond: Float? = null,
+        speedAccuracyMetersPerSecond: Float? = null,
         accuracyMeters: Float? = null,
         provider: String? = null,
         ageMillis: Long? = null,
@@ -803,6 +941,7 @@ class TrackingSessionCoordinatorTest {
         timestampEpochMillis = timestamp,
         accuracyMeters = accuracyMeters,
         speedMetersPerSecond = speedMetersPerSecond,
+        speedAccuracyMetersPerSecond = speedAccuracyMetersPerSecond,
         provider = provider,
         ageMillis = ageMillis,
     )

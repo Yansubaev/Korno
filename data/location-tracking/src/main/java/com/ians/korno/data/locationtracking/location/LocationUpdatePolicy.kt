@@ -44,12 +44,16 @@ object LocationUpdatePolicy {
     /**
      * @param autoPauseSettled продержалась ли автопауза дольше [AUTO_PAUSE_SETTLE_MILLIS].
      *   Пока нет, частота остаётся такой же, как при записи.
+     * @param autoPauseMovementHint детектор уже видит возможное возобновление движения.
+     *   В этот момент полный темп опроса важнее экономии: кандидат должен либо быстро
+     *   подтвердиться, либо так же быстро отпасть.
      */
     fun configFor(
         accuracy: GpsAccuracy,
         status: RecordingStatus,
         activityType: ActivityType,
         autoPauseSettled: Boolean = false,
+        autoPauseMovementHint: Boolean = false,
     ): LocationUpdateConfig {
         val recording = LocationUpdateConfig(
             intervalMillis = recordingIntervalMillis(accuracy, activityType),
@@ -66,7 +70,7 @@ object LocationUpdatePolicy {
             // На автопаузе приоритет тоже остаётся высоким: батарею экономит уже
             // разрежённый интервал, а вот выход из автопаузы решается по координатам и
             // доплеровской скорости — ровно тому, чего сетевой фикс не даёт.
-            RecordingStatus.AUTO_PAUSE -> if (autoPauseSettled) {
+            RecordingStatus.AUTO_PAUSE -> if (autoPauseSettled && !autoPauseMovementHint) {
                 recording.copy(
                     intervalMillis = (recording.intervalMillis * AUTO_PAUSE_FACTOR)
                         .coerceAtMost(AUTO_PAUSE_MAX_INTERVAL_MILLIS),

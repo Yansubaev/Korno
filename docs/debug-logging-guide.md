@@ -169,9 +169,11 @@ rg '"level":"(WARN|ERROR)"|Unhandled exception' logs
 
 **Решения.** `Automatic recording state changed` (смена состояния) и `Auto pause held` (сэмпл пришёл, но пауза сохранилась). Обе несут поля решения: `reportedSpeed` — скорость от провайдера (`null` означает, что её не было, и решение принималось только по координатам), `currentSpeed` — скорость по обработанному треку, `accuracyMeters` — погрешность точки и `sampleIntervalMillis` — шаг с прошлой точки. Последнее поле важнее, чем кажется: детектор остановок рассуждает временными окнами, и если шаг сравним с `stopWindowMillis`, в окно попадает слишком мало точек.
 
-Первой записью лога активности идёт `Tracking session started` с настройками, при которых пошла запись: `autoPauseEnabled`, `autoPauseSensitivity`, `gpsAccuracy`, `stopSpeedMetersPerSecond`, `resumeSpeedMetersPerSecond`, `stopWindowMillis`, `minimumStopDurationMillis`, `stopRadiusMeters`, `maximumSpeedMetersPerSecond`, `maximumAccuracyMeters`, `smoothingRadius`. Без них цифры автопаузы не с чем сравнивать. Та же строка появляется и после восстановления сессии — `Active tracking session recovered`.
+Первой записью лога активности идёт `Tracking session started` с настройками, при которых пошла запись: `autoPauseEnabled`, `autoPauseSensitivity`, `gpsAccuracy`, `stopSpeedMetersPerSecond`, `resumeSpeedMetersPerSecond`, `stopWindowMillis`, `minimumStopDurationMillis`, `stopRadiusMeters`, `maximumSpeedMetersPerSecond`, `maximumAccuracyMeters`, параметры фильтра Калмана `processNoiseAcceleration`, `outlierGateChiSquare`, `positionNoiseFloorMeters`, а в новых версиях ещё `autoMode` — включено ли автоопределение вида движения. Без них цифры автопаузы не с чем сравнивать. Та же строка появляется и после восстановления сессии — `Active tracking session recovered`.
 
-Настройка точности GPS попадает именно сюда, хотя запросом к провайдеру владеет сервис: подписка на геолокацию поднимается ещё на прогреве, до появления `activityId`, и собственная запись `Location update policy changed` уходит только в общий лог.
+Настройка точности GPS попадает именно сюда, хотя запросом к провайдеру владеет сервис: подписка на геолокацию поднимается ещё на прогреве, до появления `activityId`, и первая запись `Location update policy changed` уходит только в общий лог. Повторные смены политики по ходу записи есть и в логе активности.
+
+`Location sample rejected before processing` (`GPS`) — сэмпл выброшен ещё до конвейера и в `Track point processed` не появится. Причина в `rejectedBecause`: `DUPLICATE` — тот же фикс пришёл повторно, `STALE` — фикс слишком старый (`ageMillis`), `PROVIDER` — сетевой фикс.
 
 Последней записью идёт `Tracking session stopped` со сводкой качества записи — с неё удобно начинать разбор, не читая сотни строк про отдельные сэмплы:
 
@@ -179,6 +181,14 @@ rg '"level":"(WARN|ERROR)"|Unhandled exception' logs
 - `accuracyMedianMeters` и `accuracyP90Meters` — с какой точностью вообще шла запись;
 - `sampleIntervalMedianMillis` и `sampleIntervalP90Millis` — реальный шаг опроса против запрошенного в `Location update policy changed`. Расхождение медианы с запрошенным интервалом означает, что провайдер запрос не отрабатывал;
 - `gapCount`, `unmeasuredTimeMillis` и `unmeasuredTimeShare` — сколько раз трек прерывался и какая доля активности пришлась на разрывы. Доля выше 0.2 означает, что обрабатывать было почти нечего, и вопросы к алгоритмам можно не задавать.
+
+## Сегменты по виду движения
+
+Пишутся, когда запись идёт в режиме «Авто» (`autoMode=true`), подробности фичи — `docs/auto-activity-segments.md`.
+
+- `Step counter reading` — `stepCounter` (накопительный счётчик с загрузки устройства) и `readingTimestamp`; не чаще раза в интервал, для любого типа активности.
+- `Segment detector decision` — каждое решение живого детектора, поле `decision`: `CANDIDATE` (`kind`), `DROPPED` (кандидат не удержался), `REJECTED` (вердикт распознавания отклонён, `reason`: `LOW_CONFIDENCE`, `NOT_MOVEMENT`, `SPEED`, `MANUAL_HOLD`, `PAUSED`) и `CONFIRMED` (`from` → `to`, `boundaryTimestamp`, `manual`). `CONFIRMED` пишется на `INFO`, остальные — на `DEBUG`.
+- `Activity mode decoded` — одна запись при остановке: `liveSegments` (что нарезал живой детектор) против `decodedSegments` (что пересчитал декодер Витерби по всей записи и что будет сохранено). Формат `KIND@м:сс-м:сс` от начала записи. Расхождение этих двух строк — первое, на что смотреть при жалобе на сегменты.
 
 ## Системные сигналы
 

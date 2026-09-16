@@ -284,13 +284,15 @@ internal class LocationTrackingService : Service() {
                 preferencesRepository.observePreferences(),
                 settledStatuses(),
                 coordinator.session.map { it.activityType }.distinctUntilChanged(),
-            ) { preferences, (status, settled), activityType ->
+                coordinator.autoPauseMovementHint,
+            ) { preferences, (status, settled), activityType, movementHint ->
                 measurementSystem = preferences.measurementSystem
                 LocationUpdatePolicy.configFor(
                     accuracy = preferences.gpsAccuracy,
                     status = status,
                     activityType = activityType,
                     autoPauseSettled = settled,
+                    autoPauseMovementHint = movementHint,
                 )
             }
                 .distinctUntilChanged()

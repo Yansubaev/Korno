@@ -100,6 +100,13 @@ private const val MAXIMUM_FIX_AGE_MILLIS = 5_000L
  */
 private const val NETWORK_PROVIDER = "network"
 
+private data class AutoPauseResumeDecision(
+    val candidateKind: SegmentKind?,
+    val effectiveThresholdMetersPerSecond: Double,
+    val rawDopplerLowerBoundMetersPerSecond: Double?,
+    val hasTrustedDoppler: Boolean,
+)
+
 /**
  * Единственный держатель истины о текущей записи трека.
  * И [com.ians.korno.feature.tracking.data.service.LocationTrackingService], и
@@ -122,6 +129,14 @@ internal class TrackingSessionCoordinator(
 ) {
     private val _session = MutableStateFlow(RecordingSession())
     val session: StateFlow<RecordingSession> = _session.asStateFlow()
+
+    /**
+     * Во время долгой автопаузы сервис разрежает GPS. Кандидат нового вида означает, что
+     * движение уже могло начаться: до его подтверждения возвращаем обычную частоту, чтобы
+     * сорокасекундное окно детектора не растягивалось ещё и редкими координатами.
+     */
+    private val _autoPauseMovementHint = MutableStateFlow(false)
+    val autoPauseMovementHint: StateFlow<Boolean> = _autoPauseMovementHint.asStateFlow()
 
     private val pointBuffer = mutableListOf<GeoPoint>()
 
@@ -221,6 +236,7 @@ internal class TrackingSessionCoordinator(
             lastFlushAtMillis = startTime
             waitingForFixSinceMillis = if (hasWarmFix) null else startTime
             lastStepCounter = null
+            _autoPauseMovementHint.value = false
             resetSegments(if (autoMode) listOf(firstSegment.copy(activityId = id)) else emptyList(), stepCount = null)
             _session.value = RecordingSession(
                 status = initialStatus,
@@ -326,6 +342,7 @@ internal class TrackingSessionCoordinator(
                 // после восстановления процесса счёт продолжается с последнего
                 // подтверждённого значения активности, а не с накопленного в памяти.
                 lastStepCounter = null
+                _autoPauseMovementHint.value = false
                 _session.value = RecordingSession(
                     status = RecordingStatus.RECORDING,
                     activityId = activity.id,
@@ -488,6 +505,7 @@ internal class TrackingSessionCoordinator(
         val status = _session.value.status
         if (status == RecordingStatus.STOPPED) return
         if (status == RecordingStatus.WAITING_FOR_GPS && signal !is DetectorSignal.ManualKind) return
+        var movementHintUpdate: Boolean? = null
         synchronized(segmentLock) {
             if (sessionSegments.isEmpty()) return
             val step = segmentDetector.reduce(detectorState, signal)
@@ -496,7 +514,13 @@ internal class TrackingSessionCoordinator(
                 logDetectorEvent(event)
                 if (event is DetectorEvent.SegmentConfirmed) pendingSegmentWrites += confirmSegment(event)
             }
+            if (status == RecordingStatus.AUTO_PAUSE && step.events.any(DetectorEvent::changesMovementCandidate)) {
+                movementHintUpdate = detectorState.candidate != null || step.events.any {
+                    it is DetectorEvent.SegmentConfirmed && !it.isManual
+                }
+            }
         }
+        movementHintUpdate?.let { _autoPauseMovementHint.value = it }
         segmentWriteMutex.withLock {
             while (true) {
                 val (current, next) = synchronized(segmentLock) { pendingSegmentWrites.removeFirstOrNull() } ?: break
@@ -707,7 +731,9 @@ internal class TrackingSessionCoordinator(
         }
         val statistics = update.statistics
         val latestValidPoint = update.lastValidPoint
-        val nextStatus = if (autoPauseEnabled && latestValidPoint?.isStop == true) {
+        val resumeDecision = autoPauseResumeDecision(current, sample)
+        val dopplerOverridesStop = latestValidPoint?.isStop == true && resumeDecision.hasTrustedDoppler
+        val nextStatus = if (autoPauseEnabled && latestValidPoint?.isStop == true && !dopplerOverridesStop) {
             RecordingStatus.AUTO_PAUSE
         } else {
             RecordingStatus.RECORDING
@@ -749,7 +775,13 @@ internal class TrackingSessionCoordinator(
             logger.info(
                 category = LogCategory.TRACKING,
                 tag = TAG,
-                fields = autoPauseDecisionFields(sample, statistics, update) + mapOf(
+                fields = autoPauseDecisionFields(
+                    sample,
+                    statistics,
+                    update,
+                    resumeDecision,
+                    dopplerOverridesStop,
+                ) + mapOf(
                     "from" to current.status.name,
                     "to" to nextStatus.name,
                 ),
@@ -758,7 +790,13 @@ internal class TrackingSessionCoordinator(
             logger.debug(
                 category = LogCategory.TRACKING,
                 tag = TAG,
-                fields = autoPauseDecisionFields(sample, statistics, update),
+                fields = autoPauseDecisionFields(
+                    sample,
+                    statistics,
+                    update,
+                    resumeDecision,
+                    dopplerOverridesStop,
+                ),
             ) { "Auto pause held" }
         }
 
@@ -782,8 +820,50 @@ internal class TrackingSessionCoordinator(
                 lastPoint = latestValidPoint?.copy(recordingStatus = nextStatus),
             )
         }
+        when {
+            nextStatus != RecordingStatus.AUTO_PAUSE -> _autoPauseMovementHint.value = false
+            else -> _autoPauseMovementHint.value = synchronized(segmentLock) { detectorState.candidate != null }
+        }
 
         bufferPoint(storedPoint)
+    }
+
+    /**
+     * Выброс координаты не делает недостоверной доплеровскую скорость: GNSS измеряет её
+     * отдельно по сдвигу несущей. Поэтому надёжная нижняя граница скорости вправе снять
+     * автопаузу, даже если сама позиция не прошла гейт фильтра.
+     *
+     * В авторежиме кандидат нового вида уже является полезной гипотезой, хотя сорок секунд
+     * подтверждения ещё не прошли. Для выхода берём более отзывчивый из текущего и
+     * кандидатного порогов, не переключая весь профиль и не подтверждая сегмент раньше.
+     */
+    private fun autoPauseResumeDecision(
+        session: RecordingSession,
+        sample: LocationSample,
+    ): AutoPauseResumeDecision {
+        val candidateKind = if (session.isAutoMode) {
+            synchronized(segmentLock) { detectorState.candidate?.kind }
+        } else {
+            null
+        }
+        val candidateThreshold = candidateKind
+            ?.let(TrackProcessingConfig::forSegmentKind)
+            ?.withAutoPauseSensitivity(autoPauseSensitivity)
+            ?.resumeSpeedMetersPerSecond
+        val effectiveThreshold = candidateThreshold
+            ?.let { minOf(processingConfig.resumeSpeedMetersPerSecond, it) }
+            ?: processingConfig.resumeSpeedMetersPerSecond
+        val speed = sample.speedMetersPerSecond?.toDouble()?.takeIf { it.isFinite() && it >= 0.0 }
+        val speedAccuracy = sample.speedAccuracyMetersPerSecond?.toDouble()
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?: processingConfig.defaultSpeedAccuracyMetersPerSecond
+        val lowerBound = speed?.minus(speedAccuracy)
+        return AutoPauseResumeDecision(
+            candidateKind = candidateKind,
+            effectiveThresholdMetersPerSecond = effectiveThreshold,
+            rawDopplerLowerBoundMetersPerSecond = lowerBound,
+            hasTrustedDoppler = lowerBound != null && lowerBound >= effectiveThreshold,
+        )
     }
 
     /**
@@ -797,6 +877,8 @@ internal class TrackingSessionCoordinator(
         sample: LocationSample,
         statistics: TrackStatistics,
         update: LiveTrackUpdate,
+        resumeDecision: AutoPauseResumeDecision,
+        dopplerOverridesStop: Boolean,
     ): Map<String, String> = sampleFields(
         sample = sample,
         previousPoint = sessionPoints.getOrNull(sessionPoints.lastIndex - 1),
@@ -814,6 +896,12 @@ internal class TrackingSessionCoordinator(
         "windowPointCount" to stopWindowPoints().size.toString(),
         "stopSpeedMetersPerSecond" to processingConfig.stopSpeedMetersPerSecond.toString(),
         "resumeSpeedMetersPerSecond" to processingConfig.resumeSpeedMetersPerSecond.toString(),
+        "effectiveResumeSpeedMetersPerSecond" to
+            resumeDecision.effectiveThresholdMetersPerSecond.toString(),
+        "resumeCandidateKind" to (resumeDecision.candidateKind?.name ?: ""),
+        "rawDopplerLowerBound" to
+            (resumeDecision.rawDopplerLowerBoundMetersPerSecond?.toString() ?: ""),
+        "dopplerOverridesStop" to dopplerOverridesStop.toString(),
         "stopWindowMillis" to processingConfig.stopWindowMillis.toString(),
     )
 
@@ -963,6 +1051,7 @@ internal class TrackingSessionCoordinator(
             status = RecordingStatus.MANUAL_PAUSE,
             currentPauseStartMillis = nowMillis(),
         )
+        _autoPauseMovementHint.value = false
         logger.info(LogCategory.TRACKING, TAG) { "Tracking paused manually" }
         if (current.isAutoMode) reduceDetectorWithoutWrites(DetectorSignal.Paused(nowMillis()))
     }
@@ -977,6 +1066,7 @@ internal class TrackingSessionCoordinator(
                 (nowMillis() - pauseStart),
             currentPauseStartMillis = null,
         )
+        _autoPauseMovementHint.value = false
         logger.info(LogCategory.TRACKING, TAG) { "Tracking resumed manually" }
         if (current.isAutoMode) reduceDetectorWithoutWrites(DetectorSignal.Resumed(nowMillis()))
     }
@@ -1055,6 +1145,7 @@ internal class TrackingSessionCoordinator(
         pointBuffer.clear()
         sessionPoints.clear()
         liveProcessor.reset()
+        _autoPauseMovementHint.value = false
         waitingForFixSinceMillis = null
         lastStepCounter = null
         _session.value = RecordingSession(status = RecordingStatus.STOPPED)
@@ -1222,3 +1313,11 @@ private fun <T : Comparable<T>> List<T>.percentile(fraction: Double): T? {
 /** Одна цифра после запятой: в логе нужен порядок величины, а не все разряды Double. */
 private fun Double?.format(): String =
     this?.let { String.format(Locale.US, "%.1f", it) } ?: "null"
+
+private fun DetectorEvent.changesMovementCandidate(): Boolean = when (this) {
+    is DetectorEvent.CandidateStarted,
+    is DetectorEvent.CandidateDropped,
+    -> true
+    is DetectorEvent.SegmentConfirmed -> !isManual
+    is DetectorEvent.VerdictRejected -> false
+}
