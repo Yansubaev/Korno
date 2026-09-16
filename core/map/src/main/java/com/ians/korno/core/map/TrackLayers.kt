@@ -24,6 +24,9 @@ private const val ROUTE_LAYER = "korno-route-layer"
 private const val PAUSED_ROUTE_SOURCE = "korno-paused-route-source"
 private const val PAUSED_ROUTE_CASING_LAYER = "korno-paused-route-casing-layer"
 private const val PAUSED_ROUTE_LAYER = "korno-paused-route-layer"
+private const val GAP_ROUTE_SOURCE = "korno-gap-route-source"
+private const val GAP_ROUTE_CASING_LAYER = "korno-gap-route-casing-layer"
+private const val GAP_ROUTE_LAYER = "korno-gap-route-layer"
 
 private const val SECTION_SOURCE = "korno-section-source"
 private const val SECTION_LAYER = "korno-section-layer"
@@ -78,6 +81,8 @@ private const val STOP_REFERENCE_MILLIS = 30_000.0
 internal data class TrackMapColors(
     val route: Int,
     val pausedRoute: Int,
+    /** Отрезок, которого запись не видела: цвет отдельно от паузы — это разные события. */
+    val gapRoute: Int,
     val routeCasing: Int,
     val start: Int,
     val finish: Int,
@@ -101,6 +106,7 @@ internal fun Style.installTrackLayers(colors: TrackMapColors) {
 
     addSource(GeoJsonSource(ROUTE_SOURCE))
     addSource(GeoJsonSource(PAUSED_ROUTE_SOURCE))
+    addSource(GeoJsonSource(GAP_ROUTE_SOURCE))
     addSource(GeoJsonSource(SECTION_SOURCE))
     addSource(GeoJsonSource(STOPS_SOURCE))
     addSource(GeoJsonSource(DISTANCE_SOURCE))
@@ -138,6 +144,29 @@ internal fun Style.installTrackLayers(colors: TrackMapColors) {
     addLayer(
         LineLayer(PAUSED_ROUTE_LAYER, PAUSED_ROUTE_SOURCE).withProperties(
             PropertyFactory.lineColor(colors.pausedRoute),
+            PropertyFactory.lineWidth(5f),
+            PropertyFactory.lineOpacity(0.65f),
+            PropertyFactory.lineDasharray(arrayOf(1.5f, 1.5f)),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
+    addLayer(
+        LineLayer(GAP_ROUTE_CASING_LAYER, GAP_ROUTE_SOURCE).withProperties(
+            PropertyFactory.lineColor(colors.routeCasing),
+            PropertyFactory.lineWidth(8f),
+            PropertyFactory.lineOpacity(0.75f),
+            PropertyFactory.lineDasharray(arrayOf(1.5f, 1.5f)),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
+    // Рисунок пунктира тот же, что у паузы, а цвет свой: пауза — то, что человек или
+    // автопауза сделали, разрыв — то, чего запись не видела. Одним цветом они читались
+    // как одно событие.
+    addLayer(
+        LineLayer(GAP_ROUTE_LAYER, GAP_ROUTE_SOURCE).withProperties(
+            PropertyFactory.lineColor(colors.gapRoute),
             PropertyFactory.lineWidth(5f),
             PropertyFactory.lineOpacity(0.65f),
             PropertyFactory.lineDasharray(arrayOf(1.5f, 1.5f)),
@@ -281,21 +310,30 @@ internal fun Style.installTrackLayers(colors: TrackMapColors) {
 internal fun Style.setRoute(points: List<MapPoint>, defaultColor: Int) {
     val sections = points.toRouteSections()
     getSourceAs<GeoJsonSource>(ROUTE_SOURCE)
-        ?.setGeoJson(sections.toFeatureCollection(paused = false, defaultColor = defaultColor))
+        ?.setGeoJson(sections.toFeatureCollection(EdgeKind.NORMAL, defaultColor))
     getSourceAs<GeoJsonSource>(PAUSED_ROUTE_SOURCE)
-        ?.setGeoJson(sections.toFeatureCollection(paused = true, defaultColor = defaultColor))
+        ?.setGeoJson(sections.toFeatureCollection(EdgeKind.PAUSED, defaultColor))
+    getSourceAs<GeoJsonSource>(GAP_ROUTE_SOURCE)
+        ?.setGeoJson(sections.toFeatureCollection(EdgeKind.GAP, defaultColor))
 }
+
+/**
+ * Чем ребро маршрута нарисовано. Пауза и разрыв оба пунктирные — сплошная линия в обоих
+ * случаях утверждала бы, что маршрут между точками известен, — но разными цветами:
+ * пауза это сделанное, разрыв это неувиденное.
+ */
+internal enum class EdgeKind { NORMAL, PAUSED, GAP }
 
 @Immutable
 internal data class RouteSection(
     val points: List<MapPoint>,
-    val isPaused: Boolean,
+    val kind: EdgeKind,
     /** Цвет линзы для этого отрезка; `null` — цвет линии по умолчанию. */
     val shade: Color? = null,
 )
 
 /** Оформление ребра маршрута: пока оно не меняется, отрезок можно рисовать одной линией. */
-private data class EdgeStyle(val isPaused: Boolean, val shade: Color?)
+private data class EdgeStyle(val kind: EdgeKind, val shade: Color?)
 
 /**
  * Стиль относится к ребру, а не к отдельной координате. Обе границы паузы
@@ -312,27 +350,31 @@ internal fun List<MapPoint>.toRouteSections(): List<RouteSection> {
         if (style == sectionStyle) {
             sectionPoints += this[index + 1]
         } else {
-            sections += RouteSection(sectionPoints, sectionStyle.isPaused, sectionStyle.shade)
+            sections += RouteSection(sectionPoints, sectionStyle.kind, sectionStyle.shade)
             sectionPoints = mutableListOf(this[index], this[index + 1])
             sectionStyle = style
         }
     }
-    sections += RouteSection(sectionPoints, sectionStyle.isPaused, sectionStyle.shade)
+    sections += RouteSection(sectionPoints, sectionStyle.kind, sectionStyle.shade)
     return sections
 }
 
 private fun List<MapPoint>.edgeStyle(index: Int): EdgeStyle = EdgeStyle(
-    // Разрыв трека рисуется как пауза: и там, и там сплошная линия соврала бы о том,
-    // что маршрут между точками известен.
-    isPaused = this[index].isPaused || this[index + 1].isPaused || this[index + 1].isGap,
+    // Пауза старше разрыва: если на паузе ещё и пропал сигнал, ребро всё равно про паузу —
+    // она объясняет отсутствие точек, а разрыв её не отменяет.
+    kind = when {
+        this[index].isPaused || this[index + 1].isPaused -> EdgeKind.PAUSED
+        this[index + 1].isGap -> EdgeKind.GAP
+        else -> EdgeKind.NORMAL
+    },
     shade = this[index].shade,
 )
 
 private fun List<RouteSection>.toFeatureCollection(
-    paused: Boolean,
+    kind: EdgeKind,
     defaultColor: Int,
 ): FeatureCollection {
-    val features = filter { it.isPaused == paused }.map { section ->
+    val features = filter { it.kind == kind }.map { section ->
         Feature.fromGeometry(LineString.fromLngLats(section.points.map(MapPoint::toGeoJson))).apply {
             addStringProperty(
                 PROPERTY_COLOR,

@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val TICK_INTERVAL_MILLIS = 1_000L
 
@@ -51,20 +52,26 @@ internal class TrackingRecordingViewModel(
     private val ticker = flow {
         while (true) {
             emit(Unit)
-            delay(TICK_INTERVAL_MILLIS)
+            delay(TICK_INTERVAL_MILLIS.milliseconds)
         }
     }
 
     // Маппинг живёт здесь, а не в toUiState: иначе список пересобирался бы
     // на каждый тик таймера, а не только при появлении новых точек.
     private val routePoints = observeSessionTrack().map { points ->
-        points.mapIndexed { index, point ->
-            MapPoint(
-                latitude = point.latitude,
-                longitude = point.longitude,
-                isPaused = point.isStop || point.recordingStatus.isPause,
-                isGap = index > 0 && isTrackGap(points[index - 1], point),
-            )
+        // Выбросы в линию не идут: их координаты фильтр не правил, и нарисованные
+        // сплошной линией они и есть тот самый зигзаг. Разрыв, который остаётся на их
+        // месте, рисуется пунктиром — но только если считать его по тому же списку,
+        // из которого они уже выкинуты.
+        points.filterNot { it.isOutlier }.let { valid ->
+            valid.mapIndexed { index, point ->
+                MapPoint(
+                    latitude = point.latitude,
+                    longitude = point.longitude,
+                    isPaused = point.isStop || point.recordingStatus.isPause,
+                    isGap = index > 0 && isTrackGap(valid[index - 1], point),
+                )
+            }
         }
     }
 

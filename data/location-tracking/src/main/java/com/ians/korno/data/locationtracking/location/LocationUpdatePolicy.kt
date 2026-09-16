@@ -56,7 +56,7 @@ object LocationUpdatePolicy {
         autoPauseMovementHint: Boolean = false,
     ): LocationUpdateConfig {
         val recording = LocationUpdateConfig(
-            intervalMillis = recordingIntervalMillis(accuracy, activityType),
+            intervalMillis = recordingIntervalMillis(accuracy),
             // Пока идёт запись, приоритет не опускается ниже высокого, какой бы ни была
             // настройка точности. Настройка обязана управлять частотой опроса — это и есть
             // основной расход батареи, — но не тем, включён ли вообще GNSS-чип. С BALANCED
@@ -70,7 +70,9 @@ object LocationUpdatePolicy {
             // На автопаузе приоритет тоже остаётся высоким: батарею экономит уже
             // разрежённый интервал, а вот выход из автопаузы решается по координатам и
             // доплеровской скорости — ровно тому, чего сетевой фикс не даёт.
-            RecordingStatus.AUTO_PAUSE -> if (autoPauseSettled && !autoPauseMovementHint) {
+            RecordingStatus.AUTO_PAUSE -> if (
+                autoPauseSettled && !autoPauseMovementHint && !activityType.holdsPaceOnAutoPause
+            ) {
                 recording.copy(
                     intervalMillis = (recording.intervalMillis * AUTO_PAUSE_FACTOR)
                         .coerceAtMost(AUTO_PAUSE_MAX_INTERVAL_MILLIS),
@@ -97,71 +99,43 @@ object LocationUpdatePolicy {
     }
 
     /**
-     * Темп активности: как быстро под ногами меняется то, ради чего вообще спрашивают
-     * координаты.
+     * Держит ли вид активности темп записи и на автопаузе.
      *
-     * Пешеход за десять секунд проходит тринадцать метров — меньше, чем городская
-     * погрешность фикса, и разрежённый опрос ему обходится дорого: точек мало, каждая
-     * шумная, а окну детектора остановок нужно набрать несколько штук. Машина за те же
-     * десять секунд проезжает полтораста метров, её `maximumAccuracyMeters` вдвое шире,
-     * и поездки длятся часами — там экономия батареи стоит больше лишней точки.
-     *
-     * Хайкинг стоит отдельно от ходьбы: то же тело, но открытая местность, где сигнал
-     * обычно ловится увереннее, чем в городе, а сама прогулка растягивается на часы —
-     * экономия батареи там окупается так же, как у машины.
+     * Транспорт держит. Автобус на остановке стоит двадцать-сорок секунд, то есть меньше
+     * [AUTO_PAUSE_SETTLE_MILLIS], — до экономии дело и не доходило, зато каждый отъезд
+     * решался по уже разрежённому сигналу. В разобранном логе поездки это видно прямо:
+     * интервал уходил на десять секунд, а фактический шаг опроса доходил до двенадцати,
+     * и в окно детектора остановок попадало две точки вместо пяти.
      */
-    private enum class TrackingTempo { ON_FOOT, TRAIL, WHEELED, VEHICLE }
-
-    private val ActivityType.tempo: TrackingTempo
-        get() = when (this) {
-            ActivityType.WALKING, ActivityType.RUNNING -> TrackingTempo.ON_FOOT
-            ActivityType.HIKING -> TrackingTempo.TRAIL
-            ActivityType.CYCLING, ActivityType.OTHER -> TrackingTempo.WHEELED
-            ActivityType.DRIVING -> TrackingTempo.VEHICLE
-        }
+    private val ActivityType.holdsPaceOnAutoPause: Boolean
+        get() = this == ActivityType.DRIVING
 
     /**
      * Шаг опроса во время записи.
+     *
+     * Один и тот же для всех видов активности: настройка точности — это и есть тот
+     * рычаг, которым пользователь меняет частоту, и делить его ещё и по темпу движения
+     * значило бы, что одно и то же положение переключателя означает у разных активностей
+     * разное. Прежняя таблица 4×3 разводила пешехода, тропу, колесо и транспорт и
+     * расходилась в пять раз между крайними клетками.
      *
      * Интервал здесь один, без отдельного «самого частого»: провайдер выдаёт фиксы именно
      * по нижней границе, а не по запрошенному интервалу, и прежняя пара 4000/2000
      * означала на деле 2000. Настройки обещали одно, а делали другое — и различались вдвое
      * меньше, чем задумывалось. Теперь запрошенное и выданное совпадают.
      *
-     * Секунда для пешехода на HIGH — не опечатка: GNSS-чип всё равно считает решение раз
-     * в секунду, просить реже — не выключить его, а лишь выбросить половину уже
-     * посчитанных фиксов.
+     * Секунда на HIGH — не опечатка: GNSS-чип всё равно считает решение раз в секунду,
+     * просить реже — не выключить его, а лишь выбросить половину уже посчитанных фиксов.
+     *
+     * ponytail: пять секунд на BATTERY_SAVER возвращают режим, от которого раньше ушли —
+     * в прежнем логе прогулки такой шаг давал медианную погрешность 16 м и p90 в 49 м при
+     * пороге отбраковки 40 м, то есть три точки из десяти не доживали до трека. Порог
+     * отбраковки с тех пор не менялся; вернуться к четырём секундам, если жалобы на
+     * рваный трек в этом режиме повторятся.
      */
-    private fun recordingIntervalMillis(
-        accuracy: GpsAccuracy,
-        activityType: ActivityType,
-    ): Long = when (activityType.tempo) {
-        TrackingTempo.ON_FOOT -> when (accuracy) {
-            GpsAccuracy.HIGH -> 1_000L
-            GpsAccuracy.BALANCED -> 2_500L
-            // Четыре секунды, а не десять. Прежний BATTERY_SAVER выдавал фиксы раз в пять
-            // секунд с медианной погрешностью 16 м и девяностым процентилем 49 — при
-            // пороге отбраковки в 40 м для ходьбы. Три точки из десяти не доживали до
-            // трека вовсе, и режим переставал годиться для прогулки совсем.
-            GpsAccuracy.BATTERY_SAVER -> 4_000L
-        }
-
-        TrackingTempo.TRAIL -> when (accuracy) {
-            GpsAccuracy.HIGH -> 2_000L
-            GpsAccuracy.BALANCED -> 5_000L
-            GpsAccuracy.BATTERY_SAVER -> 8_000L
-        }
-
-        TrackingTempo.WHEELED -> when (accuracy) {
-            GpsAccuracy.HIGH -> 1_500L
-            GpsAccuracy.BALANCED -> 3_500L
-            GpsAccuracy.BATTERY_SAVER -> 7_000L
-        }
-
-        TrackingTempo.VEHICLE -> when (accuracy) {
-            GpsAccuracy.HIGH -> 2_000L
-            GpsAccuracy.BALANCED -> 5_000L
-            GpsAccuracy.BATTERY_SAVER -> 10_000L
-        }
+    private fun recordingIntervalMillis(accuracy: GpsAccuracy): Long = when (accuracy) {
+        GpsAccuracy.HIGH -> 1_000L
+        GpsAccuracy.BALANCED -> 2_000L
+        GpsAccuracy.BATTERY_SAVER -> 5_000L
     }
 }

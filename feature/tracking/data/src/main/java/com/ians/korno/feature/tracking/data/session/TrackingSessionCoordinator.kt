@@ -37,7 +37,6 @@ import com.ians.korno.core.trackprocessing.SegmentDetectorState
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
 import com.ians.korno.core.trackprocessing.TrackStatistics
-import com.ians.korno.core.trackprocessing.profileActivityType
 import com.ians.korno.core.trackprocessing.withAutoPauseSensitivity
 import com.ians.korno.data.locationtracking.diagnostics.TrackingSignal
 import com.ians.korno.data.locationtracking.location.LocationSample
@@ -212,7 +211,13 @@ internal class TrackingSessionCoordinator(
     suspend fun beginSession(activityType: ActivityType, autoMode: Boolean = false): Long? {
         val startTime = nowMillis()
         val sessionType = if (autoMode) ActivityType.OTHER else activityType
-        loadRecordingPreferences(if (autoMode) SegmentKind.UNKNOWN.profileActivityType else activityType)
+        loadRecordingPreferences(
+            if (autoMode) {
+                TrackProcessingConfig.forSegmentKind(SegmentKind.UNKNOWN)
+            } else {
+                TrackProcessingConfig.forActivityType(activityType)
+            },
+        )
         val hasWarmFix = lastReliableFixAtMillis
             ?.let { startTime - it <= WARM_FIX_VALIDITY_MILLIS } == true
         val initialStatus = if (hasWarmFix) RecordingStatus.RECORDING else RecordingStatus.WAITING_FOR_GPS
@@ -317,7 +322,8 @@ internal class TrackingSessionCoordinator(
                 val segmentKind = segments.lastOrNull()?.kind
                 // Чувствительность — та, с которой запись началась, а не текущая настройка.
                 loadRecordingPreferences(
-                    activityType = segmentKind?.profileActivityType ?: activity.activityType,
+                    base = segmentKind?.let(TrackProcessingConfig::forSegmentKind)
+                        ?: TrackProcessingConfig.forActivityType(activity.activityType),
                     sensitivity = activity.autoPauseSensitivity,
                 )
                 resetSegments(segments, stepCount = activity.stepCount)
@@ -561,7 +567,7 @@ internal class TrackingSessionCoordinator(
             sessionSegments += next
             closed to next
         }
-        processingConfig = TrackProcessingConfig.forActivityType(event.to.profileActivityType)
+        processingConfig = TrackProcessingConfig.forSegmentKind(event.to)
             .withAutoPauseSensitivity(autoPauseSensitivity)
         liveProcessor.switchConfig(processingConfig)
         _session.update {
@@ -934,8 +940,16 @@ internal class TrackingSessionCoordinator(
     private fun outlierReason(sample: LocationSample, point: GeoPoint): String {
         if (!point.isOutlier) return ""
         val accuracy = sample.accuracyMeters?.toDouble()
-        if (accuracy != null && accuracy > processingConfig.maximumAccuracyMeters) {
+        if (accuracy != null && accuracy >= processingConfig.maximumAccuracyMeters) {
             return "ACCURACY"
+        }
+        // Фикс, посчитанный не по спутникам: ни доплеровской скорости, ни курса.
+        // Без отдельной причины он выглядел бы в логе как отказ по скорости.
+        if (sample.speedMetersPerSecond == null &&
+            sample.bearingDegrees == null &&
+            accuracy != null && accuracy >= processingConfig.networkFixAccuracyMeters
+        ) {
+            return "NO_FIX"
         }
         val previous = sessionPoints.getOrNull(sessionPoints.lastIndex - 1) ?: return "UNKNOWN"
         val elapsedMillis = sample.timestampEpochMillis - previous.timestampEpochMillis
@@ -1285,16 +1299,21 @@ internal class TrackingSessionCoordinator(
             }
         }
 
+    /**
+     * @param base профиль порогов до поправки на чувствительность. Приходит готовым, а не
+     *   выводится здесь из типа: у вида сегмента и у выбранного пользователем типа профили
+     *   разные (`VEHICLE` — не `DRIVING`), и решать это должен вызывающий, который знает,
+     *   какой из двух случаев у него на руках.
+     */
     private suspend fun loadRecordingPreferences(
-        activityType: ActivityType,
+        base: TrackProcessingConfig,
         sensitivity: AutoPauseSensitivity? = null,
     ) {
         val preferences = preferencesRepository.observePreferences().first()
         autoPauseEnabled = preferences.autoPauseEnabled
         autoPauseSensitivity = sensitivity ?: preferences.autoPauseSensitivity
         gpsAccuracy = preferences.gpsAccuracy
-        processingConfig = TrackProcessingConfig.forActivityType(activityType)
-            .withAutoPauseSensitivity(autoPauseSensitivity)
+        processingConfig = base.withAutoPauseSensitivity(autoPauseSensitivity)
         liveProcessor = IncrementalTrackProcessor(processingConfig)
     }
 

@@ -1,16 +1,15 @@
 package com.ians.korno.core.map
 
 import android.graphics.RectF
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.MyLocation
@@ -31,11 +30,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -399,6 +398,9 @@ private fun trackMapColors(): TrackMapColors {
         TrackMapColors(
             route = scheme.primary.toArgb(),
             pausedRoute = scheme.tertiary.toArgb(),
+            // Приглушённый контурный цвет: разрыв — это отсутствие данных, а не ещё одно
+            // состояние записи, и спорить за внимание с маршрутом и паузой ему незачем.
+            gapRoute = scheme.outline.toArgb(),
             routeCasing = scheme.surface.toArgb(),
             start = scheme.tertiary.toArgb(),
             finish = scheme.primary.toArgb(),

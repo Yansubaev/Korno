@@ -1,6 +1,8 @@
 package com.ians.korno.tools.trackcalibration
 
+import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
+import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
@@ -9,6 +11,7 @@ import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.trackprocessing.ActivityModeDecoder
 import com.ians.korno.core.trackprocessing.DetectorEvent
 import com.ians.korno.core.trackprocessing.DetectorSignal
+import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
 import com.ians.korno.core.trackprocessing.ModeDecoderConfig
 import com.ians.korno.core.trackprocessing.ModeDecoderInput
@@ -21,11 +24,11 @@ import com.ians.korno.core.trackprocessing.TrackSource
 import com.ians.korno.core.trackprocessing.segmentDistanceMeters
 
 /**
- * ponytail: весь трек обрабатывается одним профилем `DRIVING` — самым терпимым, с которого
- * запись и стартует в авторежиме. Приложение будет переключать профиль по сегменту;
- * здесь это понадобится, если пешие участки начнут расходиться по дистанции.
+ * Профиль для сигналов детектора: скорость фильтра считается до того, как вид сегмента
+ * известен, поэтому берётся самый терпимый — тот, с которого запись и стартует в
+ * авторежиме. Дистанцию сегментов он уже не определяет, её считает [segmentDistanceMeters].
  */
-private val SEGMENT_TRACK_CONFIG = TrackProcessingConfig.forActivityType(ActivityType.DRIVING)
+private val SEGMENT_TRACK_CONFIG = TrackProcessingConfig.forSegmentKind(SegmentKind.UNKNOWN)
 
 /** Всё, что детектору нужно от одной записи; скорость посчитана заранее, она от порогов детектора не зависит. */
 class SegmentInput(
@@ -75,7 +78,11 @@ fun segmentInput(
  * подтверждении, при «сохранении» короткие сливаются. Первый подтверждённый вид тянется
  * к началу записи; без подтверждений вся запись — один `UNKNOWN`.
  */
-fun runSegmentDetector(input: SegmentInput, config: SegmentDetectorConfig): SegmentRun {
+fun runSegmentDetector(
+    input: SegmentInput,
+    config: SegmentDetectorConfig,
+    sensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
+): SegmentRun {
     val detector = SegmentDetector(config)
     val events = mutableListOf<DetectorEvent>()
     input.signals.fold(SegmentDetectorState()) { state, signal ->
@@ -98,11 +105,15 @@ fun runSegmentDetector(input: SegmentInput, config: SegmentDetectorConfig): Segm
             distanceMeters = segmentDistanceMeters(input.validPoints, start, end),
         )
     }
-    return SegmentRun(detected, detector.mergeShortSegments(detected), events)
+    return SegmentRun(detected, input.finalize(detected, sensitivity), events)
 }
 
 /** Как при сохранении записи: декодер по всей записи, шаги по границам, слияние коротких. */
-fun runModeDecoder(input: SegmentInput, config: ModeDecoderConfig, detectorConfig: SegmentDetectorConfig): SegmentRun {
+fun runModeDecoder(
+    input: SegmentInput,
+    config: ModeDecoderConfig,
+    sensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
+): SegmentRun {
     val readings = input.signals.filterIsInstance<DetectorSignal.StepCounter>()
     val detected = ActivityModeDecoder(config).decode(
         ModeDecoderInput(
@@ -112,9 +123,43 @@ fun runModeDecoder(input: SegmentInput, config: ModeDecoderConfig, detectorConfi
             recognitions = input.recognitions,
             steps = readings,
         ),
-    ).map { it.copy(stepCount = stepsBetween(readings, it.startTimeEpochMillis, it.endTimeEpochMillis ?: input.endMillis)) }
-    return SegmentRun(detected, SegmentDetector(detectorConfig).mergeShortSegments(detected), events = emptyList())
+    ).map { segment ->
+        val end = segment.endTimeEpochMillis ?: input.endMillis
+        segment.copy(
+            stepCount = stepsBetween(readings, segment.startTimeEpochMillis, end),
+            distanceMeters = segmentDistanceMeters(input.validPoints, segment.startTimeEpochMillis, end),
+        )
+    }
+    return SegmentRun(detected, input.finalize(detected, sensitivity), events = emptyList())
 }
+
+/**
+ * Сегменты так, как их запишет приложение: через тот же [FinalizeTrackUseCase], то есть
+ * со слиянием коротких и с дистанцией по профилю каждого участка.
+ *
+ * Прежде таблица «после слияния» считала дистанцию одним профилем на весь трек и мимо
+ * итогового пересчёта. Пока участки отличались только порогами, цифра выходила близкой.
+ * Сейчас нет: профиль решает, попадёт ли точка в трек вообще, а отрезок через границу
+ * достаётся тому участку, во время которого произошёл. На разобранной поездке приближение
+ * расходилось с итогом втрое — а по этой таблице как раз и судят о результате.
+ *
+ * Таблицы «до слияния» остаются на дешёвом приближении намеренно: они показывают, где
+ * встали границы, а не сколько километров получится.
+ */
+private fun SegmentInput.finalize(
+    segments: List<ActivitySegment>,
+    sensitivity: AutoPauseSensitivity,
+): List<ActivitySegment> = FinalizeTrackUseCase()(
+    activity = Activity(
+        startTimeEpochMillis = startMillis,
+        endTimeEpochMillis = endMillis,
+        activityType = ActivityType.OTHER,
+        isAutoMode = true,
+        autoPauseSensitivity = sensitivity,
+    ),
+    points = points,
+    segments = segments,
+).segments
 
 /**
  * Шаги как разница кумулятивного счётчика на границах; `null` — показаний нет вовсе.
