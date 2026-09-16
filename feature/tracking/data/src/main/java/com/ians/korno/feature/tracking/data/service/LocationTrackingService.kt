@@ -101,10 +101,12 @@ internal class LocationTrackingService : Service() {
                 coordinator.pause()
                 refreshNotification()
             }
+
             ACTION_RESUME -> {
                 coordinator.resume()
                 refreshNotification()
             }
+
             ACTION_STOP -> stopRecording(pendingSummary = false)
             // Кнопка «Стоп» в уведомлении: экран сохранения показать некому,
             // поэтому активность помечается как неподтверждённая.
@@ -170,7 +172,8 @@ internal class LocationTrackingService : Service() {
         stepJob = serviceScope.launch {
             combine(
                 coordinator.session.map { it.isAutoMode || it.activityType.countsSteps },
-                logManager.observeSettings().map { settings -> settings.isAvailable && settings.enabled },
+                logManager.observeSettings()
+                    .map { settings -> settings.isAvailable && settings.enabled },
             ) { counts, loggingActive -> counts || loggingActive }
                 .distinctUntilChanged()
                 .flatMapLatest { needed -> if (needed) stepCounterClient.stepCounts() else emptyFlow() }
@@ -196,7 +199,8 @@ internal class LocationTrackingService : Service() {
         recognitionJob = serviceScope.launch {
             combine(
                 coordinator.session.map { it.isAutoMode },
-                logManager.observeSettings().map { settings -> settings.isAvailable && settings.enabled },
+                logManager.observeSettings()
+                    .map { settings -> settings.isAvailable && settings.enabled },
             ) { autoMode, loggingActive -> autoMode || loggingActive }
                 .distinctUntilChanged()
                 .flatMapLatest { needed -> if (needed) activityRecognitionSource.observeSignals() else emptyFlow() }
@@ -208,8 +212,14 @@ internal class LocationTrackingService : Service() {
                     ) { "Activity recognition stream failed" }
                 }
                 .collect { signal ->
-                    logger.info(category = LogCategory.SYSTEM, tag = TAG, fields = signal.fields) { signal.name }
-                    if (signal is TrackingSignal.ActivityRecognized) coordinator.applyActivityRecognition(signal)
+                    logger.info(
+                        category = LogCategory.SYSTEM,
+                        tag = TAG,
+                        fields = signal.fields
+                    ) { signal.name }
+                    if (signal is TrackingSignal.ActivityRecognized) coordinator.applyActivityRecognition(
+                        signal
+                    )
                 }
         }
     }
@@ -340,7 +350,11 @@ internal class LocationTrackingService : Service() {
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -358,7 +372,11 @@ internal class LocationTrackingService : Service() {
                 .setContentTitle(getString(R.string.tracking_notification_title))
                 .setContentText(getString(R.string.tracking_notification_status_waiting_gps))
                 .setSmallIcon(session.notificationIconRes())
-                .addExtras(Bundle().apply { putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true) })
+                .addExtras(Bundle().apply {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
+                        putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true)
+                    }
+                })
                 .setContentIntent(recordingScreenPendingIntent())
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -420,7 +438,11 @@ internal class LocationTrackingService : Service() {
             // Начиная с Android 17 (API 37) в теле уведомления по умолчанию рисуется иконка
             // лаунчера, а small icon остаётся только в статус-баре. Здесь тип активности важнее
             // узнаваемости приложения — уведомление и так одно и всегда наше.
-            .addExtras(Bundle().apply { putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true) })
+            .addExtras(Bundle().apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
+                    putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true)
+                }
+            })
             .setContentIntent(recordingScreenPendingIntent())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -502,6 +524,7 @@ internal class LocationTrackingService : Service() {
         const val ACTION_PAUSE = "com.ians.korno.tracking.action.PAUSE"
         const val ACTION_RESUME = "com.ians.korno.tracking.action.RESUME"
         const val ACTION_STOP = "com.ians.korno.tracking.action.STOP"
-        const val ACTION_STOP_FROM_NOTIFICATION = "com.ians.korno.tracking.action.STOP_FROM_NOTIFICATION"
+        const val ACTION_STOP_FROM_NOTIFICATION =
+            "com.ians.korno.tracking.action.STOP_FROM_NOTIFICATION"
     }
 }
