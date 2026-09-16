@@ -18,6 +18,8 @@ class SaveActivitySummaryUseCase(
         trackRepository.updateActivity(
             activity.copy(
                 activityType = activityType,
+                // Подтверждённый без изменений тип авторежима остаётся выведенным из сегментов.
+                isTypeChosenByUser = activity.isTypeChosenByUser || activityType != activity.activityType,
                 title = title.ifBlank { null },
                 note = note.ifBlank { null },
                 // Пользователь дошёл до экрана сохранения и подтвердил запись —

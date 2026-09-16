@@ -274,6 +274,17 @@ class SegmentDetector(private val config: SegmentDetectorConfig = SegmentDetecto
         return result
     }
 
+    /**
+     * ponytail: «короткий» — это либо по времени, либо по дистанции, и с тех пор как фикс
+     * без доплера и курса отбраковывается целиком ([OutlierFilterUseCase]), у сегмента
+     * может быть двадцать минут настоящей поездки и почти нулевая измеренная дистанция.
+     * Такой сегмент поглощается соседом, и автобус сохраняется как продолжение прогулки.
+     *
+     * Сейчас это не стреляет: сохраняются сегменты декодера, а он считает дистанцию по
+     * сырым точкам, не по отфильтрованным. Защита держится на этом совпадении. Развести
+     * условия — дистанцию проверять только у коротких по времени, — когда появится запись,
+     * где поглощение видно.
+     */
     private fun ActivitySegment.isShort(): Boolean =
         durationMillis() < config.minSegmentDurationMillis || distanceMeters < config.minSegmentDistanceMeters
 

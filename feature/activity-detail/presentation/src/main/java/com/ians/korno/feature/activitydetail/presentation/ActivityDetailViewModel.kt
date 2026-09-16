@@ -1,5 +1,6 @@
 package com.ians.korno.feature.activitydetail.presentation
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -59,7 +60,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal class ActivityDetailViewModel(
-    private val context: Context,
+    context: Context,
     private val activityId: Long,
     private val observeActivity: ObserveActivityUseCase,
     private val observeGeoPoints: ObserveGeoPointsUseCase,
@@ -74,6 +75,11 @@ internal class ActivityDetailViewModel(
     private val observeSegments: ObserveActivitySegmentsUseCase,
     private val changeSegmentKind: ChangeActivitySegmentKindUseCase,
 ) : ViewModel() {
+
+    // Лит-чек не отслеживает, что это applicationContext, а не тот, что пришёл в конструктор —
+    // предупреждение о поле Context в ViewModel срабатывает по типу, без анализа значения.
+    @SuppressLint("StaticFieldLeak")
+    private val context: Context = context.applicationContext
 
     private data class LocalUi(
         /** `null` — линза по умолчанию: «Виды» у смешанной записи, иначе маршрут. */
@@ -389,13 +395,19 @@ internal class ActivityDetailViewModel(
             },
             segmentKindChoice = localUi.segmentKindChoice,
             isRecalculating = localUi.isRecalculating,
-            routePoints = track.points.mapIndexed { index, point ->
-                MapPoint(
-                    latitude = point.latitude,
-                    longitude = point.longitude,
-                    isPaused = point.isStop || point.recordingStatus.isPause,
-                    isGap = index > 0 && isTrackGap(track.points[index - 1], point),
-                )
+            // Выбросы в линию не идут: их координаты фильтр не правил, и сплошной
+            // линией они рисуют прыжки на всю свою погрешность. Разрыв на их месте
+            // считается по тому же списку, из которого они уже выкинуты, — иначе
+            // соседями остаются они сами и разрыва не видно никогда.
+            routePoints = track.points.filterNot { it.isOutlier }.let { valid ->
+                valid.mapIndexed { index, point ->
+                    MapPoint(
+                        latitude = point.latitude,
+                        longitude = point.longitude,
+                        isPaused = point.isStop || point.recordingStatus.isPause,
+                        isGap = index > 0 && isTrackGap(valid[index - 1], point),
+                    )
+                }
             },
             insights = insights,
             // Линза может исчезнуть вместе с данными, на которых держалась: после

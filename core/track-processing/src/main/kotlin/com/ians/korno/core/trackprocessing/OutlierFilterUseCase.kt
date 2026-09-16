@@ -27,6 +27,10 @@ class OutlierFilterUseCase {
         config: TrackProcessingConfig,
     ): List<GeoPoint> {
         var previousAccepted: GeoPoint? = null
+        // Правило [notAFix] включается, только если приёмник вообще умеет сообщать о
+        // движении. У импортированного GPX ни скорости, ни курса нет ни у одной точки —
+        // безусловное правило выкосило бы такой файл целиком.
+        val reportsMotion = points.any { it.speedMetersPerSecond != null || it.bearingDegrees != null }
 
         return points.sortedWith(compareBy(GeoPoint::timestampEpochMillis, GeoPoint::id)).map { point ->
             val previous = previousAccepted
@@ -34,8 +38,20 @@ class OutlierFilterUseCase {
                 point.longitude !in -180.0..180.0 ||
                 !point.latitude.isFinite() ||
                 !point.longitude.isFinite()
+            // Сравнение нестрогое: приёмник упирается в круглые значения, и в разобранном
+            // логе поездки самым частым была ровно сотня — при пороге ровно в сотню.
+            // Строгое `>` пропускало их все.
             val unreliableAccuracy = point.accuracyMeters
-                ?.let { !it.isFinite() || it > config.maximumAccuracyMeters } == true
+                ?.let { !it.isFinite() || it >= config.maximumAccuracyMeters } == true
+            // Фикс без доплеровской скорости и без курса посчитан не по спутникам:
+            // и то и другое приёмник берёт из одного решения и отдаёт почти всегда,
+            // когда решение есть. Сетевая координата выглядит правдоподобно и описывает
+            // не положение, а квартал, — но узнать это по одной погрешности нельзя,
+            // она у неё бывает и тридцать метров.
+            val notAFix = reportsMotion &&
+                point.speedMetersPerSecond == null &&
+                point.bearingDegrees == null &&
+                point.accuracyMeters?.let { it >= config.networkFixAccuracyMeters } == true
             val elapsedSeconds = previous
                 ?.let { (point.timestampEpochMillis - it.timestampEpochMillis) / 1_000.0 }
                 ?.takeIf { it > 0.0 }
@@ -48,6 +64,7 @@ class OutlierFilterUseCase {
             val isOutlier = point.isOutlier ||
                 invalidCoordinates ||
                 unreliableAccuracy ||
+                notAFix ||
                 invalidTimestamp ||
                 impossibleDisplacement
 

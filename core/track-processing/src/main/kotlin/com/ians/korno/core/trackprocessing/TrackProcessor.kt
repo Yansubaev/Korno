@@ -62,6 +62,8 @@ class TrackProcessor(
     }
 
     /**
+     * Снаружи модуля — только через [FinalizeTrackUseCase].
+     *
      * Смешанная запись: точки делятся по времени сегментов, и каждый участок проходит
      * pipeline со своим профилем порогов — пешие пороги выкинули бы автобус, транспортные
      * пропустили бы дрожание пешехода.
@@ -70,23 +72,38 @@ class TrackProcessor(
      * без транспорта: проеханный автобус не делает прогулку быстрее. Если кроме транспорта
      * ничего нет, скорость считается по нему.
      *
-     * ponytail: участки обрабатываются независимо, фильтр на каждой границе стартует заново,
-     * а отрезок между последней точкой одного участка и первой следующего в дистанцию не
-     * входит (метры на границу). Сквозной проход с профилем на точку — если это станет видно.
+     * Первая точка следующего участка даётся текущему как довесок: иначе отрезок через
+     * границу не мерил бы никто, и ни дистанция, ни время в него не шли. Раньше это стоило
+     * метров — соседние точки лежали в секундах друг от друга. С тех пор как фикс без
+     * доплера и курса отбраковывается целиком (см. [OutlierFilterUseCase]), последняя
+     * точка транспортного участка может отстоять от первой пешей на километры, и граница
+     * начала съедать саму поездку.
+     *
+     * Довесок именно справа, а не приставка слева: перемещение через границу произошло во
+     * время левого участка, и судить его должен левый профиль. Пеший порог правдоподобной
+     * скорости забраковал бы отъехавший на полкилометра автобус как невозможный шаг —
+     * и отрезок пропал бы снова, только уже как выброс. Сама точка в левый участок не
+     * попадает, она остаётся в своём; засчитывается один лишь её вклад, ровно однажды.
+     *
+     * ponytail: фильтр на границе всё ещё стартует заново, приставка даёт ему лишь одну
+     * точку истории. Сквозной проход с профилем на точку — если это станет видно.
      *
      * @param segments сегменты одной записи по порядку, закрытые; первые точки до начала
      *   первого сегмента и после конца последнего достаются им.
      */
-    fun processSegments(
+    internal fun processSegments(
         points: List<GeoPoint>,
         segments: List<ActivitySegment>,
         configFor: (SegmentKind) -> TrackProcessingConfig,
     ): SegmentedTrack {
-        val parts = segments.slicePoints(points).map { (segment, slice) ->
+        val slices = segments.slicePoints(points)
+        val parts = slices.mapIndexed { index, (segment, slice) ->
             val config = configFor(segment.kind)
-            val processed = processPoints(slice, config)
+            val tail = slices.getOrNull(index + 1)?.second?.firstOrNull()
+            val processed = processPoints(if (tail == null) slice else slice + tail, config)
             val statistics = statisticsCalculator(processed, config)
-            SegmentPart(segment.copy(distanceMeters = statistics.distanceMeters), processed, statistics)
+            val own = if (tail == null) processed else processed.dropLast(1)
+            SegmentPart(segment.copy(distanceMeters = statistics.distanceMeters), own, statistics)
         }
         val speedParts = parts.filter { it.segment.kind != SegmentKind.VEHICLE }.ifEmpty { parts }
         val speedDistance = speedParts.sumOf { it.statistics.distanceMeters }

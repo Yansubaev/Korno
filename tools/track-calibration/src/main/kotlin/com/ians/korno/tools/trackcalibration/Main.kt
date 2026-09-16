@@ -82,6 +82,8 @@ private class LoadedTrack(
     /** Сигналы детектора вида движения из лога; у GPX и TCX их нет. */
     val detectorSignals: List<DetectorSignal> = emptyList(),
     val recognitions: List<RecognitionSample> = emptyList(),
+    /** Чувствительность автопаузы записи: итоговый пересчёт сегментов идёт с ней. */
+    val sensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
 )
 
 /**
@@ -167,6 +169,7 @@ private fun loadLogTracks(file: File, options: Options): List<LoadedTrack> {
             points = activity.points,
             config = TrackProcessingConfig.forActivityType(activityType)
                 .let { base -> sensitivity?.let(base::withAutoPauseSensitivity) ?: base },
+            sensitivity = sensitivity ?: AutoPauseSensitivity.MEDIUM,
             isKornoExport = false,
             recorded = RecordedVerdicts(activity.recordedOutliers, activity.recordedStopRuns),
             detectorSignals = activity.detectorSignals,
@@ -324,7 +327,7 @@ private fun printSweeps(track: LoadedTrack) {
 private fun printSegments(track: LoadedTrack, sweep: Boolean) {
     val input = segmentInput(track.points, track.detectorSignals, track.recognitions) ?: return
     val config = SegmentDetectorConfig()
-    val run = runSegmentDetector(input, config)
+    val run = runSegmentDetector(input, config, track.sensitivity)
 
     println()
     println("СЕГМЕНТЫ — ${track.name}".title())
@@ -351,7 +354,7 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
 
     // То, что запишется при сохранении: декодер по всей записи, затем слияние коротких.
     val decoderConfig = ModeDecoderConfig()
-    val decoded = runModeDecoder(input, decoderConfig, config)
+    val decoded = runModeDecoder(input, decoderConfig, track.sensitivity)
     println()
     println("  декодер (Витерби), до слияния:")
     printSegmentTable(decoded.detected, input.startMillis)
@@ -365,7 +368,7 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
         println("  декодер: ${decoderSweep.name}  (сейчас ${"%.2f".format(Locale.US, current)})")
         println("  %10s %8s %8s  %s".format(Locale.US, "значение", "сегм.", "слито", "по видам, км"))
         decoderSweep.values.forEach { value ->
-            val swept = runModeDecoder(input, decoderSweep.apply(decoderConfig, value), config)
+            val swept = runModeDecoder(input, decoderSweep.apply(decoderConfig, value), track.sensitivity)
             val marker = if (kotlin.math.abs(value - current) < 1e-6) "*" else " "
             println(
                 "  %9.2f%s %8d %8d  %s".format(
@@ -385,7 +388,7 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
         println("  ${detectorSweep.name}  (сейчас ${"%.2f".format(Locale.US, current)})")
         println("  %10s %8s %8s  %s".format(Locale.US, "значение", "сегм.", "слито", "по видам, км"))
         detectorSweep.values.forEach { value ->
-            val swept = runSegmentDetector(input, detectorSweep.apply(config, value))
+            val swept = runSegmentDetector(input, detectorSweep.apply(config, value), track.sensitivity)
             val marker = if (kotlin.math.abs(value - current) < 1e-6) "*" else " "
             println(
                 "  %9.2f%s %8d %8d  %s".format(
