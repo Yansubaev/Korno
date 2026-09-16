@@ -25,7 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
+import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.map.TrackOverlay
 
 /**
@@ -52,6 +54,18 @@ private val ElevationRamp = listOf(
     Color(0xFFFFEA46),
 )
 
+/**
+ * Цвета видов движения — палитра Okabe–Ito: различима при основных нарушениях
+ * цветовосприятия и не пересекается с viridis и cividis соседних линз.
+ */
+internal fun SegmentKind.color(): Color? = when (this) {
+    SegmentKind.ON_FOOT -> Color(0xFF009E73)
+    SegmentKind.RUNNING -> Color(0xFFD55E00)
+    SegmentKind.CYCLING -> Color(0xFF0072B2)
+    SegmentKind.VEHICLE -> Color(0xFFCC79A7)
+    SegmentKind.UNKNOWN -> null
+}
+
 /** Цвет по доле 0..1 — линейная интерполяция между опорными точками палитры. */
 private fun List<Color>.sample(fraction: Float): Color {
     if (size < 2) return firstOrNull() ?: Color.Unspecified
@@ -70,11 +84,20 @@ private fun List<Color>.sample(fraction: Float): Color {
 internal fun rememberLensRoute(state: ActivityDetailState): List<MapPoint> {
     val samples = state.insights?.samples
     val fallback = state.routePoints
+    val routeKinds = state.routeKinds
     val lens = state.lens
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    return remember(samples, fallback, lens, neutral) {
-        if (samples == null) return@remember fallback
+    return remember(samples, fallback, routeKinds, lens, neutral) {
+        // Виды и сам маршрут смешанной записи рисуются по всем точкам: разбор построен
+        // только по доминирующему виду, и без этого автобус пропал бы с карты.
+        if (lens == MapLens.KINDS) {
+            return@remember fallback.mapIndexed { index, point ->
+                point.copy(shade = routeKinds.getOrNull(index)?.color())
+            }
+        }
+        if (samples == null || (lens == MapLens.ROUTE && routeKinds.isNotEmpty())) return@remember fallback
         when (lens) {
+            MapLens.KINDS -> fallback
             MapLens.ROUTE -> samples.map(RouteSampleUi::point)
             MapLens.SPEED -> samples.map { sample ->
                 sample.point.copy(shade = sample.speedFraction?.let(SpeedRamp::sample))
@@ -138,6 +161,7 @@ internal fun MapLensSelector(
 }
 
 private fun MapLens.labelRes(speedDisplay: SpeedDisplay): Int = when (this) {
+    MapLens.KINDS -> R.string.activity_detail_lens_kinds
     MapLens.ROUTE -> R.string.activity_detail_lens_route
     // Линза называется тем же словом, каким подписаны её значения: «Темп» для пеших
     // активностей и «Скорость» для остальных.
@@ -159,6 +183,7 @@ private fun MapLens.labelRes(speedDisplay: SpeedDisplay): Int = when (this) {
 internal fun LensLegend(
     lens: MapLens,
     insights: ActivityInsightsUi,
+    kinds: List<SegmentKind>,
     modifier: Modifier = Modifier,
 ) {
     val legend = when (lens) {
@@ -173,6 +198,16 @@ internal fun LensLegend(
             modifier = modifier,
         )
         lens == MapLens.STOPS -> StopsLegend(modifier = modifier)
+        // Только встреченные виды: легенда про велосипед в пешей прогулке — шум.
+        lens == MapLens.KINDS -> Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            kinds.forEach { kind ->
+                kind.color()?.let { LegendDot(color = it, label = stringResource(kind.labelRes()), alpha = 1f) }
+            }
+        }
         else -> Unit
     }
 }
@@ -228,7 +263,7 @@ private fun StopsLegend(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun LegendDot(color: Color, label: String) {
+private fun LegendDot(color: Color, label: String, alpha: Float = 0.5f) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -238,7 +273,7 @@ private fun LegendDot(color: Color, label: String) {
                 .width(10.dp)
                 .height(10.dp)
                 .clip(RoundedCornerShape(100))
-                .background(color.copy(alpha = 0.5f)),
+                .background(color.copy(alpha = alpha)),
         )
         Text(
             text = label,

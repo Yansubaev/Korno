@@ -5,7 +5,9 @@ import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
@@ -34,24 +36,42 @@ internal class DefaultTrackRepository(
     override fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>> =
         localDataSource.observePendingSummaryActivities()
 
-    override suspend fun createActivity(activity: Activity): Result<Long, DataError.Local> =
-        localDataSource.createActivity(activity)
+    override suspend fun createActivity(
+        activity: Activity,
+        segments: List<ActivitySegment>,
+    ): Result<Long, DataError.Local> = localDataSource.createActivity(activity, segments)
 
     override suspend fun updateActivity(activity: Activity): EmptyResult<DataError.Local> =
         localDataSource.updateActivity(activity)
 
+    override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
+        localDataSource.getSegments(activityId)
+
+    override suspend fun saveOpenSegment(
+        current: ActivitySegment,
+        next: ActivitySegment?,
+    ): EmptyResult<DataError.Local> = localDataSource.saveOpenSegment(current, next)
+
     override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> =
         localDataSource.addGeoPoints(points)
+
+    override suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local> =
+        localDataSource.addRecognitionSample(sample)
+
+    override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
+        localDataSource.getRecognitionSamples(activityId)
 
     override suspend fun insertTrack(
         activity: Activity,
         points: List<GeoPoint>,
-    ): Result<Long, DataError.Local> = localDataSource.insertTrack(activity, points)
+        segments: List<ActivitySegment>,
+    ): Result<Long, DataError.Local> = localDataSource.insertTrack(activity, points, segments)
 
     override suspend fun replaceTrack(
         activity: Activity,
         points: List<GeoPoint>,
-    ): EmptyResult<DataError.Local> = localDataSource.replaceTrack(activity, points)
+        segments: List<ActivitySegment>?,
+    ): EmptyResult<DataError.Local> = localDataSource.replaceTrack(activity, points, segments)
 
     override suspend fun deleteActivity(activityId: Long): EmptyResult<DataError.Local> =
         localDataSource.deleteActivity(activityId)

@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.presentation.formatDistance
+import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveGeoPointsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.PreviewTrackCorrectionUseCase
@@ -33,6 +35,7 @@ internal class TrackCorrectionViewModel(
     private val activityId: Long,
     observeActivity: ObserveActivityUseCase,
     observeGeoPoints: ObserveGeoPointsUseCase,
+    observeActivitySegments: ObserveActivitySegmentsUseCase,
     private val previewTrackCorrection: PreviewTrackCorrectionUseCase,
     private val saveTrackCorrection: SaveTrackCorrectionUseCase,
     preferencesRepository: UserPreferencesRepository,
@@ -40,6 +43,7 @@ internal class TrackCorrectionViewModel(
     private var activity: Activity? = null
     private var originalDistanceMeters = 0.0
     private var originalPoints: List<GeoPoint> = emptyList()
+    private var segments: List<ActivitySegment> = emptyList()
     private var basePoints: List<WorkingPoint> = emptyList()
     private var loaded = false
 
@@ -71,13 +75,18 @@ internal class TrackCorrectionViewModel(
 
     init {
         viewModelScope.launch {
-            combine(observeActivity(activityId), observeGeoPoints(activityId)) { a, p -> a to p }
-                .collect { (activityResult, pointsResult) ->
+            combine(
+                observeActivity(activityId),
+                observeGeoPoints(activityId),
+                observeActivitySegments(activityId),
+            ) { a, p, s -> Triple(a, p, s) }
+                .collect { (activityResult, pointsResult, activitySegments) ->
                     if (!loaded && activityResult is Result.Success && pointsResult is Result.Success) {
                         loaded = true
                         activity = activityResult.data
                         originalDistanceMeters = activityResult.data.distanceMeters
                         originalPoints = pointsResult.data
+                        segments = activitySegments
                         basePoints = originalPoints.map { WorkingPoint(point = it, deleted = false) }
                         working.value = basePoints
                     }
@@ -118,7 +127,7 @@ internal class TrackCorrectionViewModel(
         val removedPointIds = working.value.filter(WorkingPoint::deleted).map { it.point.id }.toSet()
         viewModelScope.launch {
             saving.value = true
-            when (saveTrackCorrection(currentActivity, originalPoints, removedPointIds)) {
+            when (saveTrackCorrection(currentActivity, originalPoints, segments, removedPointIds)) {
                 is Result.Success -> saved.value = true
                 is Result.Error -> saving.value = false
             }
@@ -136,9 +145,10 @@ internal class TrackCorrectionViewModel(
         val active = points.filter { !it.deleted }
         val currentDistance = activity?.let { currentActivity ->
             previewTrackCorrection(
+                activity = currentActivity,
                 points = originalPoints,
+                segments = segments,
                 removedPointIds = points.filter(WorkingPoint::deleted).map { it.point.id }.toSet(),
-                activityType = currentActivity.activityType,
             )
         } ?: 0.0
         return TrackCorrectionState(

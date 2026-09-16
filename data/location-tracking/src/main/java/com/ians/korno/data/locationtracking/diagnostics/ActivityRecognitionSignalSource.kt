@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import androidx.core.content.ContextCompat
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.DetectedActivity
@@ -23,13 +25,22 @@ import kotlinx.coroutines.flow.emptyFlow
  * broadcast-интентом, поэтому приёмник регистрируется динамически и живёт ровно столько,
  * сколько собирается поток — в манифесте ему делать нечего.
  *
- * Подписка стоит батареи, поэтому включается только под запись трека и только когда
- * диагностическое логирование действительно ведётся (см. вызывающий сервис).
+ * Подписка стоит батареи, поэтому включается только под запись трека — в авторежиме
+ * или при диагностическом логировании (см. вызывающий сервис). Подписываться дважды
+ * нельзя: обе подписки делят один PendingIntent, и отписка одной сняла бы обе.
  */
-internal class ActivityRecognitionSignalSource(
+class ActivityRecognitionSignalSource(
     private val context: Context,
     private val permissionChecker: LocationPermissionChecker,
 ) : TrackingSignalSource {
+
+    /**
+     * Распознавание вообще может работать: разрешение выдано и Play Services на месте.
+     * Без этого авторежим записи не предлагается — эвристики по одной скорости нет.
+     */
+    fun isAvailable(): Boolean =
+        permissionChecker.hasActivityRecognitionPermission() &&
+            GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
 
     // Разрешение проверяется первой же строкой, но lint не видит проверку через
     // собственный интерфейс и требует либо аннотации, либо подавления на месте вызова.

@@ -9,7 +9,7 @@ import com.ians.korno.core.logging.LogCategory
 import com.ians.korno.core.logging.info
 import com.ians.korno.core.logging.loggingModule
 import com.ians.korno.core.map.di.mapModule
-import com.ians.korno.core.trackprocessing.ManualCorrectionUseCase
+import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import com.ians.korno.core.trackprocessing.PrivacyZoneUseCase
 import com.ians.korno.core.trackprocessing.StatisticsCalculatorUseCase
 import com.ians.korno.core.trackprocessing.TrackProcessor
@@ -40,7 +40,7 @@ private val trackProcessingModule = module {
     // Lambda намеренная: внутренние этапы TrackProcessor имеют default-конструкторы
     // и не должны отдельно становиться частью DI-графа.
     single { TrackProcessor() }
-    factoryOf(::ManualCorrectionUseCase)
+    factory { FinalizeTrackUseCase(get()) }
     factoryOf(::PrivacyZoneUseCase)
     factoryOf(::StatisticsCalculatorUseCase)
 }

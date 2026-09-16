@@ -6,5 +6,6 @@ import com.ians.korno.feature.tracking.domain.repository.TrackingController
 class StartTrackingUseCase(
     private val trackingController: TrackingController,
 ) {
-    suspend operator fun invoke(activityType: ActivityType) = trackingController.start(activityType)
+    suspend operator fun invoke(activityType: ActivityType, autoMode: Boolean) =
+        trackingController.start(activityType, autoMode)
 }

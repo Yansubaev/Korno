@@ -107,13 +107,111 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
+    fun migration5To6GivesEveryActivityOneSegmentOverItsWholeRecording() {
+        helper.createDatabase(TEST_DATABASE_NAME, 5).use { database ->
+            database.insertActivity(id = 1L, title = "Evening walk")
+            database.execSQL("UPDATE activities SET end_time = 1757055600000, step_count = 4200 WHERE id = 1")
+            database.insertActivity(id = 2L, title = "Unfinished", activityType = "DRIVING")
+            database.insertActivity(id = 3L, title = "Imported", activityType = "SOMETHING_ELSE")
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 6, true)
+
+        migrated.query(
+            "SELECT activity_id, kind, start_ts, end_ts, steps, distance_meters, is_manually_edited " +
+                "FROM activity_segments ORDER BY activity_id",
+        ).use { row ->
+            assertThat(row.count).isEqualTo(3)
+
+            row.moveToNext()
+            assertThat(row.getLong(0)).isEqualTo(1L)
+            assertThat(row.getString(1)).isEqualTo("ON_FOOT")
+            assertThat(row.getLong(2)).isEqualTo(1_757_052_000_000L)
+            assertThat(row.getLong(3)).isEqualTo(1_757_055_600_000L)
+            assertThat(row.getInt(4)).isEqualTo(4200)
+            assertThat(row.getDouble(5)).isEqualTo(1200.0)
+            assertThat(row.getInt(6)).isEqualTo(0)
+
+            // Незавершённая запись продолжится после обновления — её сегмент открыт,
+            // а шагов у неё не считалось.
+            row.moveToNext()
+            assertThat(row.getString(1)).isEqualTo("VEHICLE")
+            assertThat(row.isNull(3)).isTrue()
+            assertThat(row.isNull(4)).isTrue()
+
+            row.moveToNext()
+            assertThat(row.getString(1)).isEqualTo("UNKNOWN")
+        }
+    }
+
+    @Test
+    fun migration6To7MarksExistingActivitiesAsFixedMode() {
+        helper.createDatabase(TEST_DATABASE_NAME, 6).use { database ->
+            database.insertActivity(id = 1L, title = "Evening walk")
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 7, true)
+
+        migrated.query("SELECT title, is_auto_mode FROM activities WHERE id = 1").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("Evening walk")
+            assertThat(row.getInt(1)).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun migration7To8KeepsActivitiesAndStartsWithoutRecognitionSamples() {
+        helper.createDatabase(TEST_DATABASE_NAME, 7).use { database ->
+            database.insertActivity(id = 1L, title = "Commute")
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 8, true)
+
+        migrated.query("SELECT title FROM activities WHERE id = 1").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("Commute")
+        }
+        migrated.query("SELECT COUNT(*) FROM recognition_samples").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getInt(0)).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun migration8To9RecordsMediumSensitivityAndWhoChoseTheType() {
+        helper.createDatabase(TEST_DATABASE_NAME, 8).use { database ->
+            database.insertActivity(id = 1L, title = "Fixed walk")
+            database.insertActivity(id = 2L, title = "Auto ride", activityType = "CYCLING")
+            database.insertActivity(id = 3L, title = "Auto hike", activityType = "HIKING")
+            database.execSQL("UPDATE activities SET is_auto_mode = 1 WHERE id IN (2, 3)")
+            database.insertSegment(activityId = 2L, kind = "ON_FOOT", distanceMeters = 300.0)
+            database.insertSegment(activityId = 2L, kind = "CYCLING", distanceMeters = 5_000.0)
+            database.insertSegment(activityId = 3L, kind = "ON_FOOT", distanceMeters = 8_000.0)
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 9, true)
+
+        migrated.query(
+            "SELECT auto_pause_sensitivity, is_type_chosen_by_user FROM activities ORDER BY id",
+        ).use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("MEDIUM")
+            assertThat(row.getInt(1)).isEqualTo(1)
+            row.moveToNext()
+            assertThat(row.getInt(1)).isEqualTo(0)
+            row.moveToNext()
+            assertThat(row.getInt(1)).isEqualTo(1)
+        }
+    }
+
+    @Test
     fun allMigrationsFromFirstVersionLeaveTheTrackReadableByRoom() = runTest {
         helper.createDatabase(TEST_DATABASE_NAME, 1).use { database ->
             database.insertActivity(id = 1L, title = "Hike")
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 5, true).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 9, true).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.
@@ -137,15 +235,24 @@ class KornoDatabaseMigrationTest {
     }
 }
 
+private fun SupportSQLiteDatabase.insertSegment(activityId: Long, kind: String, distanceMeters: Double) {
+    execSQL(
+        """
+        INSERT INTO activity_segments (activity_id, kind, start_ts, end_ts, steps, distance_meters, is_manually_edited)
+        VALUES ($activityId, '$kind', 1757052000000, 1757052600000, NULL, $distanceMeters, 0)
+        """.trimIndent(),
+    )
+}
+
 /** Колонки первой версии — те, что есть во всех версиях и вставляются одинаково. */
-private fun SupportSQLiteDatabase.insertActivity(id: Long, title: String) {
+private fun SupportSQLiteDatabase.insertActivity(id: Long, title: String, activityType: String = "WALKING") {
     execSQL(
         """
         INSERT INTO activities (
             id, start_time, end_time, activity_type, title, note, distance,
             moving_time, elapsed_time, avg_speed, max_speed, elevation_gain,
             is_manually_edited
-        ) VALUES ($id, 1757052000000, NULL, 'WALKING', '$title', NULL, 1200.0,
+        ) VALUES ($id, 1757052000000, NULL, '$activityType', '$title', NULL, 1200.0,
             600000, 700000, 2.0, 3.5, 12.0, 0)
         """.trimIndent(),
     )

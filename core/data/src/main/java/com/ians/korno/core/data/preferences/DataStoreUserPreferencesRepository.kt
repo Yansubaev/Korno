@@ -73,6 +73,9 @@ class DataStoreUserPreferencesRepository(
     override suspend fun setLastActivityType(value: ActivityType) =
         update(Keys.LAST_ACTIVITY_TYPE, value.name)
 
+    override suspend fun setLastRecordingAutoMode(value: Boolean) =
+        update(Keys.LAST_RECORDING_AUTO_MODE, value)
+
     private suspend fun <T> update(
         key: Preferences.Key<T>,
         value: T,
@@ -104,6 +107,7 @@ class DataStoreUserPreferencesRepository(
         lastActivityType = preferences[Keys.LAST_ACTIVITY_TYPE]
             ?.let { runCatching { ActivityType.valueOf(it) }.getOrNull() }
             ?: ActivityType.RUNNING,
+        lastRecordingAutoMode = preferences[Keys.LAST_RECORDING_AUTO_MODE] ?: true,
     )
 
     private fun defaultMeasurementSystem(): MeasurementSystem {
@@ -121,6 +125,7 @@ class DataStoreUserPreferencesRepository(
         val PRIVACY_ZONE = stringPreferencesKey("privacy_zone")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val LAST_ACTIVITY_TYPE = stringPreferencesKey("last_activity_type")
+        val LAST_RECORDING_AUTO_MODE = booleanPreferencesKey("last_recording_auto_mode")
     }
 
 }

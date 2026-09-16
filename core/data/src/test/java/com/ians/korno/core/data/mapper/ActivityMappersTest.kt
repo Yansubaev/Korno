@@ -5,6 +5,7 @@ import assertk.assertions.isEqualTo
 import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import org.junit.jupiter.api.Test
 
 class ActivityMappersTest {
@@ -25,6 +26,9 @@ class ActivityMappersTest {
             elevationGainMeters = 180.0,
             isManuallyEdited = true,
             stepCount = 3_456,
+            isAutoMode = true,
+            autoPauseSensitivity = AutoPauseSensitivity.HIGH,
+            isTypeChosenByUser = true,
         )
 
         assertThat(activity.toEntity().toDomain()).isEqualTo(activity)

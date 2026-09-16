@@ -1,6 +1,7 @@
 package com.ians.korno.data.locationtracking.location
 
 import assertk.assertThat
+import assertk.assertions.hasSize
 import assertk.assertions.isEqualTo
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThanOrEqualTo
@@ -21,8 +22,8 @@ class LocationUpdatePolicyTest {
         assertThat(config.intervalMillis).isEqualTo(
             when (accuracy) {
                 GpsAccuracy.HIGH -> 1_000L
-                GpsAccuracy.BALANCED -> 2_500L
-                GpsAccuracy.BATTERY_SAVER -> 4_000L
+                GpsAccuracy.BALANCED -> 2_000L
+                GpsAccuracy.BATTERY_SAVER -> 5_000L
             },
         )
     }
@@ -49,27 +50,15 @@ class LocationUpdatePolicyTest {
 
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
-    fun `walking is polled more often than driving`(accuracy: GpsAccuracy) {
-        // Пешеход за десять секунд проходит меньше, чем городская погрешность фикса;
-        // машина за то же время проезжает полтораста метров при вдвое более широком
-        // пороге отбраковки.
-        val onFoot = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.WALKING)
-        val wheeled = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.CYCLING)
-        val vehicle = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.DRIVING)
+    fun `the recording interval does not depend on the activity type`(accuracy: GpsAccuracy) {
+        // Настройка точности — единственный рычаг частоты. Прежняя таблица разводила
+        // пешехода, тропу, колесо и транспорт, и одно положение переключателя означало
+        // у разных активностей разное — вплоть до пятикратной разницы.
+        val intervals = ActivityType.entries.map {
+            LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, it).intervalMillis
+        }
 
-        assertThat(wheeled.intervalMillis).isGreaterThan(onFoot.intervalMillis)
-        assertThat(vehicle.intervalMillis).isGreaterThan(wheeled.intervalMillis)
-    }
-
-    @ParameterizedTest
-    @EnumSource(GpsAccuracy::class)
-    fun `hiking is polled less often than walking`(accuracy: GpsAccuracy) {
-        // Открытая местность обычно ловит сигнал увереннее города, а прогулка растягивается
-        // на часы — там экономия батареи стоит больше лишней точки, как и у машины.
-        val walking = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.WALKING)
-        val hiking = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.HIKING)
-
-        assertThat(hiking.intervalMillis).isGreaterThan(walking.intervalMillis)
+        assertThat(intervals.distinct()).hasSize(1)
     }
 
     @ParameterizedTest
@@ -121,11 +110,42 @@ class LocationUpdatePolicyTest {
 
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
+    fun `movement hint restores the recording interval during a settled auto pause`(accuracy: GpsAccuracy) {
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.CYCLING)
+        val waking = LocationUpdatePolicy.configFor(
+            accuracy = accuracy,
+            status = RecordingStatus.AUTO_PAUSE,
+            activityType = ActivityType.CYCLING,
+            autoPauseSettled = true,
+            autoPauseMovementHint = true,
+        )
+
+        assertThat(waking).isEqualTo(recording)
+    }
+
+    @ParameterizedTest
+    @EnumSource(GpsAccuracy::class)
     fun `manual pause drops to the cheapest mode regardless of the setting`(accuracy: GpsAccuracy) {
         val paused = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.MANUAL_PAUSE, ActivityType.WALKING)
 
         assertThat(paused.accuracy).isEqualTo(GpsAccuracy.BATTERY_SAVER)
         assertThat(paused.intervalMillis).isEqualTo(60_000L)
+    }
+
+    @ParameterizedTest
+    @EnumSource(GpsAccuracy::class)
+    fun `a vehicle keeps the recording pace through a settled auto pause`(accuracy: GpsAccuracy) {
+        // Автобус на остановке стоит меньше AUTO_PAUSE_SETTLE_MILLIS: разредить опрос
+        // не успеваешь сэкономить, зато отъезд решается по уже загрублённому сигналу.
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.DRIVING)
+        val settled = LocationUpdatePolicy.configFor(
+            accuracy,
+            RecordingStatus.AUTO_PAUSE,
+            ActivityType.DRIVING,
+            autoPauseSettled = true,
+        )
+
+        assertThat(settled).isEqualTo(recording)
     }
 
     @Test

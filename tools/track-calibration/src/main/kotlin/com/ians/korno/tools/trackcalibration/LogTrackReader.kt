@@ -3,8 +3,12 @@ package com.ians.korno.tools.trackcalibration
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.trackprocessing.DetectorSignal
+import com.ians.korno.core.domain.model.RecognizedActivity
 import java.io.File
+import java.time.Instant
 import java.util.zip.ZipFile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -46,12 +50,23 @@ class LoggedActivity(
      * а в том, что запись GPS-сэмплов была выключена.
      */
     val sawCoordinateRecords: Boolean,
+    /**
+     * Сигналы детектора вида движения, кроме скорости: её калибровка считает сама по
+     * точкам, тем же фильтром, что и приложение. По времени не отсортированы.
+     */
+    val detectorSignals: List<DetectorSignal> = emptyList(),
+    /** Ответы распознавания целиком, с альтернативами, — вход декодера вида движения. */
+    val recognitions: List<RecognitionSample> = emptyList(),
 )
 
 private const val SESSION_STARTED = "Tracking session started"
 private const val SAMPLE_RECEIVED = "Location sample received"
 private const val SAMPLE_COORDINATES = "Location sample coordinates"
 private const val POINT_PROCESSED = "Track point processed"
+private const val ACTIVITY_RECOGNIZED = "Activity recognized"
+private const val STEP_COUNTER_READING = "Step counter reading"
+private const val PAUSED_MANUALLY = "Tracking paused manually"
+private const val RESUMED_MANUALLY = "Tracking resumed manually"
 
 private val json = Json { ignoreUnknownKeys = true }
 
@@ -108,6 +123,8 @@ private class ActivityBuilder(private val activityId: Long) {
     private var insideRecordedStop = false
     private var sawSampleWithoutTimestamp = false
     private var sawCoordinateRecords = false
+    private val detectorSignals = mutableListOf<DetectorSignal>()
+    private val recognitions = mutableListOf<RecognitionSample>()
 
     fun consume(record: JsonObject) {
         when (record.string("message")) {
@@ -148,6 +165,36 @@ private class ActivityBuilder(private val activityId: Long) {
                 points += geoPoint(sample, record, timestamp)
             }
 
+            // Время распознавания и паузы — время записи в лог: своего у этих событий нет.
+            ACTIVITY_RECOGNIZED -> {
+                val timestamp = record.loggedAtMillis() ?: return
+                val activity = record.field("detectedActivity")?.let { enumOrNull<RecognizedActivity>(it) }
+                    ?: RecognizedActivity.UNKNOWN
+                val confidence = record.field("confidencePercent")?.toIntOrNull() ?: 0
+                detectorSignals += DetectorSignal.Recognized(timestamp, activity, confidence)
+                // Альтернативы записаны строкой «ON_FOOT=80, IN_VEHICLE=6».
+                val alternatives = record.field("alternatives").orEmpty().split(",").mapNotNull { entry ->
+                    val (name, value) = entry.split("=").takeIf { it.size == 2 } ?: return@mapNotNull null
+                    val alternative = enumOrNull<RecognizedActivity>(name.trim()) ?: return@mapNotNull null
+                    value.trim().toIntOrNull()?.let { alternative to it }
+                }
+                recognitions += RecognitionSample(
+                    activityId = activityId,
+                    timestampEpochMillis = timestamp,
+                    confidences = (alternatives + (activity to confidence)).toMap(),
+                )
+            }
+
+            STEP_COUNTER_READING -> {
+                val timestamp = record.field("readingTimestamp")?.toLongOrNull() ?: return
+                val counter = record.field("stepCounter")?.toLongOrNull() ?: return
+                detectorSignals += DetectorSignal.StepCounter(timestamp, counter)
+            }
+
+            PAUSED_MANUALLY -> record.loggedAtMillis()?.let { detectorSignals += DetectorSignal.Paused(it) }
+
+            RESUMED_MANUALLY -> record.loggedAtMillis()?.let { detectorSignals += DetectorSignal.Resumed(it) }
+
             POINT_PROCESSED -> {
                 if (record.field("isOutlier") == "true") recordedOutliers++
                 val isStop = record.field("isStop") == "true"
@@ -169,6 +216,8 @@ private class ActivityBuilder(private val activityId: Long) {
             recordedStopRuns = recordedStopRuns,
             missingSampleTimestamp = sawSampleWithoutTimestamp,
             sawCoordinateRecords = sawCoordinateRecords,
+            detectorSignals = detectorSignals.toList(),
+            recognitions = recognitions.toList(),
         )
     }
 
@@ -193,6 +242,9 @@ private class ActivityBuilder(private val activityId: Long) {
 
 private fun JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull
+
+private fun JsonObject.loggedAtMillis(): Long? =
+    string("timestampUtc")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
 
 /** Поля лога всегда строковые, и отсутствующее значение записано как `"null"`. */
 private fun JsonObject.field(name: String): String? =

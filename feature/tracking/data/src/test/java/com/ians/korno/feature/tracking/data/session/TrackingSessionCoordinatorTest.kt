@@ -1,6 +1,8 @@
 package com.ians.korno.feature.tracking.data.session
 
 import assertk.assertThat
+import assertk.assertions.contains
+import assertk.assertions.isBetween
 import assertk.assertions.hasSize
 import assertk.assertions.isEqualTo
 import assertk.assertions.isGreaterThan
@@ -10,10 +12,13 @@ import assertk.assertions.isNull
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
+import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
@@ -22,7 +27,14 @@ import com.ians.korno.core.domain.model.PrivacyZone
 import com.ians.korno.core.domain.model.UserPreferences
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
+import com.ians.korno.core.logging.AppLogger
+import com.ians.korno.core.logging.LogCategory
+import com.ians.korno.core.logging.LogLevel
+import com.ians.korno.core.logging.NoOpActivityLogScope
+import com.ians.korno.core.trackprocessing.SegmentDetector
+import com.ians.korno.core.trackprocessing.SegmentDetectorConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
+import com.ians.korno.data.locationtracking.diagnostics.TrackingSignal
 import com.ians.korno.data.locationtracking.location.LocationSample
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -323,6 +335,54 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `trusted doppler resumes auto pause even when the position is an outlier`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+
+        // Как в activity-34: координата переехала невозможным скачком, но отдельное
+        // доплеровское измерение скорости уверенно говорит, что движение возобновилось.
+        repeat(3) { index ->
+            coordinator.applySample(
+                sample(
+                    latitude = 0.01 + index * 0.001,
+                    longitude = 0.0,
+                    timestamp = 15_000L + index * 5_000L,
+                    speedMetersPerSecond = 2.0f,
+                    speedAccuracyMetersPerSecond = 0.1f,
+                    accuracyMeters = 5f,
+                ),
+            )
+
+            assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+        }
+    }
+
+    @Test
+    fun `an uncertain doppler spike does not resume auto pause for an outlier`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
+
+        coordinator.applySample(
+            sample(
+                latitude = 0.01,
+                longitude = 0.0,
+                timestamp = 15_000L,
+                speedMetersPerSecond = 2.0f,
+                speedAccuracyMetersPerSecond = 2.0f,
+                accuracyMeters = 5f,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+    }
+
+    @Test
     fun `stationary samples remain recording when auto pause is disabled`() = runTest {
         preferencesRepository.preferences.value = preferencesRepository.preferences.value.copy(
             autoPauseEnabled = false,
@@ -394,6 +454,35 @@ class TrackingSessionCoordinatorTest {
         assertThat(repository.updatedActivities.first().distanceMeters).isGreaterThan(0.0)
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.STOPPED)
         assertThat(coordinator.session.value.activityId).isNull()
+    }
+
+    @Test
+    fun `the activity keeps the sensitivity it was recorded with, even if the setting changes`() = runTest {
+        preferencesRepository.preferences.value =
+            preferencesRepository.preferences.value.copy(autoPauseSensitivity = AutoPauseSensitivity.HIGH)
+        coordinator.beginSession(ActivityType.RUNNING)
+        preferencesRepository.preferences.value =
+            preferencesRepository.preferences.value.copy(autoPauseSensitivity = AutoPauseSensitivity.LOW)
+
+        coordinator.endSession()
+
+        assertThat(repository.createdActivities.single().autoPauseSensitivity).isEqualTo(AutoPauseSensitivity.HIGH)
+        assertThat(repository.updatedActivities.single().autoPauseSensitivity).isEqualTo(AutoPauseSensitivity.HIGH)
+    }
+
+    @Test
+    fun `a recovered session continues with the sensitivity of its activity`() = runTest {
+        repository.activeActivity = Activity(
+            id = 5L,
+            startTimeEpochMillis = clockMillis - 600_000L,
+            activityType = ActivityType.RUNNING,
+            autoPauseSensitivity = AutoPauseSensitivity.LOW,
+        )
+
+        coordinator.recoverActiveSessionIfNeeded()
+        coordinator.endSession()
+
+        assertThat(repository.updatedActivities.single().autoPauseSensitivity).isEqualTo(AutoPauseSensitivity.LOW)
     }
 
     @Test
@@ -478,6 +567,42 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `step readings are logged for every activity type, thinned out`() = runTest {
+        val logged = mutableListOf<Map<String, String>>()
+        val logger = object : AppLogger {
+            override fun log(
+                level: LogLevel,
+                category: LogCategory,
+                tag: String,
+                throwable: Throwable?,
+                fields: Map<String, String>,
+                containsSensitiveLocation: Boolean,
+                message: () -> String,
+            ) {
+                if (message() == "Step counter reading") logged += fields
+            }
+        }
+        val loggingCoordinator = TrackingSessionCoordinator(
+            repository,
+            TrackProcessor(),
+            preferencesRepository,
+            logger,
+            NoOpActivityLogScope,
+        ) { clockMillis }
+        loggingCoordinator.beginSession(ActivityType.CYCLING)
+
+        loggingCoordinator.applyStepCounter(1_000L)
+        clockMillis += 1_000L
+        loggingCoordinator.applyStepCounter(1_002L)
+        clockMillis += 5_000L
+        loggingCoordinator.applyStepCounter(1_010L)
+
+        // Контракт с `:tools:track-calibration` — см. LogTrackReaderTest.
+        assertThat(logged.map { it["stepCounter"] }).isEqualTo(listOf("1000", "1010"))
+        assertThat(logged.last()["readingTimestamp"]).isEqualTo(clockMillis.toString())
+    }
+
+    @Test
     fun `ending the session stores the accumulated step count on the activity`() = runTest {
         coordinator.beginSession(ActivityType.WALKING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
@@ -489,13 +614,315 @@ class TrackingSessionCoordinatorTest {
         assertThat(repository.updatedActivities.first().stepCount).isEqualTo(42)
     }
 
+    @Test
+    fun `begin session creates the activity with one open segment of its kind`() = runTest {
+        coordinator.beginSession(ActivityType.HIKING)
+
+        val segment = repository.createdSegments.single()
+        assertThat(segment.kind).isEqualTo(SegmentKind.ON_FOOT)
+        assertThat(segment.startTimeEpochMillis).isEqualTo(clockMillis)
+        assertThat(segment.endTimeEpochMillis).isNull()
+    }
+
+    @Test
+    fun `ending the session closes the segment over the whole recording with its steps and distance`() = runTest {
+        coordinator.beginSession(ActivityType.WALKING)
+        clockMillis += 5_000L
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.applySample(sample(latitude = 0.0005, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
+        coordinator.applyStepCounter(1_000L)
+        coordinator.applyStepCounter(1_042L)
+
+        coordinator.endSession()
+
+        val activity = repository.updatedActivities.single()
+        val segment = repository.replacedSegments!!.single()
+        assertThat(segment.kind).isEqualTo(SegmentKind.ON_FOOT)
+        // Старт сегмента — момент фикса, а не нажатия «Начать»: как и у активности.
+        assertThat(segment.startTimeEpochMillis).isEqualTo(activity.startTimeEpochMillis)
+        assertThat(segment.endTimeEpochMillis).isEqualTo(activity.endTimeEpochMillis)
+        assertThat(segment.stepCount).isEqualTo(42)
+        assertThat(segment.distanceMeters).isEqualTo(activity.distanceMeters)
+        assertThat(segment.distanceMeters).isGreaterThan(0.0)
+    }
+
+    @Test
+    fun `a fixed-mode hike is saved as a hike, not as the walk its segment kind suggests`() = runTest {
+        beginWarmedSession(ActivityType.HIKING)
+
+        coordinator.endSession()
+
+        assertThat(repository.updatedActivities.single().activityType).isEqualTo(ActivityType.HIKING)
+        assertThat(repository.replacedSegments!!.single().kind).isEqualTo(SegmentKind.ON_FOOT)
+    }
+
+    @Test
+    fun `auto mode starts with an unknown segment regardless of the chosen type`() = runTest {
+        coordinator.beginSession(ActivityType.RUNNING, autoMode = true)
+
+        val activity = repository.createdActivities.single()
+        assertThat(activity.isAutoMode).isEqualTo(true)
+        assertThat(activity.activityType).isEqualTo(ActivityType.OTHER)
+        assertThat(repository.createdSegments.single().kind).isEqualTo(SegmentKind.UNKNOWN)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.UNKNOWN)
+    }
+
+    @Test
+    fun `auto mode names the first segment, then cuts at the first sign and splits the steps`() = runTest {
+        // Слияние коротких выключено: точек в тесте нет, и оба сегмента иначе были бы «короткими».
+        val coordinator = autoCoordinator(SegmentDetectorConfig(minSegmentDurationMillis = 0L, minSegmentDistanceMeters = 0.0))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.beginSession(ActivityType.RUNNING, autoMode = true)
+        val startedAt = clockMillis
+
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE"))
+        coordinator.applyStepCounter(1_000L)
+        clockMillis += 40_000L
+        coordinator.applyStepCounter(1_010L)
+        // Первое подтверждение не режет запись: весь открытый сегмент оказывается велосипедом.
+        assertThat(repository.savedOpenSegments.single()).isEqualTo(
+            ActivitySegment(activityId = 1L, kind = SegmentKind.CYCLING, startTimeEpochMillis = startedAt) to null,
+        )
+        assertThat(coordinator.session.value.activityType).isEqualTo(ActivityType.CYCLING)
+
+        clockMillis += 20_000L
+        coordinator.applyStepCounter(1_030L)
+        clockMillis += 10_000L
+        val walkingSince = clockMillis
+        coordinator.applyActivityRecognition(recognized("WALKING"))
+        clockMillis += 10_000L
+        coordinator.applyStepCounter(1_050L)
+        clockMillis += 30_000L
+        coordinator.applyStepCounter(1_090L)
+
+        val (closed, opened) = repository.savedOpenSegments.last()
+        assertThat(closed.kind).isEqualTo(SegmentKind.CYCLING)
+        assertThat(closed.endTimeEpochMillis).isEqualTo(walkingSince)
+        assertThat(closed.stepCount).isEqualTo(30)
+        assertThat(opened?.kind).isEqualTo(SegmentKind.ON_FOOT)
+        assertThat(opened?.startTimeEpochMillis).isEqualTo(walkingSince)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.ON_FOOT)
+
+        // Пешком ещё минуту: одного вердикта на полминуты декодеру мало, чтобы сменить вид.
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 90))
+        clockMillis += 30_000L
+        coordinator.applyStepCounter(1_120L)
+        coordinator.applyActivityRecognition(recognized("WALKING"))
+        clockMillis += 30_000L
+        coordinator.applyStepCounter(1_150L)
+        coordinator.endSession()
+
+        val segments = repository.replacedSegments!!
+        assertThat(segments.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING, SegmentKind.ON_FOOT))
+        // Велосипедный вердикт старше минуты уже ничего не говорит: граница — где-то в этом зазоре.
+        assertThat(segments.last().startTimeEpochMillis).isBetween(walkingSince - 10_000L, walkingSince)
+        assertThat(segments.last().endTimeEpochMillis).isEqualTo(clockMillis)
+        assertThat(segments.last().stepCount).isEqualTo(120)
+        val activity = repository.updatedActivities.single()
+        assertThat(activity.isAutoMode).isEqualTo(true)
+        // В сводку — только шаги на ногах.
+        assertThat(activity.stepCount).isEqualTo(120)
+    }
+
+    @Test
+    fun `a walking candidate resumes a cycling auto pause before segment confirmation`() = runTest {
+        val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.beginSession(ActivityType.CYCLING, autoMode = true)
+
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+
+        var sampleTimestamp = clockMillis
+        repeat(3) {
+            coordinator.applySample(
+                sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
+            )
+            sampleTimestamp += 5_000L
+        }
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
+
+        clockMillis += 15_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+        // 1.2 м/с недостаточно для велосипедного порога 1.5, но это уверенное движение
+        // для пешего кандидата с порогом 0.9. Ждать подтверждения вида сорок секунд нельзя.
+        coordinator.applySample(
+            sample(
+                latitude = 0.000_01,
+                longitude = 0.0,
+                timestamp = sampleTimestamp,
+                speedMetersPerSecond = 1.2f,
+                speedAccuracyMetersPerSecond = 0.1f,
+                accuracyMeters = 5f,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
+
+        coordinator.applySample(
+            sample(
+                latitude = 0.000_02,
+                longitude = 0.0,
+                timestamp = sampleTimestamp + 5_000L,
+                speedMetersPerSecond = 1.2f,
+                speedAccuracyMetersPerSecond = 0.1f,
+                accuracyMeters = 5f,
+            ),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
+    }
+
+    @Test
+    fun `a confirmed movement hint returns to battery saving after a stationary sample`() = runTest {
+        val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
+        coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        coordinator.beginSession(ActivityType.CYCLING, autoMode = true)
+
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+
+        var sampleTimestamp = clockMillis
+        repeat(3) {
+            coordinator.applySample(
+                sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
+            )
+            sampleTimestamp += 5_000L
+        }
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+
+        clockMillis += 15_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+
+        coordinator.applySample(
+            sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
+        )
+
+        assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
+    }
+
+    @Test
+    fun `on save a vehicle verdict amid a ride without stops is decoded back into cycling`() = runTest {
+        beginWarmedSession(autoMode = true)
+        var latitude = 0.0
+        suspend fun ride(seconds: Int, activity: String) {
+            repeat(seconds / 4) { index ->
+                if (index % 5 == 0) coordinator.applyActivityRecognition(recognized(activity, confidence = 90))
+                coordinator.applySample(
+                    sample(latitude, 0.0, timestamp = clockMillis, speedMetersPerSecond = 4.5f, accuracyMeters = 5f),
+                )
+                latitude += 4.5 * 4 / 111_000.0
+                clockMillis += 4_000L
+            }
+        }
+
+        ride(seconds = 300, activity = "ON_BICYCLE")
+        ride(seconds = 120, activity = "IN_VEHICLE")
+        ride(seconds = 300, activity = "ON_BICYCLE")
+        // Живой детектор ошибку распознавания принял: сегмент «машины» записан.
+        assertThat(repository.savedOpenSegments.mapNotNull { it.second?.kind }).contains(SegmentKind.VEHICLE)
+
+        coordinator.endSession()
+
+        // Пересесть в машину и обратно без остановки нельзя — при сохранении это велосипед.
+        assertThat(repository.replacedSegments!!.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING))
+        assertThat(repository.recognitionSamples.size).isEqualTo(36)
+    }
+
+    @Test
+    fun `short segments are merged on save and the type comes from the dominant kind`() = runTest {
+        beginWarmedSession(autoMode = true)
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE"))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 90))
+        clockMillis += 60_000L
+        coordinator.applyActivityRecognition(recognized("WALKING"))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 90))
+        assertThat(repository.savedOpenSegments.last().second?.kind).isEqualTo(SegmentKind.ON_FOOT)
+
+        // Пешком — 40 секунд без единого метра: сегмент поглощается велосипедом.
+        coordinator.endSession()
+
+        assertThat(repository.replacedSegments!!.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING))
+        assertThat(repository.updatedActivities.single().activityType).isEqualTo(ActivityType.CYCLING)
+    }
+
+    private fun autoCoordinator(config: SegmentDetectorConfig) = TrackingSessionCoordinator(
+        trackRepository = repository,
+        trackProcessor = TrackProcessor(),
+        preferencesRepository = preferencesRepository,
+        nowMillis = { clockMillis },
+        segmentDetector = SegmentDetector(config),
+    )
+
+    @Test
+    fun `a manual kind names the segment right away and holds off the detector`() = runTest {
+        beginWarmedSession(autoMode = true)
+
+        coordinator.changeSegmentKind(SegmentKind.CYCLING)
+        coordinator.applyActivityRecognition(recognized("WALKING"))
+        clockMillis += 60_000L
+        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 90))
+
+        val (named, next) = repository.savedOpenSegments.single()
+        assertThat(named.kind).isEqualTo(SegmentKind.CYCLING)
+        assertThat(named.isManuallyEdited).isEqualTo(true)
+        assertThat(next).isNull()
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+    }
+
+    @Test
+    fun `a recovered auto session continues its open segment`() = runTest {
+        repository.activeActivity = Activity(
+            id = 5L,
+            startTimeEpochMillis = clockMillis - 600_000L,
+            activityType = ActivityType.OTHER,
+            isAutoMode = true,
+        )
+        repository.storedSegments = listOf(
+            ActivitySegment(5L, 5L, SegmentKind.CYCLING, clockMillis - 600_000L, clockMillis - 300_000L),
+            ActivitySegment(6L, 5L, SegmentKind.ON_FOOT, clockMillis - 300_000L),
+        )
+
+        coordinator.recoverActiveSessionIfNeeded()
+        assertThat(coordinator.session.value.isAutoMode).isEqualTo(true)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.ON_FOOT)
+
+        coordinator.applyActivityRecognition(recognized("IN_VEHICLE"))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("IN_VEHICLE", confidence = 90))
+
+        val (closed, opened) = repository.savedOpenSegments.single()
+        assertThat(closed.kind).isEqualTo(SegmentKind.ON_FOOT)
+        assertThat(opened?.kind).isEqualTo(SegmentKind.VEHICLE)
+    }
+
+    private fun recognized(activity: String, confidence: Int = 80) =
+        TrackingSignal.ActivityRecognized(activity, confidence, emptyMap())
+
     /**
      * Прогрев перед стартом: пойманный сигнал позволяет начать запись сразу,
      * без ожидания на экране записи.
      */
-    private suspend fun beginWarmedSession(activityType: ActivityType = ActivityType.RUNNING): Long? {
+    private suspend fun beginWarmedSession(
+        activityType: ActivityType = ActivityType.RUNNING,
+        autoMode: Boolean = false,
+    ): Long? {
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
-        return coordinator.beginSession(activityType)
+        return coordinator.beginSession(activityType, autoMode)
     }
 
     private fun sample(
@@ -503,6 +930,7 @@ class TrackingSessionCoordinatorTest {
         longitude: Double,
         timestamp: Long,
         speedMetersPerSecond: Float? = null,
+        speedAccuracyMetersPerSecond: Float? = null,
         accuracyMeters: Float? = null,
         provider: String? = null,
         ageMillis: Long? = null,
@@ -513,6 +941,7 @@ class TrackingSessionCoordinatorTest {
         timestampEpochMillis = timestamp,
         accuracyMeters = accuracyMeters,
         speedMetersPerSecond = speedMetersPerSecond,
+        speedAccuracyMetersPerSecond = speedAccuracyMetersPerSecond,
         provider = provider,
         ageMillis = ageMillis,
     )
@@ -520,6 +949,11 @@ class TrackingSessionCoordinatorTest {
     private class FakeTrackRepository : TrackRepository {
         var nextActivityId = 1L
         val createdActivities = mutableListOf<Activity>()
+        val createdSegments = mutableListOf<ActivitySegment>()
+        var replacedSegments: List<ActivitySegment>? = null
+        val savedOpenSegments = mutableListOf<Pair<ActivitySegment, ActivitySegment?>>()
+        var activeActivity: Activity? = null
+        var storedSegments: List<ActivitySegment> = emptyList()
 
         /** Правки уже созданной активности по ходу записи (сдвиг времени старта). */
         val activityUpdates = mutableListOf<Activity>()
@@ -538,13 +972,28 @@ class TrackingSessionCoordinatorTest {
         override fun observeGeoPoints(activityId: Long): Flow<Result<List<GeoPoint>, DataError.Local>> =
             flowOf(Result.Success(emptyList()))
 
-        override suspend fun findActiveActivity(): Result<Activity?, DataError.Local> = Result.Success(null)
+        override suspend fun findActiveActivity(): Result<Activity?, DataError.Local> = Result.Success(activeActivity)
 
         override fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>> =
             flowOf(Result.Success(emptyList()))
 
-        override suspend fun createActivity(activity: Activity): Result<Long, DataError.Local> {
+        override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
+            Result.Success(storedSegments)
+
+        override suspend fun saveOpenSegment(
+            current: ActivitySegment,
+            next: ActivitySegment?,
+        ): EmptyResult<DataError.Local> {
+            savedOpenSegments += current to next
+            return Result.Success(Unit)
+        }
+
+        override suspend fun createActivity(
+            activity: Activity,
+            segments: List<ActivitySegment>,
+        ): Result<Long, DataError.Local> {
             createdActivities += activity
+            createdSegments += segments
             return Result.Success(nextActivityId)
         }
 
@@ -558,6 +1007,16 @@ class TrackingSessionCoordinatorTest {
             return Result.Success(Unit)
         }
 
+        val recognitionSamples = mutableListOf<RecognitionSample>()
+
+        override suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local> {
+            recognitionSamples += sample
+            return Result.Success(Unit)
+        }
+
+        override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
+            Result.Success(recognitionSamples.filter { it.activityId == activityId })
+
         override suspend fun getRoutePreview(
             activityId: Long,
             maxPoints: Int,
@@ -566,13 +1025,16 @@ class TrackingSessionCoordinatorTest {
         override suspend fun insertTrack(
             activity: Activity,
             points: List<GeoPoint>,
+            segments: List<ActivitySegment>,
         ): Result<Long, DataError.Local> = Result.Success(activity.id)
 
         override suspend fun replaceTrack(
             activity: Activity,
             points: List<GeoPoint>,
+            segments: List<ActivitySegment>?,
         ): EmptyResult<DataError.Local> {
             updatedActivities += activity
+            replacedSegments = segments
             replacedPoints.clear()
             replacedPoints += points
             return Result.Success(Unit)
@@ -606,6 +1068,8 @@ class TrackingSessionCoordinatorTest {
         override suspend fun setDynamicColorEnabled(value: Boolean): EmptyResult<DataError.Local> = success()
         override suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local> = success()
         override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
+
+        override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
 
         private fun success(): EmptyResult<DataError.Local> = Result.Success(Unit)
     }

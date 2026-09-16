@@ -15,6 +15,13 @@
     <string name="activity_detail_best_pace">Best pace</string>
     <string name="activity_detail_value_unavailable">—</string>
 
+    <string name="activity_detail_lens_kinds">Kinds</string>
+    <string name="activity_detail_kinds">By kind of movement</string>
+    <string name="activity_detail_segments">Segments</string>
+    <string name="activity_detail_segment_manual">edited</string>
+    <string name="activity_detail_segment_kind_title">Kind of movement</string>
+    <string name="activity_detail_segment_kind_body">The track and statistics will be recalculated with the thresholds of the new kind</string>
+    <string name="activity_detail_segment_recalculating">Recalculating…</string>
     <string name="activity_detail_lens_route">Route</string>
     <string name="activity_detail_lens_pace">Pace</string>
     <string name="activity_detail_lens_speed">Speed</string>

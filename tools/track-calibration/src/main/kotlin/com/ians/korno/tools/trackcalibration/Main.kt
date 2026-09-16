@@ -3,6 +3,12 @@ package com.ians.korno.tools.trackcalibration
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.ActivitySegment
+import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.trackprocessing.DetectorEvent
+import com.ians.korno.core.trackprocessing.DetectorSignal
+import com.ians.korno.core.trackprocessing.ModeDecoderConfig
+import com.ians.korno.core.trackprocessing.SegmentDetectorConfig
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.withAutoPauseSensitivity
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
@@ -32,6 +38,9 @@ Korno track calibration — прогон записанных треков че�
                            (RUNNING, CYCLING, WALKING, HIKING, DRIVING, OTHER)
   --sensitivity=<LEVEL>    чувствительность автопаузы: LOW, MEDIUM, HIGH
   --no-sweep               только сводка по трекам, без перебора порогов
+
+Для логов с распознаванием активности (включается вместе с диагностикой) выводятся
+ещё сегменты по виду движения и перебор порогов детектора.
 """
 
 fun main(arguments: Array<String>) {
@@ -52,6 +61,7 @@ fun main(arguments: Array<String>) {
 
     printSummary(tracks)
     if (!options.noSweep) tracks.forEach(::printSweeps)
+    tracks.forEach { track -> printSegments(track, sweep = !options.noSweep) }
 }
 
 private class Options(
@@ -69,6 +79,11 @@ private class LoadedTrack(
     val isKornoExport: Boolean,
     /** Вердикты, записанные приложением во время самой записи; `null` — источник не лог. */
     val recorded: RecordedVerdicts? = null,
+    /** Сигналы детектора вида движения из лога; у GPX и TCX их нет. */
+    val detectorSignals: List<DetectorSignal> = emptyList(),
+    val recognitions: List<RecognitionSample> = emptyList(),
+    /** Чувствительность автопаузы записи: итоговый пересчёт сегментов идёт с ней. */
+    val sensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
 )
 
 /**
@@ -154,8 +169,11 @@ private fun loadLogTracks(file: File, options: Options): List<LoadedTrack> {
             points = activity.points,
             config = TrackProcessingConfig.forActivityType(activityType)
                 .let { base -> sensitivity?.let(base::withAutoPauseSensitivity) ?: base },
+            sensitivity = sensitivity ?: AutoPauseSensitivity.MEDIUM,
             isKornoExport = false,
             recorded = RecordedVerdicts(activity.recordedOutliers, activity.recordedStopRuns),
+            detectorSignals = activity.detectorSignals,
+            recognitions = activity.recognitions,
         )
     }
 }
@@ -300,6 +318,122 @@ private fun printSweeps(track: LoadedTrack) {
             )
         }
     }
+}
+
+/**
+ * Сегменты по виду движения: сводка при текущих порогах детектора и перебор порогов.
+ * Решения детектора выводятся целиком — именно по ним видно, почему граница встала там.
+ */
+private fun printSegments(track: LoadedTrack, sweep: Boolean) {
+    val input = segmentInput(track.points, track.detectorSignals, track.recognitions) ?: return
+    val config = SegmentDetectorConfig()
+    val run = runSegmentDetector(input, config, track.sensitivity)
+
+    println()
+    println("СЕГМЕНТЫ — ${track.name}".title())
+    println(
+        "  вердиктов распознавания: %d, показаний шагомера: %d".format(
+            Locale.US,
+            input.signals.count { it is DetectorSignal.Recognized },
+            input.signals.count { it is DetectorSignal.StepCounter },
+        ),
+    )
+    println()
+    println("  решения детектора:")
+    run.events.filterNot { it is DetectorEvent.VerdictRejected }.forEach { event ->
+        println("    %9s  %s".format(Locale.US, formatDuration(event.timestampMillis - input.startMillis), event.describe(input)))
+    }
+    val rejections = run.events.filterIsInstance<DetectorEvent.VerdictRejected>().groupingBy { it.reason }.eachCount()
+    if (rejections.isNotEmpty()) println("    отклонено: ${rejections.entries.joinToString { "${it.key} ${it.value}" }}")
+
+    println()
+    println("  до слияния коротких:")
+    printSegmentTable(run.detected, input.startMillis)
+    println("  после слияния:")
+    printSegmentTable(run.merged, input.startMillis)
+
+    // То, что запишется при сохранении: декодер по всей записи, затем слияние коротких.
+    val decoderConfig = ModeDecoderConfig()
+    val decoded = runModeDecoder(input, decoderConfig, track.sensitivity)
+    println()
+    println("  декодер (Витерби), до слияния:")
+    printSegmentTable(decoded.detected, input.startMillis)
+    println("  после слияния:")
+    printSegmentTable(decoded.merged, input.startMillis)
+
+    if (!sweep) return
+    DECODER_SWEEPS.forEach { decoderSweep ->
+        val current = decoderSweep.currentValue(decoderConfig)
+        println()
+        println("  декодер: ${decoderSweep.name}  (сейчас ${"%.2f".format(Locale.US, current)})")
+        println("  %10s %8s %8s  %s".format(Locale.US, "значение", "сегм.", "слито", "по видам, км"))
+        decoderSweep.values.forEach { value ->
+            val swept = runModeDecoder(input, decoderSweep.apply(decoderConfig, value), track.sensitivity)
+            val marker = if (kotlin.math.abs(value - current) < 1e-6) "*" else " "
+            println(
+                "  %9.2f%s %8d %8d  %s".format(
+                    Locale.US,
+                    value,
+                    marker,
+                    swept.detected.size,
+                    swept.merged.size,
+                    swept.merged.byKind(),
+                ),
+            )
+        }
+    }
+    DETECTOR_SWEEPS.forEach { detectorSweep ->
+        val current = detectorSweep.currentValue(config)
+        println()
+        println("  ${detectorSweep.name}  (сейчас ${"%.2f".format(Locale.US, current)})")
+        println("  %10s %8s %8s  %s".format(Locale.US, "значение", "сегм.", "слито", "по видам, км"))
+        detectorSweep.values.forEach { value ->
+            val swept = runSegmentDetector(input, detectorSweep.apply(config, value), track.sensitivity)
+            val marker = if (kotlin.math.abs(value - current) < 1e-6) "*" else " "
+            println(
+                "  %9.2f%s %8d %8d  %s".format(
+                    Locale.US,
+                    value,
+                    marker,
+                    swept.detected.size,
+                    swept.merged.size,
+                    swept.merged.byKind(),
+                ),
+            )
+        }
+    }
+}
+
+private fun List<ActivitySegment>.byKind(): String =
+    groupBy { it.kind }.entries.joinToString(" · ") { (kind, segments) ->
+        "%s %.2f".format(Locale.US, kind, segments.sumOf(ActivitySegment::distanceMeters) / 1_000.0)
+    }
+
+private fun printSegmentTable(segments: List<ActivitySegment>, startMillis: Long) {
+    println("  %-8s %9s %9s %8s %7s %9s".format(Locale.US, "вид", "начало", "длит.", "км", "шаги", "шаг/мин"))
+    segments.forEach { segment ->
+        val duration = (segment.endTimeEpochMillis ?: segment.startTimeEpochMillis) - segment.startTimeEpochMillis
+        val cadence = segment.stepCount?.takeIf { duration > 0 }?.let { it * 60_000.0 / duration }
+        println(
+            "  %-8s %9s %9s %8.2f %7s %9s".format(
+                Locale.US,
+                segment.kind.name.take(8),
+                formatDuration(segment.startTimeEpochMillis - startMillis),
+                formatDuration(duration),
+                segment.distanceMeters / 1_000.0,
+                segment.stepCount?.toString() ?: "—",
+                cadence?.let { "%.0f".format(Locale.US, it) } ?: "—",
+            ),
+        )
+    }
+}
+
+private fun DetectorEvent.describe(input: SegmentInput): String = when (this) {
+    is DetectorEvent.CandidateStarted -> "кандидат $kind"
+    is DetectorEvent.CandidateDropped -> "кандидат $kind не удержался"
+    is DetectorEvent.SegmentConfirmed ->
+        "подтверждено ${from ?: "—"} → $to, граница ${formatDuration(boundaryMillis - input.startMillis)}"
+    is DetectorEvent.VerdictRejected -> "отклонён $activity ($confidencePercent%): $reason"
 }
 
 private fun formatDuration(millis: Long): String {

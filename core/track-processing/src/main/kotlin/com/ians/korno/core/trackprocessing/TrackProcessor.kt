@@ -1,12 +1,22 @@
 package com.ians.korno.core.trackprocessing
 
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.slicePoints
 
 data class ProcessedTrack(
     val points: List<GeoPoint>,
     val statistics: TrackStatistics,
+)
+
+/** Запись из нескольких сегментов после обработки: сегменты — с дистанцией по своим порогам. */
+data class SegmentedTrack(
+    val points: List<GeoPoint>,
+    val statistics: TrackStatistics,
+    val segments: List<ActivitySegment>,
 )
 
 /** Откуда пришли точки — от этого зависит, нужна ли им обработка вообще. */
@@ -50,6 +60,79 @@ class TrackProcessor(
             statistics = statisticsCalculator(processedPoints, config),
         )
     }
+
+    /**
+     * Снаружи модуля — только через [FinalizeTrackUseCase].
+     *
+     * Смешанная запись: точки делятся по времени сегментов, и каждый участок проходит
+     * pipeline со своим профилем порогов — пешие пороги выкинули бы автобус, транспортные
+     * пропустили бы дрожание пешехода.
+     *
+     * Дистанция, время и набор высоты — по всей записи. Средняя и максимальная скорость —
+     * без транспорта: проеханный автобус не делает прогулку быстрее. Если кроме транспорта
+     * ничего нет, скорость считается по нему.
+     *
+     * Первая точка следующего участка даётся текущему как довесок: иначе отрезок через
+     * границу не мерил бы никто, и ни дистанция, ни время в него не шли. Раньше это стоило
+     * метров — соседние точки лежали в секундах друг от друга. С тех пор как фикс без
+     * доплера и курса отбраковывается целиком (см. [OutlierFilterUseCase]), последняя
+     * точка транспортного участка может отстоять от первой пешей на километры, и граница
+     * начала съедать саму поездку.
+     *
+     * Довесок именно справа, а не приставка слева: перемещение через границу произошло во
+     * время левого участка, и судить его должен левый профиль. Пеший порог правдоподобной
+     * скорости забраковал бы отъехавший на полкилометра автобус как невозможный шаг —
+     * и отрезок пропал бы снова, только уже как выброс. Сама точка в левый участок не
+     * попадает, она остаётся в своём; засчитывается один лишь её вклад, ровно однажды.
+     *
+     * ponytail: фильтр на границе всё ещё стартует заново, приставка даёт ему лишь одну
+     * точку истории. Сквозной проход с профилем на точку — если это станет видно.
+     *
+     * @param segments сегменты одной записи по порядку, закрытые; первые точки до начала
+     *   первого сегмента и после конца последнего достаются им.
+     */
+    internal fun processSegments(
+        points: List<GeoPoint>,
+        segments: List<ActivitySegment>,
+        configFor: (SegmentKind) -> TrackProcessingConfig,
+    ): SegmentedTrack {
+        val slices = segments.slicePoints(points)
+        val parts = slices.mapIndexed { index, (segment, slice) ->
+            val config = configFor(segment.kind)
+            val tail = slices.getOrNull(index + 1)?.second?.firstOrNull()
+            val processed = processPoints(if (tail == null) slice else slice + tail, config)
+            val statistics = statisticsCalculator(processed, config)
+            val own = if (tail == null) processed else processed.dropLast(1)
+            SegmentPart(segment.copy(distanceMeters = statistics.distanceMeters), own, statistics)
+        }
+        val speedParts = parts.filter { it.segment.kind != SegmentKind.VEHICLE }.ifEmpty { parts }
+        val speedDistance = speedParts.sumOf { it.statistics.distanceMeters }
+        val speedMovingTime = speedParts.sumOf { it.statistics.movingTimeMillis }
+        return SegmentedTrack(
+            points = parts.flatMap(SegmentPart::points),
+            statistics = TrackStatistics(
+                distanceMeters = parts.sumOf { it.statistics.distanceMeters },
+                movingTimeMillis = parts.sumOf { it.statistics.movingTimeMillis },
+                elapsedTimeMillis = parts.sumOf { it.statistics.elapsedTimeMillis },
+                averageSpeedMetersPerSecond = if (speedMovingTime > 0L) {
+                    speedDistance / (speedMovingTime / 1_000.0)
+                } else {
+                    0.0
+                },
+                maxSpeedMetersPerSecond = speedParts.maxOfOrNull { it.statistics.maxSpeedMetersPerSecond } ?: 0.0,
+                elevationGainMeters = parts.sumOf { it.statistics.elevationGainMeters },
+                unmeasuredTimeMillis = parts.sumOf { it.statistics.unmeasuredTimeMillis },
+                gapCount = parts.sumOf { it.statistics.gapCount },
+            ),
+            segments = parts.map(SegmentPart::segment),
+        )
+    }
+
+    private class SegmentPart(
+        val segment: ActivitySegment,
+        val points: List<GeoPoint>,
+        val statistics: TrackStatistics,
+    )
 
     /**
      * Вердикты по точкам без подсчёта статистики: живой записи статистика нужна

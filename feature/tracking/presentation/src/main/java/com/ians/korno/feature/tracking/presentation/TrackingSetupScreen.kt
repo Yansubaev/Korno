@@ -1,6 +1,9 @@
 package com.ians.korno.feature.tracking.presentation
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -153,9 +157,28 @@ private fun TrackingSetupContent(
                         .padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // Без разрешения «Авто» сначала просит его; ответ проверяется во ViewModel
+                    // вместе с Play Services, которых разрешение не заменяет.
+                    val permissionLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestPermission(),
+                    ) { onAction(TrackingSetupAction.AutoModePermissionResult) }
+                    FilterChip(
+                        selected = state.autoMode,
+                        onClick = {
+                            if (state.autoModeAvailable) {
+                                onAction(TrackingSetupAction.SelectAutoMode)
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        },
+                        label = { Text(stringResource(R.string.tracking_setup_auto)) },
+                    )
                     SETUP_ACTIVITY_TYPES.forEach { type ->
                         FilterChip(
-                            selected = type == state.activityType,
+                            selected = !state.autoMode && type == state.activityType,
                             onClick = { onAction(TrackingSetupAction.SelectActivityType(type)) },
                             leadingIcon = {
                                 Icon(type.icon(), contentDescription = null, modifier = Modifier.size(18.dp))
@@ -164,6 +187,24 @@ private fun TrackingSetupContent(
                         )
                     }
                 }
+                Text(
+                    text = stringResource(
+                        if (state.autoModeUnavailableHint) {
+                            R.string.tracking_setup_auto_unavailable
+                        } else if (state.autoMode) {
+                            R.string.tracking_setup_auto_subtitle
+                        } else {
+                            R.string.tracking_setup_type_subtitle
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state.autoModeUnavailableHint) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                )
             }
 
             Row(

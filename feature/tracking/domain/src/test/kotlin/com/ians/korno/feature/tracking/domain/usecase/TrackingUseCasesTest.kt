@@ -5,13 +5,18 @@ import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isTrue
 import com.ians.korno.core.domain.error.DataError
+import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
+import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
 import com.ians.korno.feature.tracking.domain.repository.TrackingController
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import java.lang.reflect.Proxy
 import org.junit.jupiter.api.Test
 
 class TrackingUseCasesTest {
@@ -19,7 +24,7 @@ class TrackingUseCasesTest {
 
     @Test
     fun `start delegates the selected activity type to the controller`() = runTest {
-        StartTrackingUseCase(controller)(ActivityType.CYCLING)
+        StartTrackingUseCase(controller)(ActivityType.CYCLING, autoMode = false)
 
         assertThat(controller.startedWith).isEqualTo(ActivityType.CYCLING)
     }
@@ -70,6 +75,28 @@ class TrackingUseCasesTest {
         }
     }
 
+    @Test
+    fun `a type changed on the summary screen counts as chosen, a confirmed one does not`() = runTest {
+        val saved = mutableListOf<Activity>()
+        val repository = object : TrackRepository by unusedTrackRepository() {
+            override suspend fun updateActivity(activity: Activity): EmptyResult<DataError.Local> {
+                saved += activity
+                return Result.Success(Unit)
+            }
+        }
+        val derived = Activity(startTimeEpochMillis = 0L, activityType = ActivityType.WALKING, isAutoMode = true)
+
+        SaveActivitySummaryUseCase(repository)(derived, title = "", note = "", activityType = ActivityType.WALKING)
+        SaveActivitySummaryUseCase(repository)(derived, title = "", note = "", activityType = ActivityType.HIKING)
+
+        assertThat(saved.map(Activity::isTypeChosenByUser)).isEqualTo(listOf(false, true))
+    }
+
+    private fun unusedTrackRepository(): TrackRepository = Proxy.newProxyInstance(
+        TrackRepository::class.java.classLoader,
+        arrayOf(TrackRepository::class.java),
+    ) { _, method, _ -> error("${method.name} is not expected here") } as TrackRepository
+
     private class FakeTrackingController : TrackingController {
         var startedWith: ActivityType? = null
         var pauseCalled = false
@@ -90,9 +117,13 @@ class TrackingUseCasesTest {
             cancelPreparationCalled = true
         }
 
-        override suspend fun start(activityType: ActivityType) {
+        override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
             startedWith = activityType
         }
+
+        override fun isAutoModeAvailable(): Boolean = true
+
+        override suspend fun changeSegmentKind(kind: SegmentKind) = Unit
 
         override fun pause() {
             pauseCalled = true

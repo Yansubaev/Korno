@@ -7,6 +7,8 @@ import com.ians.korno.feature.tracking.domain.repository.PendingSummaryNotifier
 import com.ians.korno.feature.tracking.domain.repository.TrackingController
 import com.ians.korno.feature.tracking.domain.usecase.DiscardActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.CancelTrackingPreparationUseCase
+import com.ians.korno.feature.tracking.domain.usecase.ChangeSegmentKindUseCase
+import com.ians.korno.feature.tracking.domain.usecase.IsAutoModeAvailableUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObservePendingSummaryActivitiesUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveSessionTrackUseCase
@@ -25,11 +27,13 @@ import org.koin.dsl.module
 
 val trackingDataModule = module {
     single { TrackingSessionCoordinator(get(), get(), get(), get(), get()) }
-    single { DefaultTrackingController(get(), get()) } bind TrackingController::class
+    single { DefaultTrackingController(get(), get(), get()) } bind TrackingController::class
     single { DefaultPendingSummaryNotifier(get(), get()) } bind PendingSummaryNotifier::class
 
     factoryOf(::ObserveTrackingSessionUseCase)
     factoryOf(::StartTrackingUseCase)
+    factoryOf(::IsAutoModeAvailableUseCase)
+    factoryOf(::ChangeSegmentKindUseCase)
     factoryOf(::PrepareTrackingUseCase)
     factoryOf(::CancelTrackingPreparationUseCase)
     factoryOf(::PauseTrackingUseCase)

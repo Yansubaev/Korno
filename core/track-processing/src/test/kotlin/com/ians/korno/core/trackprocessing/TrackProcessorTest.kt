@@ -7,9 +7,11 @@ import assertk.assertions.isFalse
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThan
 import assertk.assertions.isTrue
+import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.SegmentKind
 import org.junit.jupiter.api.Test
 
 /**
@@ -346,25 +348,6 @@ class TrackProcessorTest {
         assertThat(result.statistics.distanceMeters).isLessThan(25.0)
         assertThat(result.statistics.movingTimeMillis).isEqualTo(20_000L)
         assertThat(result.statistics.elapsedTimeMillis).isEqualTo(20_000L)
-    }
-
-    @Test
-    fun `manual correction removes selected points and marks retained points`() {
-        val correction = ManualCorrectionUseCase(processor)
-
-        val result = correction(
-            points = listOf(
-                point(id = 1L, latitude = 0.0, timestamp = 0L),
-                point(id = 2L, latitude = 1.0, timestamp = 5_000L),
-                point(id = 3L, latitude = 0.0001, timestamp = 10_000L),
-            ),
-            removedPointIds = setOf(2L),
-            activityType = ActivityType.WALKING,
-        )
-
-        assertThat(result.points.map(GeoPoint::id)).isEqualTo(listOf(1L, 3L))
-        assertThat(result.points.all(GeoPoint::isManuallyEdited)).isTrue()
-        assertThat(result.statistics.distanceMeters).isGreaterThan(10.0)
     }
 
     @Test
@@ -802,6 +785,134 @@ class TrackProcessorTest {
         assertThat(result.points.map(GeoPoint::id)).isEqualTo(listOf(1L, 2L, 3L))
     }
 
+    @Test
+    fun `each segment is processed with its own profile and the vehicle stays out of the speed`() {
+        // 100 с пешком на 1.4 м/с, затем 100 с автобусом на 15 м/с, фикс раз в 5 с.
+        val walk = (0..20).map { i -> point(id = i.toLong(), latitude = i * 0.000_063, timestamp = i * 5_000L) }
+        val bus = (1..20).map { i ->
+            point(id = 20L + i, latitude = 20 * 0.000_063 + i * 0.000_674, timestamp = 100_000L + i * 5_000L)
+        }
+        val segments = listOf(
+            ActivitySegment(kind = SegmentKind.ON_FOOT, startTimeEpochMillis = 0L, endTimeEpochMillis = 100_000L),
+            ActivitySegment(kind = SegmentKind.VEHICLE, startTimeEpochMillis = 100_000L, endTimeEpochMillis = 200_000L),
+        )
+        val profiles = mapOf(
+            SegmentKind.ON_FOOT to TrackProcessingConfig.forActivityType(ActivityType.WALKING),
+            SegmentKind.VEHICLE to TrackProcessingConfig.forActivityType(ActivityType.DRIVING),
+        )
+
+        val result = processor.processSegments(walk + bus, segments) { profiles.getValue(it) }
+        val walkingOnly = processor.processSegments(walk + bus, segments) { profiles.getValue(SegmentKind.ON_FOOT) }
+
+        // Пешие пороги выкинули бы автобус целиком: 15 м/с — выброс для пешехода.
+        assertThat(result.segments[1].distanceMeters).isGreaterThan(1_200.0)
+        assertThat(walkingOnly.segments[1].distanceMeters).isLessThan(1_000.0)
+        assertThat(result.statistics.distanceMeters).isGreaterThan(1_300.0)
+        // Средняя и максимальная — только по ходьбе.
+        assertThat(result.statistics.averageSpeedMetersPerSecond).isLessThan(3.0)
+        assertThat(result.statistics.maxSpeedMetersPerSecond).isLessThan(5.0)
+    }
+
+    @Test
+    fun `fix without doppler and bearing is rejected when the receiver reports motion`() {
+        // Сетевой фикс от GNSS-фикса отличается не погрешностью — тридцать метров бывают
+        // у обоих, — а тем, что о движении он не сообщает ничего.
+        val result = processor.process(
+            points = listOf(
+                point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 8f, speed = 1.2f, bearing = 90f),
+                point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 30f),
+                point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 8f, speed = 1.2f, bearing = 90f),
+            ),
+            activityType = ActivityType.WALKING,
+        )
+
+        assertThat(result.points.map(GeoPoint::isOutlier)).isEqualTo(listOf(false, true, false))
+    }
+
+    @Test
+    fun `fix without doppler and bearing survives when no point in the track has either`() {
+        // Импортированный GPX: ни скорости, ни курса нет ни у одной точки. Безусловное
+        // правило выкосило бы такой файл целиком, и импорт возвращал бы пустой трек.
+        val result = processor.process(
+            points = listOf(
+                point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 30f),
+                point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 30f),
+                point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 30f),
+            ),
+            activityType = ActivityType.WALKING,
+        )
+
+        assertThat(result.points.none(GeoPoint::isOutlier)).isTrue()
+    }
+
+    @Test
+    fun `precise fix without doppler and bearing is kept`() {
+        // Приёмник, отдающий точное положение без доплера, — не сетевой фикс:
+        // порог networkFixAccuracyMeters и стоит для того, чтобы его не задеть.
+        val result = processor.process(
+            points = listOf(
+                point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 8f, speed = 1.2f, bearing = 90f),
+                point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 5f),
+                point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 8f, speed = 1.2f, bearing = 90f),
+            ),
+            activityType = ActivityType.WALKING,
+        )
+
+        assertThat(result.points.none(GeoPoint::isOutlier)).isTrue()
+    }
+
+    @Test
+    fun `accuracy exactly at the threshold is rejected`() {
+        // Приёмник упирается в круглые значения, и в разобранном логе поездки самым
+        // частым была ровно сотня — при пороге ровно в сотню.
+        val config = TrackProcessingConfig(
+            maximumSpeedMetersPerSecond = 10.0,
+            maximumAccuracyMeters = 40.0,
+            processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION,
+        )
+        val result = processor.process(
+            points = listOf(
+                point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 8f, speed = 1.2f, bearing = 90f),
+                point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 40f, speed = 1.2f, bearing = 90f),
+                point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 8f, speed = 1.2f, bearing = 90f),
+            ),
+            activityType = ActivityType.WALKING,
+            config = config,
+        )
+
+        assertThat(result.points.map(GeoPoint::isOutlier)).isEqualTo(listOf(false, true, false))
+    }
+
+    @Test
+    fun `the edge crossing a segment boundary is counted exactly once`() {
+        // Транспортный участок, от которого после отбраковки сетевых фиксов остались
+        // только края: последняя его точка отстоит от первой пешей на 500 м. Без
+        // приставки этот отрезок не измерял бы никто, и поездка пропадала бы целиком.
+        val bus = listOf(
+            point(id = 1L, latitude = 0.0, timestamp = 0L, accuracy = 8f, speed = 12f, bearing = 0f),
+            point(id = 2L, latitude = 0.000_500, timestamp = 40_000L, accuracy = 8f, speed = 12f, bearing = 0f),
+        )
+        val walk = listOf(
+            point(id = 3L, latitude = 0.005_000, timestamp = 100_000L, accuracy = 8f, speed = 1.2f, bearing = 0f),
+            point(id = 4L, latitude = 0.005_063, timestamp = 105_000L, accuracy = 8f, speed = 1.2f, bearing = 0f),
+        )
+        val segments = listOf(
+            ActivitySegment(kind = SegmentKind.VEHICLE, startTimeEpochMillis = 0L, endTimeEpochMillis = 100_000L),
+            ActivitySegment(kind = SegmentKind.ON_FOOT, startTimeEpochMillis = 100_000L, endTimeEpochMillis = 105_000L),
+        )
+
+        val result = processor.processSegments(bus + walk, segments) { TrackProcessingConfig.forSegmentKind(it) }
+
+        // ~500 м через границу достаются транспортному участку — тому, во время
+        // которого перемещение и произошло.
+        assertThat(result.segments[0].distanceMeters).isGreaterThan(400.0)
+        // Сумма по участкам и есть общая дистанция: отрезок засчитан один раз.
+        assertThat(result.statistics.distanceMeters)
+            .isEqualTo(result.segments.sumOf(ActivitySegment::distanceMeters))
+        // Приставка осталась в своём участке и не продублировалась.
+        assertThat(result.points.map(GeoPoint::id)).isEqualTo(listOf(1L, 2L, 3L, 4L))
+    }
+
     private fun point(
         id: Long,
         latitude: Double,
@@ -811,6 +922,7 @@ class TrackProcessorTest {
         altitude: Double? = null,
         speed: Float? = null,
         speedAccuracy: Float? = null,
+        bearing: Float? = null,
         recordingStatus: RecordingStatus = RecordingStatus.RECORDING,
     ) = GeoPoint(
         id = id,
@@ -822,6 +934,7 @@ class TrackProcessorTest {
         accuracyMeters = accuracy,
         speedMetersPerSecond = speed,
         speedAccuracyMetersPerSecond = speedAccuracy,
+        bearingDegrees = bearing,
         recordingStatus = recordingStatus,
     )
 }

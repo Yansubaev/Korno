@@ -1,6 +1,7 @@
 package com.ians.korno.tools.trackcalibration
 
 import assertk.assertThat
+import assertk.assertions.containsExactly
 import assertk.assertions.isCloseTo
 import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
@@ -9,6 +10,8 @@ import assertk.assertions.isTrue
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.trackprocessing.DetectorSignal
+import com.ians.korno.core.domain.model.RecognizedActivity
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import org.junit.jupiter.api.Test
@@ -145,6 +148,26 @@ class LogTrackReaderTest {
 
         assertThat(activity.activityType).isNull()
         assertThat(activity.points.size).isEqualTo(1)
+    }
+
+    @Test
+    fun `detector signals are read from recognition, step and pause records`() {
+        val activity = readSingleActivity(
+            sessionStarted(),
+            """{"timestampUtc":"2025-09-05T06:00:10.000Z","message":"Activity recognized","activityId":"7",""" +
+                """"fields":{"detectedActivity":"ON_BICYCLE","confidencePercent":"72","alternatives":""}}""",
+            """{"message":"Step counter reading","activityId":"7","fields":""" +
+                """{"readingTimestamp":"1757052011000","stepCounter":"4200"}}""",
+            """{"timestampUtc":"2025-09-05T06:00:12.000Z","message":"Tracking paused manually","activityId":"7"}""",
+            """{"timestampUtc":"2025-09-05T06:00:13.000Z","message":"Tracking resumed manually","activityId":"7"}""",
+        )
+
+        assertThat(activity.detectorSignals).containsExactly(
+            DetectorSignal.Recognized(1_757_052_010_000L, RecognizedActivity.ON_BICYCLE, 72),
+            DetectorSignal.StepCounter(1_757_052_011_000L, 4_200L),
+            DetectorSignal.Paused(1_757_052_012_000L),
+            DetectorSignal.Resumed(1_757_052_013_000L),
+        )
     }
 
     private fun sessionStarted() =

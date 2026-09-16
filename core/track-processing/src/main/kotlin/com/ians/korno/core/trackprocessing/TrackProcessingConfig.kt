@@ -2,7 +2,9 @@ package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TRACK_GAP_THRESHOLD_MILLIS
+import com.ians.korno.core.domain.model.activityType
 import kotlin.math.max
 
 data class TrackProcessingConfig(
@@ -80,6 +82,16 @@ data class TrackProcessingConfig(
      */
     val positionNoiseFloorMeters: Double = 3.0,
     /**
+     * Погрешность, начиная с которой фикс без доплеровской скорости и без курса считается
+     * посчитанным не по спутникам (см. [OutlierFilterUseCase]).
+     *
+     * Порог нужен не чтобы отсеять неточное — для этого есть [maximumAccuracyMeters], — а
+     * чтобы не задеть приёмник, который отдаёт точное положение, но молчит про движение.
+     * Пятнадцать метров: в разобранных логах у пеших участков с настоящим GNSS погрешность
+     * держалась в пределах 6–13 м, а у сетевых фиксов в автобусе начиналась от шестидесяти.
+     */
+    val networkFixAccuracyMeters: Double = 15.0,
+    /**
      * Чем считать погрешность доплеровской скорости, когда провайдер её не сообщил.
      *
      * Намеренно большая. Приёмник, который сообщает скорость вместе с её точностью, обычно
@@ -110,6 +122,7 @@ data class TrackProcessingConfig(
         require(outlierGateChiSquare > 0.0)
         require(maximumConsecutiveGateRejections > 0)
         require(positionNoiseFloorMeters >= 0.0)
+        require(networkFixAccuracyMeters >= 0.0)
         require(defaultSpeedAccuracyMetersPerSecond > 0.0)
         require(defaultBearingAccuracyDegrees > 0.0)
         require(stopWindowMillis >= minimumStopDurationMillis)
@@ -121,6 +134,41 @@ data class TrackProcessingConfig(
     }
 
     companion object {
+        /**
+         * Профиль порогов для сегмента смешанной записи (см. [profileActivityType]).
+         *
+         * Транспорт стоит отдельно от [ActivityType.DRIVING], хотя вид у них один.
+         * «Вождение» пользователь выбирает сам, и это обычно шоссе; вид `VEHICLE` детектор
+         * ставит и городскому автобусу, который половину пути стоит в пробке и на
+         * остановках. Шоссейные пороги — семьдесят метров в секунду и сотня метров
+         * погрешности — для него означают, что в трек проходит почти всё подряд.
+         */
+        fun forSegmentKind(kind: SegmentKind): TrackProcessingConfig = when (kind) {
+            SegmentKind.VEHICLE -> TRANSIT
+            else -> forActivityType(kind.profileActivityType)
+        }
+
+        /**
+         * Наземный транспорт, определённый датчиками: автобус, трамвай, попутная машина.
+         *
+         * Потолок скорости — тридцать метров в секунду (108 км/ч): он нужен не чтобы
+         * ограничить транспорт, а чтобы грубая проверка перемещения вообще что-то ловила.
+         * При семидесяти она разрешала прыжок в четыреста метров за шаг опроса.
+         *
+         * ponytail: `processNoiseAccelerationMetersPerSecondSquared` подобран на глаз от
+         * велосипедного, перебором по записям не проверен — шаг опроса в транспорте
+         * только что изменился с пяти секунд до двух (см. `LocationUpdatePolicy`), и
+         * прежние записи для калибровки уже не годятся. Прогнать `:tools:track-calibration`
+         * по новой поездке.
+         */
+        private val TRANSIT = TrackProcessingConfig(
+            maximumSpeedMetersPerSecond = 30.0,
+            maximumAccuracyMeters = 60.0,
+            processNoiseAccelerationMetersPerSecondSquared = 0.8,
+            stopSpeedMetersPerSecond = 0.8,
+            resumeSpeedMetersPerSecond = 2.0,
+        )
+
         fun forActivityType(activityType: ActivityType): TrackProcessingConfig = when (activityType) {
             // Порог остановки для пешехода долго стоял на 0.25 м/с — это 0.9 км/ч,
             // ниже шумового пола GPS на любой реальной погрешности, и автопауза
@@ -209,3 +257,13 @@ fun TrackProcessingConfig.withAutoPauseSensitivity(
         ),
     )
 }
+
+/**
+ * Тип активности, чьи пороги трека действуют для вида. Пока вид не определён, действует
+ * самый терпимый — шоссейный: пешие пороги выкинули бы все точки автобуса.
+ *
+ * Вид [SegmentKind.VEHICLE] сюда не попадает: у него профиль свой, минуя тип активности
+ * (см. [TrackProcessingConfig.forSegmentKind]).
+ */
+val SegmentKind.profileActivityType: ActivityType
+    get() = if (this == SegmentKind.UNKNOWN) ActivityType.DRIVING else activityType

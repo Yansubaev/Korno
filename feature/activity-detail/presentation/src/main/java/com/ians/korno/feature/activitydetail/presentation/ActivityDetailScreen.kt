@@ -255,6 +255,7 @@ private fun ActivityDetailContent(
                     LensLegend(
                         lens = state.lens,
                         insights = insights,
+                        kinds = state.kindBreakdown.map { it.kind },
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
@@ -272,6 +273,8 @@ private fun ActivityDetailContent(
 
                 SummaryGrid(state = state)
 
+                KindBreakdownSection(breakdown = state.kindBreakdown)
+
                 state.insights?.let { insights ->
                     InsightsSections(
                         state = state,
@@ -279,6 +282,12 @@ private fun ActivityDetailContent(
                         onAction = onAction,
                     )
                 }
+
+                SegmentsSection(
+                    segments = state.segments,
+                    isRecalculating = state.isRecalculating,
+                    onAction = onAction,
+                )
 
                 OutlinedButton(
                     onClick = onEditTrack,
@@ -294,6 +303,12 @@ private fun ActivityDetailContent(
 
     if (state.formatChoice != null) {
         TrackFileFormatDialog(intent = state.formatChoice, onAction = onAction)
+    }
+
+    state.segmentKindChoice?.let { index ->
+        state.segments.getOrNull(index)?.let { segment ->
+            SegmentKindDialog(currentKind = segment.kind, onAction = onAction)
+        }
     }
 
     if (state.deleteDialogOpen) {
@@ -319,21 +334,25 @@ private fun ActivityDetailContent(
 @Composable
 private fun SummaryGrid(state: ActivityDetailState, modifier: Modifier = Modifier) {
     val isPace = state.speedDisplay == SpeedDisplay.PACE
+    val steps = state.stepsText
+    // Строка 1 — дистанция, строка 2 — скорость/темп, строка 3 — время.
+    // У типов со счётчиком шагов дистанция группируется с шагами (обе — про пройденный путь),
+    // а высота уходит в бонусную строку; у остальных дистанция и высота — одна группа.
     val stats = listOfNotNull(
         stringResource(R.string.activity_detail_distance) to state.distanceText,
-        stringResource(R.string.activity_detail_duration) to state.durationText,
-        stringResource(R.string.activity_detail_moving) to state.movingText,
+        if (steps != null) stringResource(R.string.activity_detail_steps) to steps else stringResource(R.string.activity_detail_elevation) to state.elevationText,
         stringResource(
             if (isPace) R.string.activity_detail_avg_pace else R.string.activity_detail_avg_speed,
         ) to state.avgSpeedText,
         stringResource(
             if (isPace) R.string.activity_detail_best_pace else R.string.activity_detail_max_speed,
         ) to state.maxSpeedText,
-        stringResource(R.string.activity_detail_elevation) to state.elevationText,
-        state.stepsText?.let { stringResource(R.string.activity_detail_steps) to it },
+        stringResource(R.string.activity_detail_duration) to state.durationText,
+        stringResource(R.string.activity_detail_moving) to state.movingText,
+        if (steps != null) stringResource(R.string.activity_detail_elevation) to state.elevationText else null,
     )
     Column(modifier = modifier.padding(top = 20.dp)) {
-        stats.chunked(3).forEach { row ->
+        stats.chunked(2).forEach { row ->
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                 row.forEach { (label, value) ->
                     Column(modifier = Modifier.weight(1f)) {

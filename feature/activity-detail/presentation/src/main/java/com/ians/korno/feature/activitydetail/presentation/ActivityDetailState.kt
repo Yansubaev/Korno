@@ -1,6 +1,7 @@
 package com.ians.korno.feature.activitydetail.presentation
 
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.logging.ActivityLogInfo
 import com.ians.korno.core.map.MapPoint
 
@@ -18,6 +19,15 @@ internal data class ActivityDetailState(
     /** `null` — тип активности шаги не считает. */
     val stepsText: String? = null,
     val routePoints: List<MapPoint> = emptyList(),
+    /** Вид каждой точки [routePoints] — для линзы «Виды». Пусто, если вид в записи один. */
+    val routeKinds: List<SegmentKind> = emptyList(),
+    /** Разбивка по видам; пусто, если вид в записи один. */
+    val kindBreakdown: List<KindSummaryUi> = emptyList(),
+    /** Участки авторежима; в фиксированном режиме пусто. */
+    val segments: List<SegmentUi> = emptyList(),
+    /** Индекс участка, для которого открыт выбор вида; `null` — закрыт. */
+    val segmentKindChoice: Int? = null,
+    val isRecalculating: Boolean = false,
     /**
      * Всё, что посчитано по треку: линзы, графики, сплиты и остановки.
      * `null` — данных для анализа не хватило, и разделы аналитики скрыты целиком.

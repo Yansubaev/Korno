@@ -2,6 +2,7 @@ package com.ians.korno.feature.activitydetail.presentation
 
 import androidx.compose.runtime.Immutable
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapDistanceMarker
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.MapStopMarker
@@ -10,7 +11,7 @@ import com.ians.korno.core.map.MapStopMarker
  * Режим показа маршрута. Один и тот же трек, разные вопросы к нему: где шёл, где быстро,
  * где высоко, где стоял.
  */
-internal enum class MapLens { ROUTE, SPEED, ELEVATION, STOPS }
+internal enum class MapLens { KINDS, ROUTE, SPEED, ELEVATION, STOPS }
 
 /**
  * Чем измерять движение.
@@ -121,6 +122,31 @@ internal data class TrackSelectionUi(
     val timeText: String,
     val speedText: String?,
     val elevationText: String?,
+)
+
+internal val SegmentKind.speedDisplay: SpeedDisplay
+    get() = if (this == SegmentKind.ON_FOOT || this == SegmentKind.RUNNING) SpeedDisplay.PACE else SpeedDisplay.SPEED
+
+/** Строка разбивки по видам: сколько, как долго и как быстро на этом виде. */
+@Immutable
+internal data class KindSummaryUi(
+    val kind: SegmentKind,
+    val distanceText: String,
+    val movingText: String,
+    /** Темп для пеших видов, скорость для колёс. */
+    val movementText: String,
+    /** Только у пеших видов: шаги на велосипеде хранятся, но не показываются. */
+    val stepsText: String?,
+)
+
+/** Участок записи в списке сегментов. */
+@Immutable
+internal data class SegmentUi(
+    val index: Int,
+    val kind: SegmentKind,
+    val timeRangeText: String,
+    val distanceText: String,
+    val isManuallyEdited: Boolean,
 )
 
 /** Всё, что посчитано по треку и уже переведено в текст и доли. */

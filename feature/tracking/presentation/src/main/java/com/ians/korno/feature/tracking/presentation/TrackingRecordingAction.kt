@@ -1,5 +1,7 @@
 package com.ians.korno.feature.tracking.presentation
 
+import com.ians.korno.core.domain.model.SegmentKind
+
 internal sealed interface TrackingRecordingAction {
     data object PauseClicked : TrackingRecordingAction
 
@@ -10,6 +12,11 @@ internal sealed interface TrackingRecordingAction {
 
     /** Шторку дотащили до ближайшей позиции. */
     data class MapSheetModeChanged(val mode: MapSheetMode) : TrackingRecordingAction
+
+    data object ToggleSegmentMenu : TrackingRecordingAction
+
+    /** Ручная поправка вида текущего сегмента. */
+    data class ChangeSegmentKind(val kind: SegmentKind) : TrackingRecordingAction
 
     data object RequestFinish : TrackingRecordingAction
 

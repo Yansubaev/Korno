@@ -142,16 +142,13 @@ internal class TrackingSummaryViewModel(
     }
 
     private fun Activity.toStats(measurementSystem: MeasurementSystem): TrackingSummaryState {
-        val averageMetersPerSecond = if (movingTimeMillis > 0) {
-            distanceMeters / (movingTimeMillis / 1000.0)
-        } else {
-            0.0
-        }
         return TrackingSummaryState(
             distanceText = context.formatDistance(distanceMeters, measurementSystem).text,
             durationText = formatDuration(elapsedTimeMillis),
             paceText = if (movingTimeMillis > 0) {
-                context.formatSpeed(averageMetersPerSecond, measurementSystem).text
+                // Сохранённая средняя, а не дистанция на время: в авторежиме транспорт в неё
+                // не входит, хотя в дистанции есть.
+                context.formatSpeed(averageSpeedMetersPerSecond, measurementSystem).text
             } else {
                 "—"
             },

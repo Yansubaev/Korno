@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.MeasurementSystem
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.isTrackGap
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
+import com.ians.korno.feature.tracking.domain.usecase.ChangeSegmentKindUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveSessionTrackUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackingSessionUseCase
 import com.ians.korno.feature.tracking.domain.usecase.PauseTrackingUseCase
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val TICK_INTERVAL_MILLIS = 1_000L
 
@@ -31,6 +34,7 @@ private data class LocalUi(
     val mapSheetMode: MapSheetMode = MapSheetMode.SPLIT,
     val finishDialogOpen: Boolean = false,
     val finishedActivityId: Long? = null,
+    val segmentMenuOpen: Boolean = false,
 )
 
 internal class TrackingRecordingViewModel(
@@ -40,6 +44,7 @@ internal class TrackingRecordingViewModel(
     private val resumeTracking: ResumeTrackingUseCase,
     private val stopTracking: StopTrackingUseCase,
     preferencesRepository: UserPreferencesRepository,
+    private val changeSegmentKind: ChangeSegmentKindUseCase,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(LocalUi())
@@ -47,20 +52,26 @@ internal class TrackingRecordingViewModel(
     private val ticker = flow {
         while (true) {
             emit(Unit)
-            delay(TICK_INTERVAL_MILLIS)
+            delay(TICK_INTERVAL_MILLIS.milliseconds)
         }
     }
 
     // Маппинг живёт здесь, а не в toUiState: иначе список пересобирался бы
     // на каждый тик таймера, а не только при появлении новых точек.
     private val routePoints = observeSessionTrack().map { points ->
-        points.mapIndexed { index, point ->
-            MapPoint(
-                latitude = point.latitude,
-                longitude = point.longitude,
-                isPaused = point.isStop || point.recordingStatus.isPause,
-                isGap = index > 0 && isTrackGap(points[index - 1], point),
-            )
+        // Выбросы в линию не идут: их координаты фильтр не правил, и нарисованные
+        // сплошной линией они и есть тот самый зигзаг. Разрыв, который остаётся на их
+        // месте, рисуется пунктиром — но только если считать его по тому же списку,
+        // из которого они уже выкинуты.
+        points.filterNot { it.isOutlier }.let { valid ->
+            valid.mapIndexed { index, point ->
+                MapPoint(
+                    latitude = point.latitude,
+                    longitude = point.longitude,
+                    isPaused = point.isStop || point.recordingStatus.isPause,
+                    isGap = index > 0 && isTrackGap(valid[index - 1], point),
+                )
+            }
         }
     }
 
@@ -85,6 +96,11 @@ internal class TrackingRecordingViewModel(
             TrackingRecordingAction.ResumeClicked -> resumeTracking()
             TrackingRecordingAction.CycleMapSheetMode -> local.update { it.copy(mapSheetMode = it.mapSheetMode.next()) }
             is TrackingRecordingAction.MapSheetModeChanged -> local.update { it.copy(mapSheetMode = action.mode) }
+            TrackingRecordingAction.ToggleSegmentMenu -> local.update { it.copy(segmentMenuOpen = !it.segmentMenuOpen) }
+            is TrackingRecordingAction.ChangeSegmentKind -> {
+                local.update { it.copy(segmentMenuOpen = false) }
+                viewModelScope.launch { changeSegmentKind(action.kind) }
+            }
             TrackingRecordingAction.RequestFinish -> local.update { it.copy(finishDialogOpen = true) }
             TrackingRecordingAction.CancelFinish -> local.update { it.copy(finishDialogOpen = false) }
             TrackingRecordingAction.ConfirmFinish -> viewModelScope.launch {
@@ -107,6 +123,12 @@ internal class TrackingRecordingViewModel(
         return TrackingRecordingState(
             recordingStatus = status,
             activityType = activityType,
+            segmentKind = segmentKind,
+            segmentDistances = segmentDistancesMeters
+                .filterKeys { it != SegmentKind.UNKNOWN }
+                .toSortedMap()
+                .map { (kind, meters) -> kind to meters / if (isMetric) 1_000.0 else 1_609.344 },
+            segmentMenuOpen = localUi.segmentMenuOpen,
             elapsedTimeMillis = elapsedMillisAt(now),
             movingTimeMillis = movingTimeMillis,
             distanceValue = distanceMeters / if (isMetric) 1_000.0 else 1_609.344,

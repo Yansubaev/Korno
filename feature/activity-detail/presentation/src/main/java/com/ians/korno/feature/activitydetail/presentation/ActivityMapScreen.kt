@@ -111,6 +111,7 @@ internal fun ActivityMapScreen(
                 LensLegend(
                     lens = state.lens,
                     insights = insights,
+                    kinds = state.kindBreakdown.map { it.kind },
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }

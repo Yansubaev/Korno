@@ -6,6 +6,8 @@ import androidx.core.content.ContextCompat
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.data.locationtracking.diagnostics.ActivityRecognitionSignalSource
 import com.ians.korno.feature.tracking.data.service.LocationTrackingService
 import com.ians.korno.feature.tracking.data.session.TrackingSessionCoordinator
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 internal class DefaultTrackingController(
     private val context: Context,
     private val coordinator: TrackingSessionCoordinator,
+    private val activityRecognition: ActivityRecognitionSignalSource,
 ) : TrackingController {
 
     override fun observeSession(): Flow<RecordingSession> = coordinator.session
@@ -27,12 +30,17 @@ internal class DefaultTrackingController(
         sendServiceAction(LocationTrackingService.ACTION_CANCEL_PREPARATION)
     }
 
-    override suspend fun start(activityType: ActivityType) {
-        val activityId = coordinator.beginSession(activityType)
+    override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
+        // Разрешение могли отозвать между выбором и стартом: без распознавания авторежим слеп.
+        val activityId = coordinator.beginSession(activityType, autoMode && activityRecognition.isAvailable())
         if (activityId != null) {
             startServiceForeground(LocationTrackingService.ACTION_START)
         }
     }
+
+    override fun isAutoModeAvailable(): Boolean = activityRecognition.isAvailable()
+
+    override suspend fun changeSegmentKind(kind: SegmentKind) = coordinator.changeSegmentKind(kind)
 
     override fun pause() {
         sendServiceAction(LocationTrackingService.ACTION_PAUSE)

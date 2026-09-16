@@ -17,4 +17,9 @@
 
     <string name="date_label_today">Сегодня</string>
     <string name="date_label_yesterday">Вчера</string>
+    <string name="segment_kind_on_foot">Пешком</string>
+    <string name="segment_kind_running">Бег</string>
+    <string name="segment_kind_cycling">Велосипед</string>
+    <string name="segment_kind_vehicle">Транспорт</string>
+    <string name="segment_kind_unknown">Определяем…</string>
 </resources>
