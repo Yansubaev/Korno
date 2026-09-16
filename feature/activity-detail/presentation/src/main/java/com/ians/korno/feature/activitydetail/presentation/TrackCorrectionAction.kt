@@ -5,6 +5,10 @@ internal sealed interface TrackCorrectionAction {
 
     data object DeleteSelected : TrackCorrectionAction
 
+    data class SetMode(val mode: TrackCorrectionMode) : TrackCorrectionAction
+
+    data class TrimRange(val startIndex: Int, val endIndex: Int) : TrackCorrectionAction
+
     data object Undo : TrackCorrectionAction
 
     data object Reset : TrackCorrectionAction

@@ -10,9 +10,12 @@ internal data class CorrectionPointUi(
     val selected: Boolean,
 )
 
+internal enum class TrackCorrectionMode { DELETE_POINTS, TRIM }
+
 internal data class TrackCorrectionState(
     val isLoading: Boolean = true,
     val points: List<CorrectionPointUi> = emptyList(),
+    val mode: TrackCorrectionMode = TrackCorrectionMode.DELETE_POINTS,
     val originalDistanceText: String = "",
     val currentDistanceText: String = "",
     val removedCount: Int = 0,

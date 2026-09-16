@@ -83,6 +83,10 @@
     <string name="activity_detail_delete_dialog_confirm">Удалить</string>
 
     <string name="track_correction_title">Изменить трек</string>
+    <string name="track_correction_mode_delete">Удаление точек</string>
+    <string name="track_correction_mode_trim">Обрезка</string>
+    <string name="track_correction_trim_hint">Потяните за края, чтобы обрезать начало или конец трека</string>
+    <string name="track_correction_trim_unavailable">Недостаточно точек для обрезки</string>
     <string name="track_correction_legend_point">Точка трека</string>
     <string name="track_correction_legend_outlier">Помечена (возможная ошибка GPS)</string>
     <string name="track_correction_delete_point">Удалить точку</string>

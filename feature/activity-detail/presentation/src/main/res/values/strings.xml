@@ -81,6 +81,10 @@
     <string name="activity_detail_delete_dialog_confirm">Delete</string>
 
     <string name="track_correction_title">Edit track</string>
+    <string name="track_correction_mode_delete">Delete points</string>
+    <string name="track_correction_mode_trim">Trim</string>
+    <string name="track_correction_trim_hint">Drag the ends to trim the start or end of the track</string>
+    <string name="track_correction_trim_unavailable">Not enough points left to trim</string>
     <string name="track_correction_legend_point">Track point</string>
     <string name="track_correction_legend_outlier">Flagged (possible GPS error)</string>
     <string name="track_correction_delete_point">Delete point</string>

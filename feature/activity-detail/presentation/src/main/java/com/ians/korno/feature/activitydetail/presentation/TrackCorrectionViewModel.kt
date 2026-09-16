@@ -50,6 +50,7 @@ internal class TrackCorrectionViewModel(
     private val working = MutableStateFlow<List<WorkingPoint>>(emptyList())
     private val history = MutableStateFlow<List<List<WorkingPoint>>>(emptyList())
     private val selectedId = MutableStateFlow<Long?>(null)
+    private val mode = MutableStateFlow(TrackCorrectionMode.DELETE_POINTS)
     private val saved = MutableStateFlow(false)
     private val saving = MutableStateFlow(false)
 
@@ -58,14 +59,16 @@ internal class TrackCorrectionViewModel(
         preferencesRepository.observePreferences(),
     ) { points, preferences -> points to preferences.measurementSystem }
 
+    private val selectionAndMode = combine(selectedId, mode) { selected, currentMode -> selected to currentMode }
+
     val state: StateFlow<TrackCorrectionState> = combine(
         workingAndMeasurementSystem,
         history,
-        selectedId,
+        selectionAndMode,
         saved,
         saving,
-    ) { (points, measurementSystem), hist, selected, isSaved, isSaving ->
-        buildState(points, hist, selected, isSaved, isSaving, measurementSystem)
+    ) { (points, measurementSystem), hist, (selected, currentMode), isSaved, isSaving ->
+        buildState(points, hist, selected, currentMode, isSaved, isSaving, measurementSystem)
     }
         .stateIn(
             scope = viewModelScope,
@@ -106,6 +109,20 @@ internal class TrackCorrectionViewModel(
                 }
                 selectedId.update { null }
             }
+            is TrackCorrectionAction.SetMode -> {
+                mode.update { action.mode }
+                selectedId.update { null }
+            }
+            is TrackCorrectionAction.TrimRange -> {
+                val active = working.value.filter { !it.deleted }
+                if (action.startIndex <= 0 && action.endIndex >= active.lastIndex) return
+                val idsToTrim = (active.take(action.startIndex) + active.takeLast(active.size - 1 - action.endIndex))
+                    .map { it.point.id }.toSet()
+                if (idsToTrim.isEmpty()) return
+                history.update { it + listOf(working.value) }
+                working.update { list -> list.map { if (it.point.id in idsToTrim) it.copy(deleted = true) else it } }
+                selectedId.update { null }
+            }
             TrackCorrectionAction.Undo -> {
                 val previous = history.value.lastOrNull() ?: return
                 working.value = previous
@@ -138,6 +155,7 @@ internal class TrackCorrectionViewModel(
         points: List<WorkingPoint>,
         hist: List<List<WorkingPoint>>,
         selected: Long?,
+        currentMode: TrackCorrectionMode,
         isSaved: Boolean,
         isSaving: Boolean,
         measurementSystem: MeasurementSystem,
@@ -153,6 +171,7 @@ internal class TrackCorrectionViewModel(
         } ?: 0.0
         return TrackCorrectionState(
             isLoading = !loaded,
+            mode = currentMode,
             points = points.map { point ->
                 CorrectionPointUi(
                     id = point.point.id,

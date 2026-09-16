@@ -18,9 +18,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -30,7 +32,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +46,7 @@ import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.map.EditableMapPoint
 import com.ians.korno.core.map.EditableTrackMap
 import com.ians.korno.core.map.MapPoint
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -98,8 +103,20 @@ private fun TrackCorrectionContent(
 
         // Карта вынесена из прокручиваемой части: она сама обрабатывает жесты
         // (панорамирование, зум и тап по точке).
-        val activePoints = remember(state.points) {
-            state.points.filterNot { it.deleted }.map { point ->
+        val activeOrdered = remember(state.points) { state.points.filterNot { it.deleted } }
+        var pendingRange by remember(activeOrdered.size) {
+            mutableStateOf(0f..(activeOrdered.size - 1).coerceAtLeast(0).toFloat())
+        }
+        val mapPoints = remember(activeOrdered, state.mode, pendingRange) {
+            val visible = if (state.mode == TrackCorrectionMode.TRIM && activeOrdered.isNotEmpty()) {
+                val lastIndex = activeOrdered.lastIndex
+                val lo = pendingRange.start.roundToInt().coerceIn(0, lastIndex)
+                val hi = pendingRange.endInclusive.roundToInt().coerceIn(lo, lastIndex)
+                activeOrdered.subList(lo, hi + 1)
+            } else {
+                activeOrdered
+            }
+            visible.map { point ->
                 EditableMapPoint(
                     id = point.id,
                     point = point.point,
@@ -117,7 +134,7 @@ private fun TrackCorrectionContent(
                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
         ) {
             EditableTrackMap(
-                points = activePoints,
+                points = mapPoints,
                 onPointClick = { id -> onAction(TrackCorrectionAction.SelectPoint(id)) },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -128,25 +145,79 @@ private fun TrackCorrectionContent(
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp, 0.dp, 20.dp, 20.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(top = 16.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                LegendDot(color = MaterialTheme.colorScheme.primary, label = stringResource(R.string.track_correction_legend_point))
-                LegendDot(color = MaterialTheme.colorScheme.error, label = stringResource(R.string.track_correction_legend_outlier))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 16.dp)) {
+                FilterChip(
+                    selected = state.mode == TrackCorrectionMode.DELETE_POINTS,
+                    onClick = { onAction(TrackCorrectionAction.SetMode(TrackCorrectionMode.DELETE_POINTS)) },
+                    label = { Text(stringResource(R.string.track_correction_mode_delete)) },
+                )
+                FilterChip(
+                    selected = state.mode == TrackCorrectionMode.TRIM,
+                    onClick = { onAction(TrackCorrectionAction.SetMode(TrackCorrectionMode.TRIM)) },
+                    label = { Text(stringResource(R.string.track_correction_mode_trim)) },
+                )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 20.dp)) {
-                OutlinedActionButton(
-                    text = stringResource(R.string.track_correction_delete_point),
-                    enabled = state.hasSelection,
-                    onClick = { onAction(TrackCorrectionAction.DeleteSelected) },
-                )
-                TextButton(onClick = { onAction(TrackCorrectionAction.Undo) }, enabled = state.canUndo) {
-                    Text(stringResource(R.string.track_correction_undo))
+            if (state.mode == TrackCorrectionMode.DELETE_POINTS) {
+                Row(
+                    modifier = Modifier.padding(top = 16.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    LegendDot(color = MaterialTheme.colorScheme.primary, label = stringResource(R.string.track_correction_legend_point))
+                    LegendDot(color = MaterialTheme.colorScheme.error, label = stringResource(R.string.track_correction_legend_outlier))
                 }
-                TextButton(onClick = { onAction(TrackCorrectionAction.Reset) }) {
-                    Text(stringResource(R.string.track_correction_reset))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 20.dp)) {
+                    OutlinedActionButton(
+                        text = stringResource(R.string.track_correction_delete_point),
+                        enabled = state.hasSelection,
+                        onClick = { onAction(TrackCorrectionAction.DeleteSelected) },
+                    )
+                    TextButton(onClick = { onAction(TrackCorrectionAction.Undo) }, enabled = state.canUndo) {
+                        Text(stringResource(R.string.track_correction_undo))
+                    }
+                    TextButton(onClick = { onAction(TrackCorrectionAction.Reset) }) {
+                        Text(stringResource(R.string.track_correction_reset))
+                    }
+                }
+            } else {
+                if (activeOrdered.size >= 2) {
+                    Text(
+                        text = stringResource(R.string.track_correction_trim_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    RangeSlider(
+                        value = pendingRange,
+                        onValueChange = { pendingRange = it },
+                        onValueChangeFinished = {
+                            onAction(
+                                TrackCorrectionAction.TrimRange(
+                                    startIndex = pendingRange.start.roundToInt(),
+                                    endIndex = pendingRange.endInclusive.roundToInt(),
+                                ),
+                            )
+                        },
+                        valueRange = 0f..(activeOrdered.size - 1).toFloat(),
+                        steps = (activeOrdered.size - 2).coerceAtLeast(0),
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.track_correction_trim_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 16.dp, bottom = 20.dp)) {
+                    TextButton(onClick = { onAction(TrackCorrectionAction.Undo) }, enabled = state.canUndo) {
+                        Text(stringResource(R.string.track_correction_undo))
+                    }
+                    TextButton(onClick = { onAction(TrackCorrectionAction.Reset) }) {
+                        Text(stringResource(R.string.track_correction_reset))
+                    }
                 }
             }
 
@@ -211,6 +282,30 @@ private fun TrackCorrectionContentPreview() {
                 originalDistanceText = "5.18 km",
                 currentDistanceText = "5.10 km",
                 removedCount = 1,
+            ),
+            onAction = {},
+            onBack = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun TrackCorrectionTrimPreview() {
+    KornoTheme {
+        TrackCorrectionContent(
+            state = TrackCorrectionState(
+                isLoading = false,
+                mode = TrackCorrectionMode.TRIM,
+                points = listOf(
+                    CorrectionPointUi(1L, MapPoint(55.7512, 37.6175), false, false, false),
+                    CorrectionPointUi(2L, MapPoint(55.7534, 37.6212), false, false, false),
+                    CorrectionPointUi(3L, MapPoint(55.7560, 37.6198), false, false, false),
+                    CorrectionPointUi(4L, MapPoint(55.7578, 37.6240), false, false, false),
+                ),
+                originalDistanceText = "5.18 km",
+                currentDistanceText = "5.18 km",
+                removedCount = 0,
             ),
             onAction = {},
             onBack = {},
