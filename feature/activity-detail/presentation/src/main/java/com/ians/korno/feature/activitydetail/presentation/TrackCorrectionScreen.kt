@@ -133,7 +133,7 @@ private fun TrackCorrectionContent(
         var containerHeightPx by remember { mutableFloatStateOf(0f) }
         val anchors = remember(containerHeightPx, density) { correctionSheetAnchors(containerHeightPx, density) }
         val sheetHeight = remember { Animatable(0f) }
-        var sheetMode by remember { mutableStateOf(SheetMode.PEEK) }
+        var sheetMode by remember { mutableStateOf(SheetMode.SPLIT) }
         val scope = rememberCoroutineScope()
 
         // Перетаскивание само доводит шторку до ближайшей позиции, поэтому эффект
