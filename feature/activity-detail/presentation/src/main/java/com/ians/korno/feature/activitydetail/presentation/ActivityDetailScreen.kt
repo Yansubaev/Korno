@@ -5,13 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +26,6 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -51,13 +44,13 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -212,11 +205,14 @@ private fun ActivityDetailContent(
         var containerHeightPx by remember { mutableFloatStateOf(0f) }
         val anchors = remember(containerHeightPx, density) { sheetAnchors(containerHeightPx, density) }
         val sheetHeight = remember { Animatable(0f) }
+        var sheetMode by remember { mutableStateOf(DetailSheetMode.PEEK) }
         val scope = rememberCoroutineScope()
 
-        LaunchedEffect(anchors) {
-            val target = anchors?.peek ?: return@LaunchedEffect
-            if (sheetHeight.value == 0f) sheetHeight.snapTo(target)
+        // Перетаскивание само доводит шторку до ближайшей позиции, поэтому эффект
+        // нужен только для первого кадра и для смены режима извне (см. onToggle).
+        LaunchedEffect(anchors, sheetMode) {
+            val target = anchors?.heightFor(sheetMode) ?: return@LaunchedEffect
+            if (sheetHeight.value == 0f) sheetHeight.snapTo(target) else sheetHeight.animateTo(target, SHEET_ANIMATION)
         }
 
         Box(
@@ -233,11 +229,10 @@ private fun ActivityDetailContent(
                 overlay = overlay,
                 modifier = Modifier.fillMaxSize(),
                 interactive = true,
-                // Не живая высота шторки, а высота peek: когда шторка развёрнута, карта
-                // всё равно почти не видна, и подгонять камеру под неё незачем — только
-                // лишний перелёт при следующем сворачивании (тот же приём, что в
-                // TrackingRecordingScreen.MapWithSheet).
-                bottomInset = PEEK_SHEET_HEIGHT,
+                // Отступ зависит от режима шторки, а не от её живой высоты: трек
+                // остаётся по центру видимой части карты в каждом из трёх положений
+                // (тот же приём, что в TrackingRecordingScreen.MapWithSheet).
+                bottomInset = with(density) { (anchors?.cameraInsetFor(sheetMode) ?: 0f).toDp() },
             )
             Row(
                 modifier = Modifier
@@ -258,19 +253,22 @@ private fun ActivityDetailContent(
                     onAction = onAction,
                     onEditTrack = onEditTrack,
                     heightPx = sheetHeight.value,
-                    anchors = anchors,
                     onDrag = { delta ->
                         scope.launch {
                             sheetHeight.snapTo((sheetHeight.value - delta).coerceIn(anchors.peek, anchors.expanded))
                         }
                     },
                     onDragStopped = {
-                        val nearest = anchors.nearestHeight(sheetHeight.value)
-                        scope.launch { sheetHeight.animateTo(nearest, SHEET_ANIMATION) }
+                        val nearest = anchors.nearestMode(sheetHeight.value)
+                        scope.launch { sheetHeight.animateTo(anchors.heightFor(nearest), SHEET_ANIMATION) }
+                        sheetMode = nearest
                     },
                     onToggle = {
-                        val target = if (sheetHeight.value <= anchors.peek) anchors.expanded else anchors.peek
-                        scope.launch { sheetHeight.animateTo(target, SHEET_ANIMATION) }
+                        sheetMode = when (sheetMode) {
+                            DetailSheetMode.PEEK -> DetailSheetMode.SPLIT
+                            DetailSheetMode.SPLIT -> DetailSheetMode.EXPANDED
+                            DetailSheetMode.EXPANDED -> DetailSheetMode.PEEK
+                        }
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
@@ -309,9 +307,8 @@ private fun ActivityDetailContent(
 
 /**
  * Статистика поверх карты: свёрнута — только ручка и компактная строка сводки,
- * развёрнута — весь набор ниже, со своим скроллом. По мотивам
- * `TrackingRecordingScreen.MapWithSheet`/`RecordingSheet`, но с двумя опорными
- * точками вместо трёх — контент не переливается по размерам, а просто скроллится.
+ * наполовину — видны и карта, и часть статистики, развёрнута — весь набор со
+ * своим скроллом. По мотивам `TrackingRecordingScreen.MapWithSheet`/`RecordingSheet`.
  */
 @Composable
 private fun StatsSheet(
@@ -319,40 +316,19 @@ private fun StatsSheet(
     onAction: (ActivityDetailAction) -> Unit,
     onEditTrack: () -> Unit,
     heightPx: Float,
-    anchors: SheetAnchors,
     onDrag: (Float) -> Unit,
     onDragStopped: () -> Unit,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
-    val height = with(density) { heightPx.toDp() }
-    val draggableState = rememberDraggableState(onDelta = onDrag)
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            .background(MaterialTheme.colorScheme.background)
-            // Жест висит на всей шторке, не только на ручке — так же, как в
-            // TrackingRecordingScreen: ни одно касание не проваливается на карту под ней.
-            .draggable(
-                state = draggableState,
-                orientation = Orientation.Vertical,
-                onDragStopped = { onDragStopped() },
-            ),
+    DraggableSheet(
+        heightPx = heightPx,
+        onDrag = onDrag,
+        onDragStopped = onDragStopped,
+        onHandleClick = onToggle,
+        handleContentDescription = stringResource(R.string.activity_detail_toggle_sheet),
+        modifier = modifier,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(34.dp)
-                .clickable(onClickLabel = stringResource(R.string.activity_detail_toggle_sheet), onClick = onToggle),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Filled.DragHandle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -426,30 +402,46 @@ private fun StatsSheet(
     }
 }
 
-@Composable
-private fun CompactStat(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-    }
-}
+private enum class DetailSheetMode { PEEK, SPLIT, EXPANDED }
 
-/** Две опорные высоты шторки в пикселях: свёрнута и развёрнута на всю доступную высоту. */
+/** Три опорные высоты шторки в пикселях: свёрнута, наполовину и во всю доступную высоту. */
 @Immutable
-private data class SheetAnchors(val peek: Float, val expanded: Float) {
-    fun nearestHeight(heightPx: Float): Float =
-        if (abs(heightPx - peek) <= abs(heightPx - expanded)) peek else expanded
+private data class SheetAnchors(val peek: Float, val split: Float, val expanded: Float) {
+    fun heightFor(mode: DetailSheetMode): Float = when (mode) {
+        DetailSheetMode.PEEK -> peek
+        DetailSheetMode.SPLIT -> split
+        DetailSheetMode.EXPANDED -> expanded
+    }
+
+    fun nearestMode(heightPx: Float): DetailSheetMode =
+        DetailSheetMode.entries.minBy { abs(heightFor(it) - heightPx) }
+
+    /**
+     * Насколько шторка перекрывает карту с точки зрения камеры. В [DetailSheetMode.EXPANDED]
+     * карты почти не видно, и кадр остаётся таким же, как в [DetailSheetMode.SPLIT] —
+     * при сворачивании до половины не будет лишнего перелёта (тот же приём, что в
+     * TrackingRecordingScreen.SheetAnchors.cameraInsetFor).
+     */
+    fun cameraInsetFor(mode: DetailSheetMode): Float = when (mode) {
+        DetailSheetMode.PEEK -> peek
+        DetailSheetMode.SPLIT, DetailSheetMode.EXPANDED -> split
+    }
 }
 
 private fun sheetAnchors(containerHeightPx: Float, density: Density): SheetAnchors? {
     if (containerHeightPx <= 0f) return null
     val peekPx = with(density) { PEEK_SHEET_HEIGHT.toPx() }.coerceAtMost(containerHeightPx)
-    return SheetAnchors(peek = peekPx, expanded = containerHeightPx)
+    val splitPx = with(density) { SPLIT_SHEET_HEIGHT.toPx() }
+        .coerceAtMost(containerHeightPx * MAX_SPLIT_FRACTION)
+        .coerceIn(peekPx, containerHeightPx)
+    return SheetAnchors(peek = peekPx, split = splitPx, expanded = containerHeightPx)
 }
 
-private val PEEK_SHEET_HEIGHT = 128.dp
+/** Половина статистики — карта и статистика видны одновременно, как на экране записи. */
+private val SPLIT_SHEET_HEIGHT = 340.dp
 
-private val SHEET_ANIMATION = tween<Float>(durationMillis = 360, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+/** Даже в положении "наполовину" карте остаётся заметная часть экрана. */
+private const val MAX_SPLIT_FRACTION = 0.62f
 
 /** Итоговые показатели активности. Названия зависят от того, чем меряется эта активность. */
 @Composable

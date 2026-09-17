@@ -50,6 +50,7 @@ fun TrackMap(
  *
  * @param points активные (не удалённые) точки трека.
  * @param onPointClick вызывается с id точки, по которой попал тап.
+ * @param bottomInset высота перекрывающей карту панели, как в [TrackMap].
  */
 @Composable
 fun EditableTrackMap(
@@ -57,6 +58,7 @@ fun EditableTrackMap(
     onPointClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    bottomInset: Dp = 0.dp,
 ) {
     KornoMapCanvas(
         route = points.map(EditableMapPoint::point),
@@ -65,6 +67,10 @@ fun EditableTrackMap(
         showEndpoints = false,
         camera = TrackMapCamera.FitTrack,
         interactive = interactive,
+        bottomInset = bottomInset,
+        // Точки коррекции меняются при каждом удалении/обрезке — камера не должна
+        // прыгать следом, иначе после каждого действия приходится зумиться заново.
+        refitOnPointsChange = false,
         onPointClick = onPointClick,
     )
 }

@@ -80,6 +80,7 @@ internal fun KornoMapCanvas(
     camera: TrackMapCamera = TrackMapCamera.FitTrack,
     interactive: Boolean = true,
     bottomInset: Dp = 0.dp,
+    refitOnPointsChange: Boolean = true,
     onPointClick: ((Long) -> Unit)? = null,
 ) {
     val colors = trackMapColors()
@@ -105,9 +106,23 @@ internal fun KornoMapCanvas(
     var userMovedCamera by remember { mutableStateOf(false) }
     var cameraInitialized by remember { mutableStateOf(false) }
 
-    val cameraTargets = remember(route, editablePoints) {
-        route.ifEmpty { editablePoints.map(EditableMapPoint::point) }
+    // Отбракованный скачок за пять километров не должен отдалять кадр от самого трека.
+    val liveCameraTargets = remember(route, editablePoints) {
+        route.filterNot(MapPoint::isRejected).ifEmpty { route }
+            .ifEmpty { editablePoints.map(EditableMapPoint::point) }
     }
+
+    // Точки коррекции меняются при каждом удалении/обрезке, но камере незачем
+    // перецентровываться следом — иначе после каждого действия трек уезжает и
+    // приходится зумиться заново. Кадр фиксируется по первому непустому набору
+    // и дальше не пересчитывается, пока не сменится сам режим камеры.
+    var frozenCameraTargets by remember { mutableStateOf<List<MapPoint>?>(null) }
+    LaunchedEffect(liveCameraTargets) {
+        if (!refitOnPointsChange && frozenCameraTargets == null && liveCameraTargets.isNotEmpty()) {
+            frozenCameraTargets = liveCameraTargets
+        }
+    }
+    val cameraTargets = if (refitOnPointsChange) liveCameraTargets else frozenCameraTargets ?: liveCameraTargets
 
     // Ошибка загрузки приходит отдельным колбэком MapLibre, а не результатом setStyle:
     // при недоступной сети корутина ниже просто не возобновляется, и без этого
@@ -159,9 +174,10 @@ internal fun KornoMapCanvas(
         val style = loaded?.style ?: return@LaunchedEffect
         style.setRoute(route, defaultColor = colors.route)
         style.setOverlay(overlay)
+        val accepted = route.filterNot(MapPoint::isRejected).ifEmpty { route }
         style.setMarkers(
-            start = route.firstOrNull().takeIf { showEndpoints },
-            finish = route.lastOrNull().takeIf { showEndpoints && currentPoint == null },
+            start = accepted.firstOrNull().takeIf { showEndpoints },
+            finish = accepted.lastOrNull().takeIf { showEndpoints && currentPoint == null },
             current = currentPoint,
             highlight = overlay.highlight,
         )
@@ -401,6 +417,8 @@ private fun trackMapColors(): TrackMapColors {
             // Приглушённый контурный цвет: разрыв — это отсутствие данных, а не ещё одно
             // состояние записи, и спорить за внимание с маршрутом и паузой ему незачем.
             gapRoute = scheme.outline.toArgb(),
+            // Цвет ошибки, но бледный: с этим участком что-то не так, а не «тут опасно».
+            rejectedRoute = scheme.error.toArgb(),
             routeCasing = scheme.surface.toArgb(),
             start = scheme.tertiary.toArgb(),
             finish = scheme.primary.toArgb(),
