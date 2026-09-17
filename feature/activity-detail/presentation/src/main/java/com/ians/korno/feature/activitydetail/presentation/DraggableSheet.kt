@@ -19,11 +19,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 
 /**
  * Свёрнутая/развёрнутая шторка поверх карты: жест, форма и ручка — общие для
@@ -83,3 +85,34 @@ internal val SHEET_CORNER = 20.dp
 internal val HANDLE_HEIGHT = 34.dp
 internal val PEEK_SHEET_HEIGHT = 128.dp
 internal val SHEET_ANIMATION = tween<Float>(durationMillis = 360, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+
+/** Три положения шторки: свёрнута, наполовину (видны и карта, и содержимое), развёрнута. */
+internal enum class SheetMode { PEEK, SPLIT, EXPANDED }
+
+/**
+ * Три опорные высоты шторки в пикселях. Общие для экрана обзора активности и
+ * экрана редактирования трека — оба переключаются по одной и той же схеме
+ * (тап по ручке или перетаскивание к ближайшей позиции).
+ */
+@Immutable
+internal data class SheetAnchors(val peek: Float, val split: Float, val expanded: Float) {
+    fun heightFor(mode: SheetMode): Float = when (mode) {
+        SheetMode.PEEK -> peek
+        SheetMode.SPLIT -> split
+        SheetMode.EXPANDED -> expanded
+    }
+
+    fun nearestMode(heightPx: Float): SheetMode =
+        SheetMode.entries.minBy { abs(heightFor(it) - heightPx) }
+
+    /**
+     * Насколько шторка перекрывает карту с точки зрения камеры. В [SheetMode.EXPANDED]
+     * карты почти не видно, и кадр остаётся таким же, как в [SheetMode.SPLIT] — при
+     * сворачивании до половины не будет лишнего перелёта (тот же приём, что в
+     * TrackingRecordingScreen.SheetAnchors.cameraInsetFor).
+     */
+    fun cameraInsetFor(mode: SheetMode): Float = when (mode) {
+        SheetMode.PEEK -> peek
+        SheetMode.SPLIT, SheetMode.EXPANDED -> split
+    }
+}

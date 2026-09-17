@@ -40,7 +40,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -67,7 +66,6 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackMap
-import kotlin.math.abs
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -205,7 +203,7 @@ private fun ActivityDetailContent(
         var containerHeightPx by remember { mutableFloatStateOf(0f) }
         val anchors = remember(containerHeightPx, density) { sheetAnchors(containerHeightPx, density) }
         val sheetHeight = remember { Animatable(0f) }
-        var sheetMode by remember { mutableStateOf(DetailSheetMode.PEEK) }
+        var sheetMode by remember { mutableStateOf(SheetMode.PEEK) }
         val scope = rememberCoroutineScope()
 
         // Перетаскивание само доводит шторку до ближайшей позиции, поэтому эффект
@@ -265,9 +263,9 @@ private fun ActivityDetailContent(
                     },
                     onToggle = {
                         sheetMode = when (sheetMode) {
-                            DetailSheetMode.PEEK -> DetailSheetMode.SPLIT
-                            DetailSheetMode.SPLIT -> DetailSheetMode.EXPANDED
-                            DetailSheetMode.EXPANDED -> DetailSheetMode.PEEK
+                            SheetMode.PEEK -> SheetMode.SPLIT
+                            SheetMode.SPLIT -> SheetMode.EXPANDED
+                            SheetMode.EXPANDED -> SheetMode.PEEK
                         }
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
@@ -402,46 +400,15 @@ private fun StatsSheet(
     }
 }
 
-private enum class DetailSheetMode { PEEK, SPLIT, EXPANDED }
-
-/** Три опорные высоты шторки в пикселях: свёрнута, наполовину и во всю доступную высоту. */
-@Immutable
-private data class SheetAnchors(val peek: Float, val split: Float, val expanded: Float) {
-    fun heightFor(mode: DetailSheetMode): Float = when (mode) {
-        DetailSheetMode.PEEK -> peek
-        DetailSheetMode.SPLIT -> split
-        DetailSheetMode.EXPANDED -> expanded
-    }
-
-    fun nearestMode(heightPx: Float): DetailSheetMode =
-        DetailSheetMode.entries.minBy { abs(heightFor(it) - heightPx) }
-
-    /**
-     * Насколько шторка перекрывает карту с точки зрения камеры. В [DetailSheetMode.EXPANDED]
-     * карты почти не видно, и кадр остаётся таким же, как в [DetailSheetMode.SPLIT] —
-     * при сворачивании до половины не будет лишнего перелёта (тот же приём, что в
-     * TrackingRecordingScreen.SheetAnchors.cameraInsetFor).
-     */
-    fun cameraInsetFor(mode: DetailSheetMode): Float = when (mode) {
-        DetailSheetMode.PEEK -> peek
-        DetailSheetMode.SPLIT, DetailSheetMode.EXPANDED -> split
-    }
-}
-
 private fun sheetAnchors(containerHeightPx: Float, density: Density): SheetAnchors? {
     if (containerHeightPx <= 0f) return null
     val peekPx = with(density) { PEEK_SHEET_HEIGHT.toPx() }.coerceAtMost(containerHeightPx)
-    val splitPx = with(density) { SPLIT_SHEET_HEIGHT.toPx() }
-        .coerceAtMost(containerHeightPx * MAX_SPLIT_FRACTION)
-        .coerceIn(peekPx, containerHeightPx)
+    val splitPx = (containerHeightPx * SPLIT_FRACTION).coerceIn(peekPx, containerHeightPx)
     return SheetAnchors(peek = peekPx, split = splitPx, expanded = containerHeightPx)
 }
 
-/** Половина статистики — карта и статистика видны одновременно, как на экране записи. */
-private val SPLIT_SHEET_HEIGHT = 340.dp
-
-/** Даже в положении "наполовину" карте остаётся заметная часть экрана. */
-private const val MAX_SPLIT_FRACTION = 0.62f
+/** Доля экрана под статистику в положении "наполовину" — карта и статистика видны одновременно. */
+private const val SPLIT_FRACTION = 0.55f
 
 /** Итоговые показатели активности. Названия зависят от того, чем меряется эта активность. */
 @Composable

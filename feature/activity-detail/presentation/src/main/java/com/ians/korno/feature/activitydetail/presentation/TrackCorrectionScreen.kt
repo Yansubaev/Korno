@@ -30,7 +30,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,7 +50,6 @@ import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.map.EditableMapPoint
 import com.ians.korno.core.map.EditableTrackMap
 import com.ians.korno.core.map.MapPoint
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -135,11 +133,14 @@ private fun TrackCorrectionContent(
         var containerHeightPx by remember { mutableFloatStateOf(0f) }
         val anchors = remember(containerHeightPx, density) { correctionSheetAnchors(containerHeightPx, density) }
         val sheetHeight = remember { Animatable(0f) }
+        var sheetMode by remember { mutableStateOf(SheetMode.PEEK) }
         val scope = rememberCoroutineScope()
 
-        LaunchedEffect(anchors) {
-            val target = anchors?.peek ?: return@LaunchedEffect
-            if (sheetHeight.value == 0f) sheetHeight.snapTo(target)
+        // Перетаскивание само доводит шторку до ближайшей позиции, поэтому эффект
+        // нужен только для первого кадра и для смены режима извне (см. onHandleClick).
+        LaunchedEffect(anchors, sheetMode) {
+            val target = anchors?.heightFor(sheetMode) ?: return@LaunchedEffect
+            if (sheetHeight.value == 0f) sheetHeight.snapTo(target) else sheetHeight.animateTo(target, SHEET_ANIMATION)
         }
 
         Box(
@@ -155,7 +156,9 @@ private fun TrackCorrectionContent(
                 points = mapPoints,
                 onPointClick = { id -> onAction(TrackCorrectionAction.SelectPoint(id)) },
                 modifier = Modifier.fillMaxSize(),
-                bottomInset = PEEK_SHEET_HEIGHT,
+                // Отступ зависит от режима шторки, а не от её живой высоты — тот же
+                // приём, что на экране обзора активности.
+                bottomInset = with(density) { (anchors?.cameraInsetFor(sheetMode) ?: 0f).toDp() },
             )
 
             if (anchors != null) {
@@ -167,12 +170,16 @@ private fun TrackCorrectionContent(
                         }
                     },
                     onDragStopped = {
-                        val nearest = anchors.nearestHeight(sheetHeight.value)
-                        scope.launch { sheetHeight.animateTo(nearest, SHEET_ANIMATION) }
+                        val nearest = anchors.nearestMode(sheetHeight.value)
+                        scope.launch { sheetHeight.animateTo(anchors.heightFor(nearest), SHEET_ANIMATION) }
+                        sheetMode = nearest
                     },
                     onHandleClick = {
-                        val target = if (sheetHeight.value <= anchors.peek) anchors.expanded else anchors.peek
-                        scope.launch { sheetHeight.animateTo(target, SHEET_ANIMATION) }
+                        sheetMode = when (sheetMode) {
+                            SheetMode.PEEK -> SheetMode.SPLIT
+                            SheetMode.SPLIT -> SheetMode.EXPANDED
+                            SheetMode.EXPANDED -> SheetMode.PEEK
+                        }
                     },
                     handleContentDescription = stringResource(R.string.activity_detail_toggle_sheet),
                     modifier = Modifier.align(Alignment.BottomCenter),
@@ -282,18 +289,26 @@ private fun TrackCorrectionContent(
     }
 }
 
-/** Две опорные высоты шторки в пикселях: свёрнута и развёрнута на всю доступную высоту. */
-@Immutable
-private data class CorrectionSheetAnchors(val peek: Float, val expanded: Float) {
-    fun nearestHeight(heightPx: Float): Float =
-        if (abs(heightPx - peek) <= abs(heightPx - expanded)) peek else expanded
+/**
+ * Положение "наполовину" рассчитано так, чтобы уместить весь набор управления —
+ * переключатель режима, легенду/слайдер, Undo/Reset и кнопку сохранения — не
+ * разворачивая шторку до конца: карте всё ещё остаётся заметная часть экрана.
+ */
+private fun correctionSheetAnchors(containerHeightPx: Float, density: Density): SheetAnchors? {
+    if (containerHeightPx <= 0f) return null
+    val scale = density.fontScale.coerceAtLeast(1f)
+    val peekPx = with(density) { PEEK_SHEET_HEIGHT.toPx() }.coerceAtMost(containerHeightPx)
+    val splitPx = (with(density) { SPLIT_SHEET_HEIGHT.toPx() } * scale)
+        .coerceAtMost(containerHeightPx * MAX_SPLIT_FRACTION)
+        .coerceIn(peekPx, containerHeightPx)
+    return SheetAnchors(peek = peekPx, split = splitPx, expanded = containerHeightPx)
 }
 
-private fun correctionSheetAnchors(containerHeightPx: Float, density: Density): CorrectionSheetAnchors? {
-    if (containerHeightPx <= 0f) return null
-    val peekPx = with(density) { PEEK_SHEET_HEIGHT.toPx() }.coerceAtMost(containerHeightPx)
-    return CorrectionSheetAnchors(peek = peekPx, expanded = containerHeightPx)
-}
+/** Высота, в которую вписывается весь набор управления в положении "наполовину". */
+private val SPLIT_SHEET_HEIGHT = 480.dp
+
+/** Даже в положении "наполовину" карте остаётся заметная часть экрана. */
+private const val MAX_SPLIT_FRACTION = 0.8f
 
 @Composable
 private fun LegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
