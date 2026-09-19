@@ -42,6 +42,14 @@ data class ModeDecoderConfig(
     val transferStopMillis: Long = 20_000L,
     /** Доплеровская скорость, ниже которой точка считается стоянием. */
     val stationarySpeedMetersPerSecond: Double = 0.5,
+    /**
+     * Скорость, ниже которой транспорт уже тормозит под посадку. У стоящего приёмника
+     * доплер шумит в районе 0.4–1.3 м/с, поэтому остановку нельзя мерить только по
+     * [stationarySpeedMetersPerSecond]: настоящая остановка автобуса в записи 41 (17:54–18:06)
+     * распалась на одиночные точки, кредит не выдался, и высадка на ходу оказалась дешевле
+     * пересадки. Длину остановки меряем этим порогом, а факт остановки — предыдущим.
+     */
+    val crawlSpeedMetersPerSecond: Double = 2.0,
     /** Промежуток без фиксов, в котором пересадка могла пройти незамеченной. */
     val transferGapMillis: Long = 30_000L,
 
@@ -56,6 +64,30 @@ data class ModeDecoderConfig(
     /** Превышение предела на эту величину стоит [speedWeightPerSecond] за секунду; растёт квадратично. */
     val speedToleranceMetersPerSecond: Double = 0.5,
     val speedWeightPerSecond: Double = 0.4,
+
+    /**
+     * Крейсерская скорость велосипеда — не предел, а граница правдоподобия: выше неё едут
+     * на транспорте. Пределом велосипед от транспорта не отличить (в городе у них одни
+     * скорости), но верх диапазона различает их надёжно: по записям 41/45/46 автобус и
+     * машина проводят 15–20 % эпох выше 30 км/ч и разгоняются до 44–50, а настоящая
+     * велопоездка — ни одной эпохи выше 30 при максимуме 26.8.
+     *
+     * Поэтому штраф мягкий и с потолком [cruisingSpeedMaxExcess]: спуск на велосипеде
+     * добавляет голос за транспорт, но в одиночку пересадку не оплачивает.
+     */
+    val cruisingCyclingSpeedMetersPerSecond: Double = 8.3,
+    val cruisingSpeedToleranceMetersPerSecond: Double = 1.5,
+    val cruisingSpeedWeightPerSecond: Double = 0.12,
+    /** Выше этого превышения быстрее не значит увереннее. */
+    val cruisingSpeedMaxExcess: Double = 4.0,
+    /**
+     * Обратная сторона той же улики: эпоха, которая едет, но не быстрее велосипеда, — слабый
+     * голос против транспорта. Без неё транспорт, нигде не разогнавшийся, не стоит ничего, и
+     * настоящая велопоездка (46: ни одной эпохи выше 30 км/ч) уезжает в транспорт по паре
+     * случайных вердиктов. Голос плоский и маленький: он должен копиться десятками минут, а
+     * не решать по одной эпохе. Стоянки не в счёт — стоящий в пробке автобус нормален.
+     */
+    val slowVehicleWeightPerSecond: Double = 0.05,
 
     /** Каденс шагов различает только ходьбу и бег: при педалировании шагомер тоже считает. */
     val runningCadenceStepsPerMinute: Double = 140.0,
@@ -79,6 +111,7 @@ class ModeDecoderInput(
 
 private val MODES = listOf(SegmentKind.ON_FOOT, SegmentKind.RUNNING, SegmentKind.CYCLING, SegmentKind.VEHICLE)
 private val VEHICLE_INDEX = MODES.indexOf(SegmentKind.VEHICLE)
+private val CYCLING_INDEX = MODES.indexOf(SegmentKind.CYCLING)
 private const val FORBIDDEN = -1e12
 
 /**
@@ -86,8 +119,10 @@ private const val FORBIDDEN = -1e12
  *
  * Время режется на эпохи [ModeDecoderConfig.epochMillis]; скрытое состояние эпохи — вид
  * движения. Наблюдения:
- * - ответ Activity Recognition — главный голос, но шумный: велосипед он путает с машиной;
- * - доплеровская скорость — только как физический предел вида;
+ * - ответ Activity Recognition — главный голос, но шумный: велосипед он путает с машиной,
+ *   а на записях 41 и 46 две трети времени вообще не сказал ничего;
+ * - доплеровская скорость — физический предел вида и, отдельно, улика «велосипед против
+ *   транспорта»: пределом эти два не различить, верхом диапазона — надёжно;
  * - каденс шагов — ходьба против бега.
  *
  * Главное знание — в переходах: смена вида стоит штрафа, а смена с транспортом или на
@@ -137,7 +172,14 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             val end = start + config.epochMillis
             val row = emissions[epoch]
 
-            while (next < recognitions.size && recognitions[next].timestampEpochMillis < end) latest = recognitions[next++]
+            // Держится последний ответ **о движении**, а не последний вообще: Play Services
+            // отдаёт `IN_VEHICLE` и следом `STILL` в ту же секунду (транспорт встал), и
+            // раньше остановка стирала вердикт, ради которого весь разбор. В записи 46 так
+            // пропали четыре вердикта `IN_VEHICLE` из пяти, и автобус стал велосипедом.
+            while (next < recognitions.size && recognitions[next].timestampEpochMillis < end) {
+                val sample = recognitions[next++]
+                if (sample.movementConfidences() != null) latest = sample
+            }
             latest?.takeIf { end - it.timestampEpochMillis <= config.recognitionMaxAgeMillis }
                 ?.movementConfidences()
                 ?.let { confidences ->
@@ -157,6 +199,17 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
                     val limit = speedLimit(kind) ?: return@forEachIndexed
                     val excess = max(0.0, speed - limit) / config.speedToleranceMetersPerSecond
                     row[mode] -= config.speedWeightPerSecond * seconds * excess * excess
+                }
+                // Скорость как улика «велосипед против транспорта», а не только как запрет:
+                // быстрая эпоха — сильный голос за транспорт, едущая, но медленная — слабый
+                // против него. Предел в 25 м/с эти два вида не различал никогда: в городе
+                // они ездят одинаково, расходятся только на верхнем конце диапазона.
+                val cruising = ((speed - config.cruisingCyclingSpeedMetersPerSecond) /
+                    config.cruisingSpeedToleranceMetersPerSecond).coerceIn(0.0, config.cruisingSpeedMaxExcess)
+                if (cruising > 0.0) {
+                    row[CYCLING_INDEX] -= config.cruisingSpeedWeightPerSecond * seconds * cruising * cruising
+                } else if (speed > config.stationarySpeedMetersPerSecond) {
+                    row[VEHICLE_INDEX] -= config.slowVehicleWeightPerSecond * seconds
                 }
             }
 
@@ -211,25 +264,36 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
         val edges = listOf(input.startMillis) + points.map(GeoPoint::timestampEpochMillis) + input.endMillis
         edges.zipWithNext { from, to -> if (to - from > config.transferGapMillis) credit(from, to, Long.MAX_VALUE / 2) }
 
+        // Остановка — это заезд под [ModeDecoderConfig.crawlSpeedMetersPerSecond], внутри
+        // которого нашлась хоть одна точка в покое. Требовать покоя от каждой точки нельзя:
+        // доплер стоящего приёмника шумит, и настоящая остановка рассыпается на одиночки.
+        // Одна лишь тишина по шагу «ползёт» тоже не годится — так выглядит и пешая ходьба,
+        // а она не пересадка.
         var runStart: GeoPoint? = null
         var runEnd: GeoPoint? = null
+        var runHalted = false
         fun closeRun() {
             val start = runStart ?: return
             val end = runEnd ?: return
-            val isManualPause = start.recordingStatus == RecordingStatus.MANUAL_PAUSE
-            credit(start.timestampEpochMillis, end.timestampEpochMillis, if (isManualPause) Long.MAX_VALUE / 2 else end.timestampEpochMillis - start.timestampEpochMillis)
+            if (runHalted) {
+                val isManualPause = start.recordingStatus == RecordingStatus.MANUAL_PAUSE
+                credit(start.timestampEpochMillis, end.timestampEpochMillis, if (isManualPause) Long.MAX_VALUE / 2 else end.timestampEpochMillis - start.timestampEpochMillis)
+            }
             runStart = null
             runEnd = null
+            runHalted = false
         }
         points.forEach { point ->
             val isManualPause = point.recordingStatus == RecordingStatus.MANUAL_PAUSE
-            val stationary = isManualPause ||
-                (point.dopplerSpeed()?.let { it <= config.stationarySpeedMetersPerSecond } == true)
+            val speed = point.dopplerSpeed()
+            val crawling = isManualPause || (speed?.let { it <= config.crawlSpeedMetersPerSecond } == true)
+            val halted = isManualPause || (speed?.let { it <= config.stationarySpeedMetersPerSecond } == true)
             val sameRun = runStart?.let { (it.recordingStatus == RecordingStatus.MANUAL_PAUSE) == isManualPause } == true
-            if (!stationary || !sameRun) closeRun()
-            if (stationary) {
+            if (!crawling || !sameRun) closeRun()
+            if (crawling) {
                 if (runStart == null) runStart = point
                 runEnd = point
+                runHalted = runHalted || halted
             }
         }
         closeRun()
@@ -297,6 +361,14 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
  * (`STILL`, `TILTING`, `UNKNOWN`). `ON_FOOT` — зонтик над ходьбой и бегом: ходьбе
  * достаётся то, что зонтик набрал сверх бега, а без разбивки он делится поровну —
  * решит каденс.
+ *
+ * «Ничего не говорит» проверяется по вердикту, а не по пустоте альтернатив. Своё незнание
+ * Play Services выражает ответом `UNKNOWN 41%` с ровными `IN_VEHICLE=10, ON_BICYCLE=10,
+ * ON_FOOT=10`, и альтернативы в нём есть: раньше такой ответ становился наблюдением,
+ * которое голосовало против пеших видов и давало точную ничью велосипеду с транспортом.
+ * Ничью разрешала одна модель переходов, а в ней платит за вход только транспорт — так
+ * незнание распознавания и превращалось в велосипед. В записях 41 и 46 на такие ответы
+ * пришлось 77 % и 65 % времени.
  */
 private fun RecognitionSample.movementConfidences(): DoubleArray? {
     fun of(activity: RecognizedActivity) = (confidences[activity] ?: 0).toDouble()
@@ -305,7 +377,12 @@ private fun RecognitionSample.movementConfidences(): DoubleArray? {
     val running = if (hasBreakdown) of(RecognizedActivity.RUNNING) else onFoot / 2
     val walking = if (hasBreakdown) max(of(RecognizedActivity.WALKING), onFoot - running) else onFoot / 2
     val values = doubleArrayOf(walking, running, of(RecognizedActivity.ON_BICYCLE), of(RecognizedActivity.IN_VEHICLE))
-    return values.takeIf { it.sum() > 0.0 }
+    val notMovement = maxOf(
+        of(RecognizedActivity.UNKNOWN),
+        of(RecognizedActivity.STILL),
+        of(RecognizedActivity.TILTING),
+    )
+    return values.takeIf { it.sum() > 0.0 && it.max() > notMovement }
 }
 
 private fun GeoPoint.dopplerSpeed(): Double? =
