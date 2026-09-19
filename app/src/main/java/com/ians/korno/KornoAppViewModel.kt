@@ -7,6 +7,8 @@ import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.feature.onboarding.domain.model.PermissionType
 import com.ians.korno.feature.onboarding.domain.repository.PermissionRepository
 import com.ians.korno.feature.tracking.domain.usecase.PrepareTrackingUseCase
+import com.ians.korno.feature.tracking.domain.usecase.RecoverActiveSessionUseCase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +35,7 @@ class KornoAppViewModel(
     private val preferencesRepository: UserPreferencesRepository,
     private val permissionRepository: PermissionRepository,
     private val prepareTracking: PrepareTrackingUseCase,
+    private val recoverActiveSession: RecoverActiveSessionUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(KornoAppState())
@@ -42,6 +45,10 @@ class KornoAppViewModel(
     private var pendingActivityType: ActivityType? = null
 
     init {
+        // Если процесс был убит во время записи — незавершённая Activity (end_time IS NULL)
+        // в Room служит сигналом восстановить foreground-сервис и продолжить ту же запись.
+        // Здесь, а не в Application: только с видимым UI система разрешает старт foreground-сервиса.
+        viewModelScope.launch(Dispatchers.IO) { recoverActiveSession() }
         viewModelScope.launch {
             preferencesRepository.initialize()
             preferencesRepository.observePreferences().collect { preferences ->

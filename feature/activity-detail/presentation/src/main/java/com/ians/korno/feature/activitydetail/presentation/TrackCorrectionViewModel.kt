@@ -179,6 +179,7 @@ internal class TrackCorrectionViewModel(
                         latitude = point.point.latitude,
                         longitude = point.point.longitude,
                         isPaused = point.point.isStop || point.point.recordingStatus.isPause,
+                        isRejected = point.point.isOutlier,
                     ),
                     isOutlier = point.point.isOutlier,
                     deleted = point.deleted,

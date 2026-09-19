@@ -23,6 +23,14 @@ data class MapPoint(
      */
     val isGap: Boolean = false,
     /**
+     * Фикс отбракован фильтром: в дистанцию и разбор не попал, но место на маршруте
+     * показывает. Отрезки к такой точке рисуются бледным отдельным слоем.
+     *
+     * Выкинуть её с карты совсем нельзя: на месте, скажем, поездки на автобусе с одними
+     * сетевыми фиксами остаётся прямая через весь город, и неясно, что там вообще было.
+     */
+    val isRejected: Boolean = false,
+    /**
      * Цвет отрезка, начинающегося в этой точке, — линза карты.
      * `null` — обычная линия трека.
      *
@@ -31,6 +39,32 @@ data class MapPoint(
      */
     val shade: Color? = null,
 )
+
+/**
+ * Цвета линзы, посчитанные по принятым точкам, переносятся на полную линию, где есть и
+ * отбракованные. Разбор трека выбросов не видит, а линия без них соединяет прямой то,
+ * что было между.
+ *
+ * Сопоставление по координатам, по порядку: [shaded] — подпоследовательность принятых
+ * точек линии. Точка, которой в [shaded] нет (другой вид в смешанной записи), получает
+ * [unmatched].
+ */
+fun List<MapPoint>.withShadesFrom(shaded: List<MapPoint>, unmatched: Color?): List<MapPoint> {
+    var next = 0
+    return map { point ->
+        val candidate = shaded.getOrNull(next)
+        when {
+            point.isRejected -> point
+            candidate != null &&
+                candidate.latitude == point.latitude &&
+                candidate.longitude == point.longitude -> {
+                next++
+                point.copy(shade = candidate.shade)
+            }
+            else -> point.copy(shade = unmatched)
+        }
+    }
+}
 
 /** Точка трека в режиме ручной коррекции: её можно выделить и удалить. */
 @Immutable

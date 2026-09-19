@@ -36,6 +36,8 @@ import com.ians.korno.feature.tracking.data.session.TrackingSessionCoordinator
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
 import com.ians.korno.feature.tracking.domain.navigation.TrackingDeepLinks
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,7 +78,15 @@ internal class LocationTrackingService : Service() {
     private val activityRecognitionSource: ActivityRecognitionSignalSource by inject()
     private val stepCounterClient: StepCounterClient by inject()
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Без обработчика любое исключение в корутине сервиса роняет весь процесс, а упавшая
+    // посреди записи активность при следующем запуске восстанавливается и снова включает GPS.
+    private val serviceScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, error ->
+            logger.error(category = LogCategory.SYSTEM, tag = TAG, throwable = error) {
+                "Unhandled error in tracking service"
+            }
+        },
+    )
     private var locationJob: Job? = null
     private var stepJob: Job? = null
     private var signalJob: Job? = null
@@ -97,12 +107,16 @@ internal class LocationTrackingService : Service() {
             ACTION_PREPARE -> prepareGps()
             ACTION_CANCEL_PREPARATION -> cancelPreparation()
             ACTION_START -> startRecording()
-            ACTION_PAUSE -> {
+            ACTION_PAUSE -> if (isIdle()) {
+                stopSelf()
+            } else {
                 coordinator.pause()
                 refreshNotification()
             }
 
-            ACTION_RESUME -> {
+            ACTION_RESUME -> if (isIdle()) {
+                stopSelf()
+            } else {
                 coordinator.resume()
                 refreshNotification()
             }
@@ -138,7 +152,17 @@ internal class LocationTrackingService : Service() {
         }
     }
 
+    /**
+     * Команда пришла в сервис, которому нечего делать: `startService` поднял его заново уже
+     * после остановки. Без `stopSelf` он так и висел бы, удерживая процесс.
+     */
+    private fun isIdle(): Boolean = !isPreparing && coordinator.session.value.activityId == null
+
     private fun cancelPreparation() {
+        if (isIdle()) {
+            stopSelf()
+            return
+        }
         if (!isPreparing || coordinator.session.value.activityId != null) return
         isPreparing = false
         preparationTimeoutJob?.cancel()
@@ -325,7 +349,9 @@ internal class LocationTrackingService : Service() {
                         tag = TAG,
                         throwable = error,
                     ) { "Location update stream failed" }
-                    throw error
+                    // Обычно это отозванное разрешение: записывать больше нечем. Трек
+                    // сохраняется как неподтверждённый, вместо падения процесса.
+                    stopRecording(pendingSummary = true)
                 }
                 .collect { sample ->
                     coordinator.applySample(sample)
@@ -336,7 +362,17 @@ internal class LocationTrackingService : Service() {
 
     private fun stopRecording(pendingSummary: Boolean) {
         serviceScope.launch {
-            coordinator.endSession(pendingSummary)
+            // Сервис останавливается в любом случае: сбой сохранения не должен оставлять
+            // включённым GPS. Незакрытая активность восстановится при следующем открытии.
+            try {
+                coordinator.endSession(pendingSummary)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                logger.error(category = LogCategory.TRACKING, tag = TAG, throwable = error) {
+                    "Failed to end tracking session"
+                }
+            }
             isPreparing = false
             preparationTimeoutJob?.cancel()
             locationJob?.cancel()

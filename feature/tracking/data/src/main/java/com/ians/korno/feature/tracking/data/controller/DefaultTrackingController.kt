@@ -59,6 +59,8 @@ internal class DefaultTrackingController(
     override suspend fun recoverActiveSession() {
         if (coordinator.recoverActiveSessionIfNeeded()) {
             startServiceForeground(LocationTrackingService.ACTION_START)
+        } else if (coordinator.session.value.activityId == null) {
+            activityRecognition.removeStaleUpdates()
         }
     }
 

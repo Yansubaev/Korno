@@ -91,6 +91,24 @@ class ActivityRecognitionSignalSource(
     }
 
     /**
+     * Подписка живёт в Play Services, а не в процессе: если процесс убили посреди записи,
+     * `awaitClose` не выполнился, и распознавание продолжает жечь батарею до перезагрузки.
+     * `FLAG_NO_CREATE` находит PendingIntent, только если его всё ещё кто-то держит.
+     * Вызывать, только когда записи нет — иначе снимется и живая подписка.
+     */
+    @SuppressLint("MissingPermission")
+    fun removeStaleUpdates() {
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE,
+            Intent(ACTION_ACTIVITY_UPDATE).setPackage(context.packageName),
+            pendingIntentFlags() or PendingIntent.FLAG_NO_CREATE,
+        ) ?: return
+        runCatching { ActivityRecognition.getClient(context).removeActivityUpdates(pendingIntent) }
+        pendingIntent.cancel()
+    }
+
+    /**
      * В вердикт идёт самый вероятный вариант, но `ON_FOOT` — не вариант, а зонтик над
      * `WALKING` и `RUNNING`, и Play Services почти всегда ставит его первым. В логе
      * прогулки из 57 записей 53 оказались `ON_FOOT`, а `STILL` не появился ни разу — при

@@ -23,7 +23,6 @@ import com.ians.korno.feature.onboarding.presentation.di.onboardingPresentationM
 import com.ians.korno.feature.settings.presentation.di.settingsPresentationModule
 import com.ians.korno.feature.tracking.data.di.trackingDataModule
 import com.ians.korno.feature.tracking.domain.repository.PendingSummaryNotifier
-import com.ians.korno.feature.tracking.domain.usecase.RecoverActiveSessionUseCase
 import com.ians.korno.feature.tracking.presentation.di.trackingPresentationModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +50,6 @@ private val appModule = module {
 
 class KornoApplication : Application() {
 
-    private val recoverActiveSession: RecoverActiveSessionUseCase by inject()
     private val mapCacheRepository: MapCacheRepository by inject()
     private val pendingSummaryNotifier: PendingSummaryNotifier by inject()
     private val logger: AppLogger by inject()
@@ -84,10 +82,9 @@ class KornoApplication : Application() {
             "Application started"
         }
 
-        // Если процесс был убит системой во время записи — незавершённая Activity (end_time IS NULL)
-        // в Room служит сигналом восстановить foreground-сервис и продолжить ту же запись.
+        // Восстановление незавершённой записи — в KornoAppViewModel: процесс стартует и в фоне
+        // (WorkManager, уведомления), а foreground-сервис оттуда запускать нельзя.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            recoverActiveSession()
             // Кэш тайлов ограничивается один раз за запуск: настройка живёт в базе
             // MapLibre, но применяется только после явного вызова.
             mapCacheRepository.configure()

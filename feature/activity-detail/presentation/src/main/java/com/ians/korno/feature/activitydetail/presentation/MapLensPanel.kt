@@ -29,6 +29,7 @@ import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.map.TrackOverlay
+import com.ians.korno.core.map.withShadesFrom
 
 /**
  * Палитра линзы «Темп/скорость» — viridis.
@@ -95,18 +96,22 @@ internal fun rememberLensRoute(state: ActivityDetailState): List<MapPoint> {
                 point.copy(shade = routeKinds.getOrNull(index)?.color())
             }
         }
-        if (samples == null || (lens == MapLens.ROUTE && routeKinds.isNotEmpty())) return@remember fallback
+        // Остальные линзы тоже красят полную линию, а не выборку разбора: в разборе нет
+        // выбросов, и линия по нему прошла бы прямой через отбракованный участок. Точки
+        // других видов смешанной записи разбор не покрывает — они уходят в нейтральный.
+        if (samples == null) return@remember fallback
         when (lens) {
-            MapLens.KINDS -> fallback
-            MapLens.ROUTE -> samples.map(RouteSampleUi::point)
-            MapLens.SPEED -> samples.map { sample ->
-                sample.point.copy(shade = sample.speedFraction?.let(SpeedRamp::sample))
-            }
-            MapLens.ELEVATION -> samples.map { sample ->
-                sample.point.copy(shade = sample.elevationFraction?.let(ElevationRamp::sample))
-            }
+            MapLens.KINDS, MapLens.ROUTE -> fallback
+            MapLens.SPEED -> fallback.withShadesFrom(
+                samples.map { it.point.copy(shade = it.speedFraction?.let(SpeedRamp::sample)) },
+                unmatched = neutral,
+            )
+            MapLens.ELEVATION -> fallback.withShadesFrom(
+                samples.map { it.point.copy(shade = it.elevationFraction?.let(ElevationRamp::sample)) },
+                unmatched = neutral,
+            )
             // Линза остановок говорит о простое, поэтому сама линия уходит на второй план.
-            MapLens.STOPS -> samples.map { it.point.copy(shade = neutral) }
+            MapLens.STOPS -> fallback.map { it.copy(shade = neutral) }
         }
     }
 }

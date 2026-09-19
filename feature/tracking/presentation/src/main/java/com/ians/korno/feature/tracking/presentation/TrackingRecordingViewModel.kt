@@ -59,19 +59,17 @@ internal class TrackingRecordingViewModel(
     // Маппинг живёт здесь, а не в toUiState: иначе список пересобирался бы
     // на каждый тик таймера, а не только при появлении новых точек.
     private val routePoints = observeSessionTrack().map { points ->
-        // Выбросы в линию не идут: их координаты фильтр не правил, и нарисованные
-        // сплошной линией они и есть тот самый зигзаг. Разрыв, который остаётся на их
-        // месте, рисуется пунктиром — но только если считать его по тому же списку,
-        // из которого они уже выкинуты.
-        points.filterNot { it.isOutlier }.let { valid ->
-            valid.mapIndexed { index, point ->
-                MapPoint(
-                    latitude = point.latitude,
-                    longitude = point.longitude,
-                    isPaused = point.isStop || point.recordingStatus.isPause,
-                    isGap = index > 0 && isTrackGap(valid[index - 1], point),
-                )
-            }
+        // Выбросы остаются в линии, но помеченными: их координаты фильтр не правил, и
+        // сплошной линией они и есть тот самый зигзаг, а выкинутые совсем — прямая через
+        // весь участок. Карта рисует их бледным слоем.
+        points.mapIndexed { index, point ->
+            MapPoint(
+                latitude = point.latitude,
+                longitude = point.longitude,
+                isPaused = point.isStop || point.recordingStatus.isPause,
+                isGap = index > 0 && isTrackGap(points[index - 1], point),
+                isRejected = point.isOutlier,
+            )
         }
     }
 

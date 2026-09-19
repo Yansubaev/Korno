@@ -395,19 +395,18 @@ internal class ActivityDetailViewModel(
             },
             segmentKindChoice = localUi.segmentKindChoice,
             isRecalculating = localUi.isRecalculating,
-            // Выбросы в линию не идут: их координаты фильтр не правил, и сплошной
-            // линией они рисуют прыжки на всю свою погрешность. Разрыв на их месте
-            // считается по тому же списку, из которого они уже выкинуты, — иначе
-            // соседями остаются они сами и разрыва не видно никогда.
-            routePoints = track.points.filterNot { it.isOutlier }.let { valid ->
-                valid.mapIndexed { index, point ->
-                    MapPoint(
-                        latitude = point.latitude,
-                        longitude = point.longitude,
-                        isPaused = point.isStop || point.recordingStatus.isPause,
-                        isGap = index > 0 && isTrackGap(valid[index - 1], point),
-                    )
-                }
+            // Выбросы остаются в линии, но помеченными: карта рисует их бледным слоем.
+            // Выкинутые совсем, они оставляли прямую через весь выброшенный участок.
+            // Индекс точки линии обязан совпадать с индексом в [TrackData.pointKinds]:
+            // оба списка — все точки по времени.
+            routePoints = track.points.mapIndexed { index, point ->
+                MapPoint(
+                    latitude = point.latitude,
+                    longitude = point.longitude,
+                    isPaused = point.isStop || point.recordingStatus.isPause,
+                    isGap = index > 0 && isTrackGap(track.points[index - 1], point),
+                    isRejected = point.isOutlier,
+                )
             },
             insights = insights,
             // Линза может исчезнуть вместе с данными, на которых держалась: после

@@ -27,6 +27,8 @@ private const val PAUSED_ROUTE_LAYER = "korno-paused-route-layer"
 private const val GAP_ROUTE_SOURCE = "korno-gap-route-source"
 private const val GAP_ROUTE_CASING_LAYER = "korno-gap-route-casing-layer"
 private const val GAP_ROUTE_LAYER = "korno-gap-route-layer"
+private const val REJECTED_ROUTE_SOURCE = "korno-rejected-route-source"
+private const val REJECTED_ROUTE_LAYER = "korno-rejected-route-layer"
 
 private const val SECTION_SOURCE = "korno-section-source"
 private const val SECTION_LAYER = "korno-section-layer"
@@ -83,6 +85,8 @@ internal data class TrackMapColors(
     val pausedRoute: Int,
     /** Отрезок, которого запись не видела: цвет отдельно от паузы — это разные события. */
     val gapRoute: Int,
+    /** Отрезок через отбракованные фиксы: сплошной, но бледный — место есть, доверия нет. */
+    val rejectedRoute: Int,
     val routeCasing: Int,
     val start: Int,
     val finish: Int,
@@ -107,12 +111,24 @@ internal fun Style.installTrackLayers(colors: TrackMapColors) {
     addSource(GeoJsonSource(ROUTE_SOURCE))
     addSource(GeoJsonSource(PAUSED_ROUTE_SOURCE))
     addSource(GeoJsonSource(GAP_ROUTE_SOURCE))
+    addSource(GeoJsonSource(REJECTED_ROUTE_SOURCE))
     addSource(GeoJsonSource(SECTION_SOURCE))
     addSource(GeoJsonSource(STOPS_SOURCE))
     addSource(GeoJsonSource(DISTANCE_SOURCE))
     addSource(GeoJsonSource(POINTS_SOURCE))
     addSource(GeoJsonSource(MARKERS_SOURCE))
 
+    // Ниже всего и без обводки: там, где выброс лёг поверх настоящей линии, она остаётся
+    // видна. Сплошная, чтобы не спорить с пунктирами паузы и разрыва.
+    addLayer(
+        LineLayer(REJECTED_ROUTE_LAYER, REJECTED_ROUTE_SOURCE).withProperties(
+            PropertyFactory.lineColor(colors.rejectedRoute),
+            PropertyFactory.lineWidth(4f),
+            PropertyFactory.lineOpacity(0.35f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
     addLayer(
         LineLayer(ROUTE_CASING_LAYER, ROUTE_SOURCE).withProperties(
             PropertyFactory.lineColor(colors.routeCasing),
@@ -315,14 +331,17 @@ internal fun Style.setRoute(points: List<MapPoint>, defaultColor: Int) {
         ?.setGeoJson(sections.toFeatureCollection(EdgeKind.PAUSED, defaultColor))
     getSourceAs<GeoJsonSource>(GAP_ROUTE_SOURCE)
         ?.setGeoJson(sections.toFeatureCollection(EdgeKind.GAP, defaultColor))
+    getSourceAs<GeoJsonSource>(REJECTED_ROUTE_SOURCE)
+        ?.setGeoJson(sections.toFeatureCollection(EdgeKind.REJECTED, defaultColor))
 }
 
 /**
  * Чем ребро маршрута нарисовано. Пауза и разрыв оба пунктирные — сплошная линия в обоих
  * случаях утверждала бы, что маршрут между точками известен, — но разными цветами:
- * пауза это сделанное, разрыв это неувиденное.
+ * пауза это сделанное, разрыв это неувиденное. Отрезок через отбракованный фикс —
+ * бледная сплошная линия: точки были, но верить им нельзя.
  */
-internal enum class EdgeKind { NORMAL, PAUSED, GAP }
+internal enum class EdgeKind { NORMAL, PAUSED, GAP, REJECTED }
 
 @Immutable
 internal data class RouteSection(
@@ -363,6 +382,9 @@ private fun List<MapPoint>.edgeStyle(index: Int): EdgeStyle = EdgeStyle(
     // Пауза старше разрыва: если на паузе ещё и пропал сигнал, ребро всё равно про паузу —
     // она объясняет отсутствие точек, а разрыв её не отменяет.
     kind = when {
+        // Отбраковка старше всего: координатам ребра не верят, и утверждать про него
+        // паузу или разрыв по этим же координатам нечем.
+        this[index].isRejected || this[index + 1].isRejected -> EdgeKind.REJECTED
         this[index].isPaused || this[index + 1].isPaused -> EdgeKind.PAUSED
         this[index + 1].isGap -> EdgeKind.GAP
         else -> EdgeKind.NORMAL
