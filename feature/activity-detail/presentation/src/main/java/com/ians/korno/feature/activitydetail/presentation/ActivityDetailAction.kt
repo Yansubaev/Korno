@@ -44,6 +44,9 @@ internal sealed interface ActivityDetailAction {
     /** Отдать ZIP с логом только этой активности (debug-сборка). */
     data object ShareActivityLogsClicked : ActivityDetailAction
 
+    /** Заново разметить сохранённую запись текущим декодером (debug-сборка). */
+    data object RedecodeSegmentsClicked : ActivityDetailAction
+
     /** Нажатие на участок: открыть выбор вида. */
     data class SelectSegment(val index: Int) : ActivityDetailAction
 

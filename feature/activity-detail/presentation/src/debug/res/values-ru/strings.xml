@@ -10,4 +10,7 @@
     <string name="activity_detail_share_logs_empty">По этой активности ничего не записано</string>
     <string name="activity_detail_share_logs_preparing">Готовим архив…</string>
     <string name="activity_detail_share_logs_truncated"> · обрезано</string>
+    <string name="activity_detail_redecode_title">Пересчитать участки движения</string>
+    <string name="activity_detail_redecode_subtitle">Прогнать сохранённую запись через текущий декодер</string>
+    <string name="activity_detail_redecode_running">Пересчитываем…</string>
 </resources>
