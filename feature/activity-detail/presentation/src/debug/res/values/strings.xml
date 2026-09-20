@@ -8,4 +8,7 @@
     <string name="activity_detail_share_logs_empty">Nothing was logged for this activity</string>
     <string name="activity_detail_share_logs_preparing">Preparing archive…</string>
     <string name="activity_detail_share_logs_truncated"> · truncated</string>
+    <string name="activity_detail_redecode_title">Recompute movement segments</string>
+    <string name="activity_detail_redecode_subtitle">Re-runs the current decoder over this stored recording</string>
+    <string name="activity_detail_redecode_running">Recomputing…</string>
 </resources>

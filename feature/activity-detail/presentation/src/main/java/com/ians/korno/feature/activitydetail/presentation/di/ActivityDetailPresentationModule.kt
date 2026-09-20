@@ -12,6 +12,7 @@ import com.ians.korno.feature.activitydetail.domain.usecase.ObserveTrackExportUs
 import com.ians.korno.feature.activitydetail.domain.usecase.PrepareActivityExportUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.PrepareActivityShareUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.PreviewTrackCorrectionUseCase
+import com.ians.korno.feature.activitydetail.domain.usecase.RedecodeActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.SaveTrackCorrectionUseCase
 import com.ians.korno.feature.activitydetail.presentation.ActivityDetailViewModel
 import com.ians.korno.feature.activitydetail.presentation.TrackCorrectionViewModel
@@ -33,6 +34,7 @@ val activityDetailPresentationModule = module {
     factoryOf(::SaveTrackCorrectionUseCase)
     factoryOf(::ObserveActivitySegmentsUseCase)
     factory { ChangeActivitySegmentKindUseCase(get(), get()) }
+    factory { RedecodeActivitySegmentsUseCase(get(), get()) }
     viewModelOf(::ActivityDetailViewModel)
     viewModelOf(::TrackCorrectionViewModel)
 }

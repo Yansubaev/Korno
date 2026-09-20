@@ -96,6 +96,58 @@ class ActivityModeDecoderTest {
     }
 
     @Test
+    fun `recognition that says it does not know moves nothing`() {
+        // Своё незнание Play Services выражает ответом UNKNOWN с ровными 10/10/10, и
+        // альтернативы в нём есть. Считать их наблюдением — значит голосовать против пеших
+        // видов: ходьба получала половину зонтика ON_FOOT против целых десяток велосипеда и
+        // транспорта, и прогулка, на которой распознавание замолчало, уезжала в велосипед.
+        val track = Track()
+            .move(seconds = 120, speed = 1.3, RecognizedActivity.WALKING to 90, RecognizedActivity.ON_FOOT to 90)
+            .move(seconds = 900, speed = 1.3, *UNKNOWN)
+
+        assertThat(track.decode().kinds()).containsExactly(SegmentKind.ON_FOOT)
+    }
+
+    @Test
+    fun `on a stretch the recognition is silent about, vehicle speed beats the cheaper entry`() {
+        // Записи 41 и 46: пешком до остановки, дальше распознавание молчит всю дорогу.
+        // Велосипед сюда въезжает дешевле — пересадку он не платит, — и пределы видов не
+        // спорят: 13 м/с ему разрешены, у него предел 25. Возражает только скорость, на
+        // которой в городе едет транспорт, а велосипед не едет.
+        val track = Track()
+            .move(seconds = 300, speed = 1.3, RecognizedActivity.WALKING to 90, RecognizedActivity.ON_FOOT to 90)
+            .move(seconds = 600, speed = 13.0, *UNKNOWN)
+
+        assertThat(track.decode().kinds()).containsExactly(SegmentKind.ON_FOOT, SegmentKind.VEHICLE)
+    }
+
+    @Test
+    fun `alighting counts as a stop even when doppler never settles`() {
+        // Запись 41, 17:54–18:06: автобус тормозит под высадку, но доплер стоящего приёмника
+        // шумит и ниже 0.5 м/с проваливается одной точкой. Раньше кредита за остановку не
+        // было, выход из транспорта стоил полной пересадки, и финальная прогулка пропадала.
+        val track = Track().move(seconds = 600, speed = 12.0, RecognizedActivity.IN_VEHICLE to 90)
+        listOf(0.7, 0.4, 1.1, 0.6).forEach { track.move(seconds = 4, speed = it, *UNKNOWN) }
+        track.move(seconds = 150, speed = 1.2, RecognizedActivity.WALKING to 90, RecognizedActivity.ON_FOOT to 90)
+
+        assertThat(track.decode().kinds()).containsExactly(SegmentKind.VEHICLE, SegmentKind.ON_FOOT)
+    }
+
+    @Test
+    fun `a stop in the same epoch does not erase the vehicle verdict before it`() {
+        // Запись 46: Play Services отдаёт IN_VEHICLE и следом STILL в ту же секунду —
+        // транспорт встал на светофоре. Раньше в эпохе побеждал последний ответ, и четыре
+        // вердикта о транспорте из пяти пропадали вместе с автобусом. Скорость здесь ниже
+        // велосипедной, так что вытянуть транспорт может только сам вердикт.
+        val track = Track()
+            .move(seconds = 120, speed = 1.3, RecognizedActivity.WALKING to 90, RecognizedActivity.ON_FOOT to 90)
+            .move(seconds = 60, speed = 0.1, RecognizedActivity.STILL to 100)
+            .move(seconds = 600, speed = 6.0, RecognizedActivity.IN_VEHICLE to 90, shadowedByStop = true)
+
+        assertThat(track.decode().kinds()).containsExactly(SegmentKind.ON_FOOT, SegmentKind.VEHICLE)
+    }
+
+    @Test
     fun `nothing is decoded without a single movement verdict`() {
         val track = Track().move(seconds = 300, speed = 0.0, RecognizedActivity.STILL to 100)
 
@@ -103,6 +155,16 @@ class ActivityModeDecoderTest {
     }
 
     private fun List<ActivitySegment>.kinds() = map(ActivitySegment::kind)
+
+    private companion object {
+        /** Ровно то, чем Play Services отвечает «не знаю»: вердикт UNKNOWN и ничья под ним. */
+        val UNKNOWN = arrayOf(
+            RecognizedActivity.UNKNOWN to 41,
+            RecognizedActivity.IN_VEHICLE to 10,
+            RecognizedActivity.ON_BICYCLE to 10,
+            RecognizedActivity.ON_FOOT to 10,
+        )
+    }
 
     /** Запись по участкам: точка каждые 4 с, ответ распознавания каждые 10 с. */
     private inner class Track {
@@ -119,12 +181,20 @@ class ActivityModeDecoderTest {
             speed: Double,
             vararg confidences: Pair<RecognizedActivity, Int>,
             cadence: Int? = null,
+            /** За каждым вердиктом в ту же секунду приходит `STILL` — как на остановке. */
+            shadowedByStop: Boolean = false,
         ): Track {
             val end = now + seconds * 1_000L
             var nextRecognition = now
             while (now < end) {
                 if (now >= nextRecognition) {
                     recognitions += RecognitionSample(timestampEpochMillis = now, confidences = confidences.toMap())
+                    if (shadowedByStop) {
+                        recognitions += RecognitionSample(
+                            timestampEpochMillis = now,
+                            confidences = mapOf(RecognizedActivity.STILL to 100),
+                        )
+                    }
                     nextRecognition += 10_000L
                 }
                 points += GeoPoint(

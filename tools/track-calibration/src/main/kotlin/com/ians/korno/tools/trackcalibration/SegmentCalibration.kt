@@ -246,6 +246,30 @@ val DECODER_SWEEPS: List<DecoderSweep> = listOf(
         apply = { config, value -> config.copy(transferStopMillis = (value * 1_000).toLong()) },
     ),
     DecoderSweep(
+        name = "cruisingCyclingSpeedMetersPerSecond",
+        currentValue = { it.cruisingCyclingSpeedMetersPerSecond },
+        values = listOf(7.0, 8.3, 10.0, 12.0),
+        apply = { config, value -> config.copy(cruisingCyclingSpeedMetersPerSecond = value) },
+    ),
+    DecoderSweep(
+        name = "cruisingSpeedWeightPerSecond",
+        currentValue = { it.cruisingSpeedWeightPerSecond },
+        values = listOf(0.0, 0.04, 0.08, 0.16),
+        apply = { config, value -> config.copy(cruisingSpeedWeightPerSecond = value) },
+    ),
+    DecoderSweep(
+        name = "slowVehicleWeightPerSecond",
+        currentValue = { it.slowVehicleWeightPerSecond },
+        values = listOf(0.0, 0.025, 0.05, 0.1),
+        apply = { config, value -> config.copy(slowVehicleWeightPerSecond = value) },
+    ),
+    DecoderSweep(
+        name = "crawlSpeedMetersPerSecond",
+        currentValue = { it.crawlSpeedMetersPerSecond },
+        values = listOf(0.5, 1.0, 2.0, 3.0),
+        apply = { config, value -> config.copy(crawlSpeedMetersPerSecond = value) },
+    ),
+    DecoderSweep(
         name = "stationarySpeedMetersPerSecond",
         currentValue = { it.stationarySpeedMetersPerSecond },
         values = listOf(0.3, 0.5, 1.0),
