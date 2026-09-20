@@ -15,3 +15,6 @@ korno-activity-*.zip
 .externalNativeBuild
 .cxx
 local.properties
+
+# graphify knowledge graph (derived, rebuild with /graphify)
+graphify-out/
