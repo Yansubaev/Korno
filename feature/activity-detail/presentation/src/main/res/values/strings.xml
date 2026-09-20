@@ -95,4 +95,7 @@
     <string name="track_correction_removed">Removed</string>
     <string name="track_correction_save">Save changes</string>
     <string name="track_correction_saved_snackbar">Track updated</string>
+    <string name="activity_detail_redecode_not_auto">Segments can only be recomputed for an auto-mode recording</string>
+    <string name="activity_detail_redecode_no_recognition">Nothing to judge by: this recording has no movement verdicts</string>
+    <string name="activity_detail_redecode_failed">Could not recompute the segments</string>
 </resources>

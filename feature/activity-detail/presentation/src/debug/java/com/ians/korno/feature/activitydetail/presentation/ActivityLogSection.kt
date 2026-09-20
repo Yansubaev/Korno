@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -22,9 +23,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 /**
- * Экспорт лога одной активности. Тот же архив, что и в настройках, но без записей всего
- * остального приложения: разбирать жалобу на конкретную тренировку по общему логу —
- * значит вручную отфильтровывать чужие сессии.
+ * Диагностика одной активности: экспорт её лога и пересчёт участков движения.
+ *
+ * Лог — тот же архив, что и в настройках, но без записей всего остального приложения:
+ * разбирать жалобу на конкретную тренировку по общему логу — значит вручную
+ * отфильтровывать чужие сессии.
  */
 @Composable
 internal fun ActivityLogSection(
@@ -32,7 +35,9 @@ internal fun ActivityLogSection(
     onAction: (ActivityDetailAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val log = state.activityLog ?: return
+    // Секция не привязана к логу: пересчёт участков работает и у записи, которую сделали
+    // с выключенным логированием.
+    val log = state.activityLog
 
     Column(modifier = modifier.fillMaxWidth().padding(top = 24.dp)) {
         HorizontalDivider()
@@ -42,7 +47,7 @@ internal fun ActivityLogSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 16.dp),
         )
-        Row(
+        if (log != null) Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 12.dp)
@@ -66,6 +71,41 @@ internal fun ActivityLogSection(
                 )
                 Text(
                     text = logSubtitle(state),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp)
+                .clickable(
+                    enabled = !state.isRecalculating,
+                    onClick = { onAction(ActivityDetailAction.RedecodeSegmentsClicked) },
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.activity_detail_redecode_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(
+                        if (state.isRecalculating) {
+                            R.string.activity_detail_redecode_running
+                        } else {
+                            R.string.activity_detail_redecode_subtitle
+                        },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

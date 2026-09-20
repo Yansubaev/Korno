@@ -30,6 +30,7 @@ import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.core.trackanalytics.TrackAnalysis
 import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ChangeActivitySegmentKindUseCase
+import com.ians.korno.feature.activitydetail.domain.usecase.RedecodeActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.SegmentKindSummary
 import com.ians.korno.feature.activitydetail.domain.usecase.summarizeSegmentKinds
@@ -74,6 +75,7 @@ internal class ActivityDetailViewModel(
     preferencesRepository: UserPreferencesRepository,
     private val observeSegments: ObserveActivitySegmentsUseCase,
     private val changeSegmentKind: ChangeActivitySegmentKindUseCase,
+    private val redecodeSegments: RedecodeActivitySegmentsUseCase,
 ) : ViewModel() {
 
     // Лит-чек не отслеживает, что это applicationContext, а не тот, что пришёл в конструктор —
@@ -219,6 +221,7 @@ internal class ActivityDetailViewModel(
                 local.update { it.copy(deleted = true) }
             }
             ActivityDetailAction.ShareActivityLogsClicked -> shareActivityLogs()
+            ActivityDetailAction.RedecodeSegmentsClicked -> redecodeStoredSegments()
             is ActivityDetailAction.SelectSegment -> local.update { it.copy(segmentKindChoice = action.index) }
             ActivityDetailAction.DismissSegmentKindChoice -> local.update { it.copy(segmentKindChoice = null) }
             is ActivityDetailAction.ChangeSegmentKind -> changeKindOfChosenSegment(action.kind)
@@ -239,6 +242,37 @@ internal class ActivityDetailViewModel(
                 withContext(Dispatchers.Default) { changeSegmentKind(activity, points, segments, index, kind) }
             }
             local.update { it.copy(isRecalculating = false) }
+        }
+    }
+
+    /**
+     * Пересчёт разметки сохранённой записи текущим декодером — debug-действие. Вид движения
+     * определяется один раз при остановке записи, и правка трека его не трогает, поэтому
+     * после изменения декодера иначе пришлось бы ехать заново.
+     */
+    private fun redecodeStoredSegments() {
+        local.update { it.copy(isRecalculating = true, snackbarMessageRes = null) }
+        viewModelScope.launch {
+            val activity = (observeActivity(activityId).first() as? Result.Success)?.data
+            val points = (observeGeoPoints(activityId).first() as? Result.Success)?.data
+            val segments = observeSegments(activityId).first()
+            val outcome = if (activity == null || points == null) {
+                null
+            } else {
+                withContext(Dispatchers.Default) { redecodeSegments(activity, points, segments) }
+            }
+            local.update {
+                it.copy(
+                    isRecalculating = false,
+                    snackbarMessageRes = when ((outcome as? Result.Error)?.error) {
+                        RedecodeActivitySegmentsUseCase.Skipped.NOT_AUTO_MODE ->
+                            R.string.activity_detail_redecode_not_auto
+                        RedecodeActivitySegmentsUseCase.Skipped.NO_RECOGNITION ->
+                            R.string.activity_detail_redecode_no_recognition
+                        null -> if (outcome == null) R.string.activity_detail_redecode_failed else null
+                    },
+                )
+            }
         }
     }
 
