@@ -64,7 +64,7 @@ internal fun SegmentKind.color(): Color? = when (this) {
     SegmentKind.RUNNING -> Color(0xFFD55E00)
     SegmentKind.CYCLING -> Color(0xFF0072B2)
     SegmentKind.VEHICLE -> Color(0xFFCC79A7)
-    SegmentKind.UNKNOWN -> null
+    SegmentKind.UNKNOWN, SegmentKind.PAUSE -> null
 }
 
 /** Цвет по доле 0..1 — линейная интерполяция между опорными точками палитры. */

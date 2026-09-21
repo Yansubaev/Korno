@@ -10,6 +10,7 @@ import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.toSingleSegment
 import org.junit.jupiter.api.Test
@@ -108,6 +109,45 @@ class FinalizeTrackUseCaseTest {
         }
 
         assertThat(movingTime(AutoPauseSensitivity.HIGH)).isNotEqualTo(movingTime(AutoPauseSensitivity.LOW))
+    }
+
+    @Test
+    fun `a manual pause becomes a segment of its own instead of padding the neighbour`() {
+        val walk = ActivitySegment(kind = SegmentKind.ON_FOOT, startTimeEpochMillis = 0L, endTimeEpochMillis = 300_000L, stepCount = 300)
+
+        val result = finalize(autoActivity, walkWithManualPause, listOf(walk))
+
+        assertThat(result.segments.map { it.kind })
+            .isEqualTo(listOf(SegmentKind.ON_FOOT, SegmentKind.PAUSE, SegmentKind.ON_FOOT))
+        assertThat(result.segments[1].startTimeEpochMillis).isEqualTo(100_000L)
+        assertThat(result.segments[1].endTimeEpochMillis).isEqualTo(200_000L)
+        // Шаги записи от разреза не меняются, и на паузу их не приписывают.
+        assertThat(result.activity.stepCount).isEqualTo(300)
+        // Повторный пересчёт режет ровно так же: слияние не съедает участок паузы.
+        assertThat(finalize(autoActivity, walkWithManualPause, result.segments).segments.map { it.kind })
+            .isEqualTo(result.segments.map { it.kind })
+    }
+
+    /** 100 с пешком, 100 с ручной паузы, 100 с пешком; фикс раз в 5 с. */
+    private val walkWithManualPause: List<GeoPoint> = run {
+        var latitude = 0.0
+        (0..60).map { i ->
+            val timestamp = i * 5_000L
+            if (i > 0) latitude += 0.000_063
+            GeoPoint(
+                id = i.toLong(),
+                activityId = 7L,
+                latitude = latitude,
+                longitude = 0.0,
+                timestampEpochMillis = timestamp,
+                accuracyMeters = 5f,
+                recordingStatus = if (timestamp in 100_000L..195_000L) {
+                    RecordingStatus.MANUAL_PAUSE
+                } else {
+                    RecordingStatus.RECORDING
+                },
+            )
+        }
     }
 
     /** 100 с пешком, 100 с автобусом на 15 м/с, 100 с пешком; фикс раз в 5 с. */

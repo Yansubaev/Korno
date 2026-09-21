@@ -79,7 +79,10 @@ internal fun SegmentsSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = !isRecalculating) { onAction(ActivityDetailAction.SelectSegment(segment.index)) }
+                    // Пауза видом не является: менять его у неё нечем и незачем.
+                    .clickable(enabled = !isRecalculating && segment.kind != SegmentKind.PAUSE) {
+                        onAction(ActivityDetailAction.SelectSegment(segment.index))
+                    }
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),

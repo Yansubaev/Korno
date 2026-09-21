@@ -12,7 +12,14 @@ enum class SegmentKind {
 
     /** Детектор его не выдаёт: только активности типа [ActivityType.OTHER]. */
     UNKNOWN,
+
+    /** Ручная пауза: движения в это время не записывали, вида у участка нет. */
+    PAUSE,
 }
+
+/** Виды, по которым есть что считать: на паузе и до ответа детектора движения нет. */
+val SegmentKind.isMovement: Boolean
+    get() = this != SegmentKind.UNKNOWN && this != SegmentKind.PAUSE
 
 /** Участок записи с одним видом движения. Точки привязываются к нему по времени. */
 data class ActivitySegment(
@@ -44,15 +51,15 @@ val SegmentKind.activityType: ActivityType
         SegmentKind.RUNNING -> ActivityType.RUNNING
         SegmentKind.CYCLING -> ActivityType.CYCLING
         SegmentKind.VEHICLE -> ActivityType.DRIVING
-        SegmentKind.UNKNOWN -> ActivityType.OTHER
+        SegmentKind.UNKNOWN, SegmentKind.PAUSE -> ActivityType.OTHER
     }
 
 /**
- * Вид, на который пришлась наибольшая дистанция; `UNKNOWN` не в счёт. `null` — определить
+ * Вид, на который пришлась наибольшая дистанция; не-движение не в счёт. `null` — определить
  * не из чего. По нему авторежим выводит тип активности.
  */
 fun List<ActivitySegment>.dominantKind(): SegmentKind? =
-    filter { it.kind != SegmentKind.UNKNOWN }
+    filter { it.kind.isMovement }
         .groupBy(ActivitySegment::kind)
         .maxByOrNull { (_, segments) -> segments.sumOf(ActivitySegment::distanceMeters) }
         ?.key

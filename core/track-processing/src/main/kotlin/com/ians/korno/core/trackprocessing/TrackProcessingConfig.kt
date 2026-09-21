@@ -3,6 +3,7 @@ package com.ians.korno.core.trackprocessing
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.isMovement
 import com.ians.korno.core.domain.model.TRACK_GAP_THRESHOLD_MILLIS
 import com.ians.korno.core.domain.model.activityType
 import kotlin.math.max
@@ -266,4 +267,4 @@ fun TrackProcessingConfig.withAutoPauseSensitivity(
  * (см. [TrackProcessingConfig.forSegmentKind]).
  */
 val SegmentKind.profileActivityType: ActivityType
-    get() = if (this == SegmentKind.UNKNOWN) ActivityType.DRIVING else activityType
+    get() = if (isMovement) activityType else ActivityType.DRIVING

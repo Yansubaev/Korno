@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.ians.korno.core.domain.model.SegmentKind
 
@@ -16,6 +17,7 @@ fun SegmentKind.labelRes(): Int = when (this) {
     SegmentKind.CYCLING -> R.string.segment_kind_cycling
     SegmentKind.VEHICLE -> R.string.segment_kind_vehicle
     SegmentKind.UNKNOWN -> R.string.segment_kind_unknown
+    SegmentKind.PAUSE -> R.string.segment_kind_pause
 }
 
 fun SegmentKind.icon(): ImageVector = when (this) {
@@ -24,6 +26,7 @@ fun SegmentKind.icon(): ImageVector = when (this) {
     SegmentKind.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     SegmentKind.VEHICLE -> Icons.Filled.DirectionsCar
     SegmentKind.UNKNOWN -> Icons.Filled.Explore
+    SegmentKind.PAUSE -> Icons.Filled.Pause
 }
 
 /** Виды, которые пользователь может выбрать сам: `UNKNOWN` — не выбор, а отсутствие ответа. */

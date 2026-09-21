@@ -26,6 +26,7 @@
     <string name="segment_kind_cycling">Cycling</string>
     <string name="segment_kind_vehicle">Vehicle</string>
     <string name="segment_kind_unknown">Detecting…</string>
+    <string name="segment_kind_pause">Paused</string>
 
     <string name="activity_type_run">Run</string>
     <string name="activity_type_ride">Ride</string>

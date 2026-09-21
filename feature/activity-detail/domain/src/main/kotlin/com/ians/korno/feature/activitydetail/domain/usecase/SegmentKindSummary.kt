@@ -4,6 +4,7 @@ import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.dominantKind
+import com.ians.korno.core.domain.model.isMovement
 import com.ians.korno.core.domain.model.slicePoints
 import com.ians.korno.core.trackprocessing.StatisticsCalculatorUseCase
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
@@ -23,7 +24,8 @@ data class SegmentKindSummary(
 /**
  * Разбивка записи по видам, в порядке первого появления. Дистанция — сохранённая у
  * сегментов, время в движении — по их точкам и их же порогам: иначе темп пешего участка
- * включал бы стояние на остановке. `UNKNOWN` в разбивку не попадает.
+ * включал бы стояние на остановке. Участки без движения (`UNKNOWN`, `PAUSE`) в разбивку
+ * не попадают.
  */
 fun summarizeSegmentKinds(
     points: List<GeoPoint>,
@@ -31,7 +33,7 @@ fun summarizeSegmentKinds(
     statistics: StatisticsCalculatorUseCase = StatisticsCalculatorUseCase(),
 ): List<SegmentKindSummary> =
     segments.slicePoints(points)
-        .filter { (segment, _) -> segment.kind != SegmentKind.UNKNOWN }
+        .filter { (segment, _) -> segment.kind.isMovement }
         .groupBy({ it.first.kind }, { it })
         .map { (kind, parts) ->
             SegmentKindSummary(
@@ -52,7 +54,7 @@ fun summarizeSegmentKinds(
  * У записи из одного вида это просто все точки.
  */
 fun dominantKindPoints(points: List<GeoPoint>, segments: List<ActivitySegment>): List<GeoPoint> {
-    val kinds = segments.map(ActivitySegment::kind).filter { it != SegmentKind.UNKNOWN }.distinct()
+    val kinds = segments.map(ActivitySegment::kind).filter(SegmentKind::isMovement).distinct()
     if (kinds.size < 2) return points
     val dominant = segments.dominantKind() ?: return points
     return segments.slicePoints(points).filter { (segment, _) -> segment.kind == dominant }.flatMap { it.second }

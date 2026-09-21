@@ -288,7 +288,8 @@ class SegmentDetector(private val config: SegmentDetectorConfig = SegmentDetecto
     private fun ActivitySegment.isShort(): Boolean =
         durationMillis() < config.minSegmentDurationMillis || distanceMeters < config.minSegmentDistanceMeters
 
-    private fun coalesce(segments: List<ActivitySegment>): List<ActivitySegment> =
+    /** Склейка соседей одного вида: границы, за которыми больше нет разницы, не нужны. */
+    internal fun coalesce(segments: List<ActivitySegment>): List<ActivitySegment> =
         segments.fold(mutableListOf()) { acc, segment ->
             val last = acc.lastOrNull()
             if (last != null && last.kind == segment.kind) acc[acc.lastIndex] = last.absorb(segment) else acc += segment
