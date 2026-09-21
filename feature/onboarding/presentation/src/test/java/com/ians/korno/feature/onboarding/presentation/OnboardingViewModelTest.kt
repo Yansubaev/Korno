@@ -11,7 +11,7 @@ import com.ians.korno.feature.onboarding.domain.repository.PermissionRepository
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
@@ -187,7 +187,7 @@ class OnboardingViewModelTest {
             preferences.value = preferences.value.copy(onboardingCompleted = value)
             return success()
         }
-        override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
+        override suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local> = success()
 
         override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
 
@@ -202,7 +202,7 @@ class OnboardingViewModelTest {
                 dynamicColorEnabled = true,
                 privacyZone = PrivacyZone.OFF,
                 onboardingCompleted = false,
-                lastActivityType = ActivityType.RUNNING,
+                lastSegmentKind = SegmentKind.RUNNING,
             )
         }
     }

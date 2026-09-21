@@ -4,7 +4,7 @@ import assertk.assertThat
 import assertk.assertions.isEqualTo
 import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import org.junit.jupiter.api.Test
 
@@ -15,7 +15,6 @@ class ActivityMappersTest {
             id = 42L,
             startTimeEpochMillis = 1_000L,
             endTimeEpochMillis = 9_000L,
-            activityType = ActivityType.CYCLING,
             title = "Morning ride",
             note = "Easy pace",
             distanceMeters = 12_345.0,
@@ -26,21 +25,20 @@ class ActivityMappersTest {
             elevationGainMeters = 180.0,
             isManuallyEdited = true,
             stepCount = 3_456,
-            isAutoMode = true,
+            recordingMode = RecordingMode.IMPORTED,
             autoPauseSensitivity = AutoPauseSensitivity.HIGH,
-            isTypeChosenByUser = true,
         )
 
         assertThat(activity.toEntity().toDomain()).isEqualTo(activity)
     }
 
     @Test
-    fun `unknown persisted activity type maps to other`() {
+    fun `unknown persisted recording mode falls back to fixed`() {
         val entity = ActivityEntity(
             startTimeEpochMillis = 1_000L,
-            activityType = "SKIING",
+            recordingMode = "TELEPORTED",
         )
 
-        assertThat(entity.toDomain().activityType).isEqualTo(ActivityType.OTHER)
+        assertThat(entity.toDomain().recordingMode).isEqualTo(RecordingMode.FIXED)
     }
 }

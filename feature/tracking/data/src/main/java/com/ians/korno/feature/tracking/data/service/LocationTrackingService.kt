@@ -14,7 +14,6 @@ import androidx.annotation.DrawableRes
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
@@ -195,7 +194,7 @@ internal class LocationTrackingService : Service() {
         if (stepJob?.isActive == true) return
         stepJob = serviceScope.launch {
             combine(
-                coordinator.session.map { it.isAutoMode || it.activityType.countsSteps },
+                coordinator.session.map { it.isAutoMode || it.segmentKind.countsSteps },
                 logManager.observeSettings()
                     .map { settings -> settings.isAvailable && settings.enabled },
             ) { counts, loggingActive -> counts || loggingActive }
@@ -317,14 +316,14 @@ internal class LocationTrackingService : Service() {
             combine(
                 preferencesRepository.observePreferences(),
                 settledStatuses(),
-                coordinator.session.map { it.activityType }.distinctUntilChanged(),
+                coordinator.session.map { it.segmentKind }.distinctUntilChanged(),
                 coordinator.autoPauseMovementHint,
-            ) { preferences, (status, settled), activityType, movementHint ->
+            ) { preferences, (status, settled), segmentKind, movementHint ->
                 measurementSystem = preferences.measurementSystem
                 LocationUpdatePolicy.configFor(
                     accuracy = preferences.gpsAccuracy,
                     status = status,
-                    activityType = activityType,
+                    kind = segmentKind,
                     autoPauseSettled = settled,
                     autoPauseMovementHint = movementHint,
                 )
@@ -497,20 +496,17 @@ internal class LocationTrackingService : Service() {
             .build()
 
     /**
-     * Маппинг повторяет иконки типов активности на экранах записи и списка,
+     * Маппинг повторяет иконки видов движения на экранах записи и списка,
      * чтобы уведомление читалось как продолжение того же экрана.
      */
     @DrawableRes
-    private fun RecordingSession.notificationIconRes(): Int =
-        // В авторежиме иконка — вид текущего сегмента, пока он не определён — компас.
-        if (segmentKind == SegmentKind.UNKNOWN) R.drawable.ic_activity_auto else activityType.notificationIconRes()
-
-    @DrawableRes
-    private fun ActivityType.notificationIconRes(): Int = when (this) {
-        ActivityType.RUNNING -> R.drawable.ic_activity_running
-        ActivityType.CYCLING -> R.drawable.ic_activity_cycling
-        ActivityType.DRIVING -> R.drawable.ic_activity_driving
-        ActivityType.WALKING, ActivityType.HIKING, ActivityType.OTHER -> R.drawable.ic_activity_walking
+    private fun RecordingSession.notificationIconRes(): Int = when (segmentKind) {
+        SegmentKind.RUNNING -> R.drawable.ic_activity_running
+        SegmentKind.CYCLING -> R.drawable.ic_activity_cycling
+        SegmentKind.VEHICLE -> R.drawable.ic_activity_driving
+        SegmentKind.ON_FOOT, SegmentKind.HIKING -> R.drawable.ic_activity_walking
+        // Вид ещё не определён (авторежим до первого вердикта) или его нет — компас.
+        SegmentKind.UNKNOWN, SegmentKind.PAUSE -> R.drawable.ic_activity_auto
     }
 
     /**

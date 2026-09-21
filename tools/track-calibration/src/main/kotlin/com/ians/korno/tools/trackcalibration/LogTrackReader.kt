@@ -1,6 +1,6 @@
 package com.ians.korno.tools.trackcalibration
 
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
@@ -31,8 +31,8 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class LoggedActivity(
     val activityId: Long,
-    /** Тип активности из записи о старте; `null` — начала сессии в логе нет. */
-    val activityType: ActivityType?,
+    /** Вид сегмента из записи о старте; `null` — начала сессии в логе нет. */
+    val segmentKind: SegmentKind?,
     val sensitivity: AutoPauseSensitivity?,
     val points: List<GeoPoint>,
     /** Сэмплы, для которых координат в логе не оказалось: точку из них не собрать. */
@@ -109,7 +109,7 @@ private fun buildActivities(lines: List<String>): List<LoggedActivity> {
 }
 
 private class ActivityBuilder(private val activityId: Long) {
-    private var activityType: ActivityType? = null
+    private var segmentKind: SegmentKind? = null
     private var sensitivity: AutoPauseSensitivity? = null
     private val points = mutableListOf<GeoPoint>()
 
@@ -129,7 +129,7 @@ private class ActivityBuilder(private val activityId: Long) {
     fun consume(record: JsonObject) {
         when (record.string("message")) {
             SESSION_STARTED -> {
-                activityType = record.field("activityType")?.let { enumOrNull<ActivityType>(it) }
+                segmentKind = record.field("segmentKind")?.let { enumOrNull<SegmentKind>(it) }
                 sensitivity = record.field("autoPauseSensitivity")
                     ?.let { enumOrNull<AutoPauseSensitivity>(it) }
             }
@@ -208,7 +208,7 @@ private class ActivityBuilder(private val activityId: Long) {
         if (pendingSample != null) samplesWithoutCoordinates++
         return LoggedActivity(
             activityId = activityId,
-            activityType = activityType,
+            segmentKind = segmentKind,
             sensitivity = sensitivity,
             points = points.sortedBy(GeoPoint::timestampEpochMillis),
             samplesWithoutCoordinates = samplesWithoutCoordinates,

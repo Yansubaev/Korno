@@ -1,11 +1,11 @@
 package com.ians.korno.feature.tracking.presentation
 
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 
 internal sealed interface TrackingSetupAction {
-    data class SelectActivityType(val type: ActivityType) : TrackingSetupAction
+    data class SelectSegmentKind(val kind: SegmentKind) : TrackingSetupAction
 
     /** «Авто» выбрано, и распознавание доступно — экран уже проверил. */
     data object SelectAutoMode : TrackingSetupAction

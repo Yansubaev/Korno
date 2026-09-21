@@ -178,69 +178,60 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
-    fun migration8To9RecordsMediumSensitivityAndWhoChoseTheType() {
+    fun migration8To9RecordsMediumSensitivity() {
         helper.createDatabase(TEST_DATABASE_NAME, 8).use { database ->
             database.insertActivity(id = 1L, title = "Fixed walk")
-            database.insertActivity(id = 2L, title = "Auto ride", activityType = "CYCLING")
-            database.insertActivity(id = 3L, title = "Auto hike", activityType = "HIKING")
-            database.execSQL("UPDATE activities SET is_auto_mode = 1 WHERE id IN (2, 3)")
-            database.insertSegment(activityId = 2L, kind = "ON_FOOT", distanceMeters = 300.0)
-            database.insertSegment(activityId = 2L, kind = "CYCLING", distanceMeters = 5_000.0)
-            database.insertSegment(activityId = 3L, kind = "ON_FOOT", distanceMeters = 8_000.0)
         }
 
         val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 9, true)
 
-        migrated.query(
-            "SELECT auto_pause_sensitivity, is_type_chosen_by_user FROM activities ORDER BY id",
-        ).use { row ->
+        migrated.query("SELECT auto_pause_sensitivity FROM activities WHERE id = 1").use { row ->
             assertThat(row.moveToFirst()).isTrue()
+            // С какой чувствительностью писались прежние записи, неизвестно.
             assertThat(row.getString(0)).isEqualTo("MEDIUM")
-            assertThat(row.getInt(1)).isEqualTo(1)
-            row.moveToNext()
-            assertThat(row.getInt(1)).isEqualTo(0)
-            row.moveToNext()
-            assertThat(row.getInt(1)).isEqualTo(1)
         }
     }
 
     @Test
-    fun migration10To11DerivesTheTypeOfAutoActivitiesNobodyChose() {
-        helper.createDatabase(TEST_DATABASE_NAME, 10).use { database ->
-            // Так выглядит история авторежима после миграции 8 → 9: тип остался «другим»,
-            // и расхождение с доминирующим видом она приняла за ручной выбор.
-            database.insertActivity(id = 1L, title = "Auto ride", activityType = "OTHER")
-            database.insertActivity(id = 2L, title = "Imported", activityType = "OTHER")
-            database.insertActivity(id = 3L, title = "Chosen hike", activityType = "HIKING")
-            database.execSQL("UPDATE activities SET is_auto_mode = 1, is_type_chosen_by_user = 1 WHERE id = 1")
-            database.execSQL("UPDATE activities SET is_type_chosen_by_user = 1 WHERE id IN (2, 3)")
-            database.insertSegment(activityId = 1L, kind = "ON_FOOT", distanceMeters = 300.0)
-            database.insertSegment(activityId = 1L, kind = "CYCLING", distanceMeters = 5_000.0)
-            database.insertSegment(activityId = 1L, kind = "PAUSE", distanceMeters = 0.0)
-            database.insertSegment(activityId = 2L, kind = "UNKNOWN", distanceMeters = 1_200.0)
-            database.insertSegment(activityId = 3L, kind = "ON_FOOT", distanceMeters = 8_000.0)
+    fun migration11To12TurnsAutoModeIntoARecordingModeAndKeepsTheRecords() {
+        helper.createDatabase(TEST_DATABASE_NAME, 11).use { database ->
+            database.insertActivity(id = 1L, title = "Auto ride", activityType = "CYCLING")
+            database.insertActivity(id = 2L, title = "Fixed hike", activityType = "HIKING")
+            database.execSQL("UPDATE activities SET is_auto_mode = 1, step_count = 4200 WHERE id = 1")
+            database.execSQL("UPDATE activities SET is_type_chosen_by_user = 1 WHERE id = 2")
+            database.insertSegment(activityId = 2L, kind = "ON_FOOT", distanceMeters = 8_000.0)
         }
 
         val migrated = helper.runMigrationsAndValidate(
             TEST_DATABASE_NAME,
-            11,
+            12,
             true,
-            KornoDatabase.MIGRATION_10_11,
+            KornoDatabase.MIGRATION_11_12,
         )
 
-        migrated.query("SELECT activity_type, is_type_chosen_by_user FROM activities ORDER BY id").use { row ->
+        migrated.query(
+            "SELECT title, recording_mode, step_count, distance, auto_pause_sensitivity " +
+                "FROM activities ORDER BY id",
+        ).use { row ->
+            assertThat(row.count).isEqualTo(2)
+
             assertThat(row.moveToFirst()).isTrue()
-            // Тип выводится из доминирующего вида, как это делает пересчёт трека.
-            assertThat(row.getString(0)).isEqualTo("CYCLING")
-            assertThat(row.getInt(1)).isEqualTo(0)
+            assertThat(row.getString(0)).isEqualTo("Auto ride")
+            assertThat(row.getString(1)).isEqualTo("AUTO")
+            // Пересоздание таблицы не должно терять ни одной колонки записи.
+            assertThat(row.getInt(2)).isEqualTo(4200)
+            assertThat(row.getDouble(3)).isEqualTo(1200.0)
+            assertThat(row.getString(4)).isEqualTo("MEDIUM")
+
             row.moveToNext()
-            // Выводить не из чего — «другое» остаётся, но выбором пользователя больше не считается.
-            assertThat(row.getString(0)).isEqualTo("OTHER")
-            assertThat(row.getInt(1)).isEqualTo(0)
-            row.moveToNext()
-            // Настоящий ручной выбор не трогается.
-            assertThat(row.getString(0)).isEqualTo("HIKING")
-            assertThat(row.getInt(1)).isEqualTo(1)
+            assertThat(row.getString(0)).isEqualTo("Fixed hike")
+            assertThat(row.getString(1)).isEqualTo("FIXED")
+        }
+        // Хайкинг жил только в типе, и с ним он теряется: релиза не было, переносить
+        // его некуда — вид сегмента остаётся тем, каким его записал детектор.
+        migrated.query("SELECT kind FROM activity_segments WHERE activity_id = 2").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("ON_FOOT")
         }
     }
 
@@ -251,7 +242,7 @@ class KornoDatabaseMigrationTest {
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 11, true, KornoDatabase.MIGRATION_10_11).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 12, true, KornoDatabase.MIGRATION_11_12).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.
@@ -259,7 +250,7 @@ class KornoDatabaseMigrationTest {
             InstrumentationRegistry.getInstrumentation().targetContext,
             KornoDatabase::class.java,
             TEST_DATABASE_NAME,
-        ).addMigrations(KornoDatabase.MIGRATION_10_11).build()
+        ).addMigrations(KornoDatabase.MIGRATION_11_12).build()
 
         try {
             val points = database.trackDao().routePoints(activityId = 1L)

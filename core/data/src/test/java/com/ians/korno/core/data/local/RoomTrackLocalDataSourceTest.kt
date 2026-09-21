@@ -12,7 +12,6 @@ import com.ians.korno.core.database.entity.RoutePointProjection
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +28,6 @@ class RoomTrackLocalDataSourceTest {
             ActivityEntity(
                 id = 8L,
                 startTimeEpochMillis = 1_000L,
-                activityType = ActivityType.RUNNING.name,
             ),
         )
 
@@ -40,7 +38,6 @@ class RoomTrackLocalDataSourceTest {
                         Activity(
                             id = 8L,
                             startTimeEpochMillis = 1_000L,
-                            activityType = ActivityType.RUNNING,
                         ),
                     ),
                 ),
@@ -65,7 +62,6 @@ class RoomTrackLocalDataSourceTest {
             Activity(
                 id = 404L,
                 startTimeEpochMillis = 1_000L,
-                activityType = ActivityType.WALKING,
             ),
         )
 
@@ -77,7 +73,6 @@ class RoomTrackLocalDataSourceTest {
         val activity = Activity(
             id = 8L,
             startTimeEpochMillis = 1_000L,
-            activityType = ActivityType.WALKING,
         )
         val point = GeoPoint(
             activityId = 8L,

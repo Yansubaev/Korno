@@ -1,7 +1,7 @@
 package com.ians.korno.tools.trackcalibration
 
 import com.ians.korno.core.domain.error.Result
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.RecognitionSample
@@ -34,7 +34,7 @@ Korno track calibration — прогон записанных треков че�
 но трека в нём нет.
 
 Опции:
-  --type=<ACTIVITY_TYPE>   тип активности вместо указанного в файле
+  --kind=<SEGMENT_KIND>    вид движения вместо указанного в файле
                            (RUNNING, CYCLING, WALKING, HIKING, DRIVING, OTHER)
   --sensitivity=<LEVEL>    чувствительность автопаузы: LOW, MEDIUM, HIGH
   --no-sweep               только сводка по трекам, без перебора порогов
@@ -66,14 +66,14 @@ fun main(arguments: Array<String>) {
 
 private class Options(
     val paths: List<File>,
-    val activityType: ActivityType?,
+    val segmentKind: SegmentKind?,
     val sensitivity: AutoPauseSensitivity?,
     val noSweep: Boolean,
 )
 
 private class LoadedTrack(
     val name: String,
-    val activityType: ActivityType,
+    val segmentKind: SegmentKind,
     val points: List<GeoPoint>,
     val config: TrackProcessingConfig,
     val isKornoExport: Boolean,
@@ -95,7 +95,7 @@ private class RecordedVerdicts(val outlierCount: Int, val stopCount: Int)
 
 private fun parseOptions(arguments: Array<String>): Options? {
     val paths = mutableListOf<File>()
-    var activityType: ActivityType? = null
+    var segmentKind: SegmentKind? = null
     var sensitivity: AutoPauseSensitivity? = null
     var noSweep = false
 
@@ -103,8 +103,8 @@ private fun parseOptions(arguments: Array<String>): Options? {
         when {
             argument == "--help" || argument == "-h" -> return null
             argument == "--no-sweep" -> noSweep = true
-            argument.startsWith("--type=") -> {
-                activityType = enumOrNull<ActivityType>(argument.substringAfter('=')) ?: return null
+            argument.startsWith("--kind=") -> {
+                segmentKind = enumOrNull<SegmentKind>(argument.substringAfter('=')) ?: return null
             }
             argument.startsWith("--sensitivity=") -> {
                 sensitivity = enumOrNull<AutoPauseSensitivity>(argument.substringAfter('=')) ?: return null
@@ -113,7 +113,7 @@ private fun parseOptions(arguments: Array<String>): Options? {
             else -> paths += File(argument)
         }
     }
-    return Options(paths, activityType, sensitivity, noSweep)
+    return Options(paths, segmentKind, sensitivity, noSweep)
 }
 
 private fun trackFilesIn(path: File): List<File> = when {
@@ -158,16 +158,16 @@ private fun loadLogTracks(file: File, options: Options): List<LoadedTrack> {
                     activity.missingCoordinatesHint(),
             )
         }
-        val activityType = options.activityType ?: activity.activityType ?: ActivityType.OTHER
-        if (options.activityType == null && activity.activityType == null) {
-            println("$name: типа активности в логе нет, взят OTHER — задайте --type")
+        val segmentKind = options.segmentKind ?: activity.segmentKind ?: SegmentKind.UNKNOWN
+        if (options.segmentKind == null && activity.segmentKind == null) {
+            println("$name: вида сегмента в логе нет, взят UNKNOWN — задайте --kind")
         }
         val sensitivity = options.sensitivity ?: activity.sensitivity
         LoadedTrack(
             name = name,
-            activityType = activityType,
+            segmentKind = segmentKind,
             points = activity.points,
-            config = TrackProcessingConfig.forActivityType(activityType)
+            config = TrackProcessingConfig.forSegmentKind(segmentKind)
                 .let { base -> sensitivity?.let(base::withAutoPauseSensitivity) ?: base },
             sensitivity = sensitivity ?: AutoPauseSensitivity.MEDIUM,
             isKornoExport = false,
@@ -196,13 +196,13 @@ private fun loadTrack(file: File, options: Options): LoadedTrack? {
             return null
         }
     }
-    val activityType = options.activityType ?: document.activityType
+    val segmentKind = options.segmentKind ?: document.kind
     val points = document.toGeoPoints(activityId = 0L, fallbackStartEpochMillis = 0L)
-    val config = TrackProcessingConfig.forActivityType(activityType)
+    val config = TrackProcessingConfig.forSegmentKind(segmentKind)
         .let { base -> options.sensitivity?.let(base::withAutoPauseSensitivity) ?: base }
     return LoadedTrack(
         name = file.name,
-        activityType = activityType,
+        segmentKind = segmentKind,
         points = points,
         config = config,
         isKornoExport = document.isKornoExport,
@@ -218,12 +218,12 @@ private fun printSummary(tracks: List<LoadedTrack>) {
         ),
     )
     tracks.forEach { track ->
-        val run = runPipeline(track.points, track.activityType, track.config)
+        val run = runPipeline(track.points, track.config)
         println(
             "%-32s %-8s %6d %6d %9.2f %9.2f %9s %6d %7.0f %7.1f".format(
                 Locale.US,
                 track.name.take(32),
-                track.activityType.name.take(8),
+                track.segmentKind.name.take(8),
                 track.points.size,
                 run.outlierCount,
                 rawDistanceMeters(track.points) / 1_000.0,
@@ -290,7 +290,7 @@ private fun printSignalQuality(track: LoadedTrack) {
  */
 private fun printSweeps(track: LoadedTrack) {
     println()
-    println("ПОРОГИ — ${track.name} (${track.activityType})".title())
+    println("ПОРОГИ — ${track.name} (${track.segmentKind})".title())
 
     SWEEPS.forEach { sweep ->
         val current = sweep.currentValue(track.config)
@@ -303,7 +303,7 @@ private fun printSweeps(track: LoadedTrack) {
                 println("  %10.2f %8s".format(Locale.US, value, "недопустимо"))
                 return@forEach
             }
-            val run = runPipeline(track.points, track.activityType, config)
+            val run = runPipeline(track.points, config)
             val marker = if (kotlin.math.abs(value - current) < 1e-6) "*" else " "
             println(
                 "  %9.2f%s %8d %10.3f %10s %6d".format(

@@ -4,6 +4,7 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.dominantKind
 import com.ians.korno.core.domain.model.movingTime
 import com.ians.korno.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +19,7 @@ val ACTIVITY_LIST_CHIP_KINDS = listOf(
     SegmentKind.RUNNING,
     SegmentKind.CYCLING,
     SegmentKind.ON_FOOT,
+    SegmentKind.HIKING,
     SegmentKind.VEHICLE,
     SegmentKind.UNKNOWN,
 )
@@ -68,6 +70,10 @@ class ActivityListSnapshot(
             movingTimeMillis = parts.sumOf(ActivitySegment::movingTime),
         )
     }
+
+    /** Лицо записи: вид с наибольшей дистанцией. `UNKNOWN` — определить не из чего. */
+    fun dominantKindOf(activity: Activity): SegmentKind =
+        activity.segments().dominantKind() ?: SegmentKind.UNKNOWN
 
     private fun Activity.hasSegmentOf(kind: SegmentKind): Boolean = segments().any { it.kind == kind }
 

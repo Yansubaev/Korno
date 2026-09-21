@@ -14,6 +14,7 @@ import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatDuration
+import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.feature.activitylist.domain.usecase.GetRoutePreviewUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ImportTracksUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ObserveActivityListUseCase
@@ -74,7 +75,9 @@ internal class ActivityListViewModel(
             filterKind = kind,
             filterPeriod = period,
             availableKinds = snapshot.chipKinds,
-            items = selection.activities.map { it.toUi(preferences.measurementSystem) },
+            items = selection.activities.map {
+                it.toUi(snapshot.dominantKindOf(it), preferences.measurementSystem)
+            },
             statsDistanceText = context.formatDistance(
                 selection.distanceMeters,
                 preferences.measurementSystem,
@@ -167,13 +170,14 @@ internal class ActivityListViewModel(
         return startTimeEpochMillis >= startOfCalendarPeriodMillis(unit)
     }
 
-    private fun Activity.toUi(measurementSystem: MeasurementSystem): ActivityListItemUi = ActivityListItemUi(
-        id = id,
-        title = title ?: activityType.name,
-        supportingText = formatDuration(elapsedTimeMillis),
-        distanceText = context.formatDistance(distanceMeters, measurementSystem, 1).text,
-        type = activityType,
-    )
+    private fun Activity.toUi(kind: SegmentKind, measurementSystem: MeasurementSystem): ActivityListItemUi =
+        ActivityListItemUi(
+            id = id,
+            title = title ?: context.getString(kind.labelRes()),
+            supportingText = formatDuration(elapsedTimeMillis),
+            distanceText = context.formatDistance(distanceMeters, measurementSystem, 1).text,
+            kind = kind,
+        )
 
     private fun formatDuration(millis: Long): String {
         val totalSeconds = millis / 1000

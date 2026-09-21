@@ -1,11 +1,8 @@
 package com.ians.korno.core.trackprocessing
 
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.SegmentKind
-import com.ians.korno.core.domain.model.isMovement
 import com.ians.korno.core.domain.model.TRACK_GAP_THRESHOLD_MILLIS
-import com.ians.korno.core.domain.model.activityType
 import kotlin.math.max
 
 data class TrackProcessingConfig(
@@ -136,21 +133,65 @@ data class TrackProcessingConfig(
 
     companion object {
         /**
-         * Профиль порогов для сегмента смешанной записи (см. [profileActivityType]).
-         *
-         * Транспорт стоит отдельно от [ActivityType.DRIVING], хотя вид у них один.
-         * «Вождение» пользователь выбирает сам, и это обычно шоссе; вид `VEHICLE` детектор
-         * ставит и городскому автобусу, который половину пути стоит в пробке и на
-         * остановках. Шоссейные пороги — семьдесят метров в секунду и сотня метров
-         * погрешности — для него означают, что в трек проходит почти всё подряд.
+         * Профиль порогов по виду сегмента — единственный вход: своего вида у активности
+         * больше нет, и выбирать пороги больше не из чего (`docs/adr/0004`).
          */
         fun forSegmentKind(kind: SegmentKind): TrackProcessingConfig = when (kind) {
+            // Порог остановки для пешехода долго стоял на 0.25 м/с — это 0.9 км/ч,
+            // ниже шумового пола GPS на любой реальной погрешности, и автопауза
+            // не срабатывала вовсе.
+            SegmentKind.ON_FOOT -> TrackProcessingConfig(
+                maximumSpeedMetersPerSecond = 5.5,
+                maximumAccuracyMeters = 40.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.25,
+                stopSpeedMetersPerSecond = 0.5,
+                resumeSpeedMetersPerSecond = 0.9,
+            )
+            // То же тело, что и у ходьбы, но с более терпимой автопаузой: на тропе шаг
+            // опроса шире (см. LocationUpdatePolicy), и детектору остановок нужно
+            // окно подлиннее, чтобы набрать несколько точек, а не одну-две. Короткая
+            // заминка — сфотографировать вид, завязать шнурки — не должна ставить паузу,
+            // а привал на тропе — должен.
+            SegmentKind.HIKING -> TrackProcessingConfig(
+                maximumSpeedMetersPerSecond = 5.5,
+                maximumAccuracyMeters = 40.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.25,
+                stopSpeedMetersPerSecond = 0.5,
+                resumeSpeedMetersPerSecond = 0.9,
+                stopWindowMillis = 30_000L,
+                minimumStopDurationMillis = 20_000L,
+            )
+            SegmentKind.RUNNING -> TrackProcessingConfig(
+                maximumSpeedMetersPerSecond = 10.0,
+                maximumAccuracyMeters = 40.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.7,
+                stopSpeedMetersPerSecond = 0.45,
+                resumeSpeedMetersPerSecond = 1.0,
+            )
+            SegmentKind.CYCLING -> TrackProcessingConfig(
+                maximumSpeedMetersPerSecond = 25.0,
+                maximumAccuracyMeters = 50.0,
+                processNoiseAccelerationMetersPerSecondSquared = 0.9,
+                stopSpeedMetersPerSecond = 0.6,
+                resumeSpeedMetersPerSecond = 1.5,
+            )
             SegmentKind.VEHICLE -> TRANSIT
-            else -> forActivityType(kind.profileActivityType)
+            // Вид ещё не определён или его нет вовсе (пауза): действует самый терпимый
+            // профиль — пешие пороги выкинули бы все точки автобуса. В машине сигнал
+            // хуже (крыша, тоннели), а цена ошибки ниже: сотня метров погрешности на
+            // скорости 60 км/ч — это меньше секунды пути.
+            SegmentKind.UNKNOWN, SegmentKind.PAUSE -> TrackProcessingConfig(
+                maximumSpeedMetersPerSecond = 70.0,
+                maximumAccuracyMeters = 100.0,
+                processNoiseAccelerationMetersPerSecondSquared = 1.5,
+                stopSpeedMetersPerSecond = 0.8,
+                resumeSpeedMetersPerSecond = 2.0,
+            )
         }
 
         /**
-         * Наземный транспорт, определённый датчиками: автобус, трамвай, попутная машина.
+         * Наземный транспорт: автобус, трамвай, машина, попутка — один профиль на всех
+         * (`docs/adr/0006`).
          *
          * Потолок скорости — тридцать метров в секунду (108 км/ч): он нужен не чтобы
          * ограничить транспорт, а чтобы грубая проверка перемещения вообще что-то ловила.
@@ -169,69 +210,12 @@ data class TrackProcessingConfig(
             stopSpeedMetersPerSecond = 0.8,
             resumeSpeedMetersPerSecond = 2.0,
         )
-
-        fun forActivityType(activityType: ActivityType): TrackProcessingConfig = when (activityType) {
-            // Порог остановки для пешехода долго стоял на 0.25 м/с — это 0.9 км/ч,
-            // ниже шумового пола GPS на любой реальной погрешности, и автопауза
-            // не срабатывала вовсе.
-            ActivityType.WALKING -> TrackProcessingConfig(
-                maximumSpeedMetersPerSecond = 5.5,
-                maximumAccuracyMeters = 40.0,
-                processNoiseAccelerationMetersPerSecondSquared = 0.25,
-                stopSpeedMetersPerSecond = 0.5,
-                resumeSpeedMetersPerSecond = 0.9,
-            )
-            // То же тело, что и у ходьбы, но с более терпимой автопаузой: на тропе шаг
-            // опроса шире (см. LocationUpdatePolicy), и окну детектора остановок нужно
-            // окно подлиннее, чтобы набрать несколько точек, а не одну-две. Короткая
-            // заминка — сфотографировать вид, завязать шнурки — не должна ставить паузу,
-            // а привал на тропе — должен.
-            ActivityType.HIKING -> TrackProcessingConfig(
-                maximumSpeedMetersPerSecond = 5.5,
-                maximumAccuracyMeters = 40.0,
-                processNoiseAccelerationMetersPerSecondSquared = 0.25,
-                stopSpeedMetersPerSecond = 0.5,
-                resumeSpeedMetersPerSecond = 0.9,
-                stopWindowMillis = 30_000L,
-                minimumStopDurationMillis = 20_000L,
-            )
-            ActivityType.RUNNING -> TrackProcessingConfig(
-                maximumSpeedMetersPerSecond = 10.0,
-                maximumAccuracyMeters = 40.0,
-                processNoiseAccelerationMetersPerSecondSquared = 0.7,
-                stopSpeedMetersPerSecond = 0.45,
-                resumeSpeedMetersPerSecond = 1.0,
-            )
-            ActivityType.CYCLING -> TrackProcessingConfig(
-                maximumSpeedMetersPerSecond = 25.0,
-                maximumAccuracyMeters = 50.0,
-                processNoiseAccelerationMetersPerSecondSquared = 0.9,
-                stopSpeedMetersPerSecond = 0.6,
-                resumeSpeedMetersPerSecond = 1.5,
-            )
-            // В машине сигнал хуже (крыша, тоннели), а цена ошибки ниже: сотня метров
-            // погрешности на скорости 60 км/ч — это меньше секунды пути.
-            ActivityType.DRIVING -> TrackProcessingConfig(
-                maximumSpeedMetersPerSecond = 70.0,
-                maximumAccuracyMeters = 100.0,
-                processNoiseAccelerationMetersPerSecondSquared = 1.5,
-                stopSpeedMetersPerSecond = 0.8,
-                resumeSpeedMetersPerSecond = 2.0,
-            )
-            ActivityType.OTHER -> TrackProcessingConfig(
-                maximumSpeedMetersPerSecond = 55.0,
-                maximumAccuracyMeters = 75.0,
-                processNoiseAccelerationMetersPerSecondSquared = 1.0,
-                stopSpeedMetersPerSecond = 0.45,
-                resumeSpeedMetersPerSecond = 1.0,
-            )
-        }
     }
 }
 
 /**
  * Окна LOW/HIGH масштабируются от базового окна конфигурации, а не заданы абсолютно:
- * у хайкинга оно шире, чем у ходьбы (см. [TrackProcessingConfig.forActivityType]), и
+ * у хайкинга оно шире, чем у ходьбы (см. [TrackProcessingConfig.forSegmentKind]), и
  * фиксированные 25 000/10 000 схлопнули бы его обратно до значений ходьбы. Коэффициенты
  * подобраны так, чтобы для базового окна 15 000/10 000 (все активности, кроме хайкинга)
  * результат совпадал с прежними абсолютными числами.
@@ -258,13 +242,3 @@ fun TrackProcessingConfig.withAutoPauseSensitivity(
         ),
     )
 }
-
-/**
- * Тип активности, чьи пороги трека действуют для вида. Пока вид не определён, действует
- * самый терпимый — шоссейный: пешие пороги выкинули бы все точки автобуса.
- *
- * Вид [SegmentKind.VEHICLE] сюда не попадает: у него профиль свой, минуя тип активности
- * (см. [TrackProcessingConfig.forSegmentKind]).
- */
-val SegmentKind.profileActivityType: ActivityType
-    get() = if (isMovement) activityType else ActivityType.DRIVING

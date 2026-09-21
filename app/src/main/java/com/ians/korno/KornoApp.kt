@@ -112,7 +112,7 @@ fun KornoApp(
                     snackbarHostState.showSnackbar(locationPermissionDeniedMessage)
                 }
                 is KornoAppEvent.OpenTrackingSetup -> {
-                    navController.navigate(TrackingSetupRoute(event.activityType))
+                    navController.navigate(TrackingSetupRoute(event.kind))
                 }
             }
         }

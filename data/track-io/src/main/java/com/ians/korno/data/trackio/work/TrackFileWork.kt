@@ -6,6 +6,8 @@ import com.ians.korno.core.domain.error.Result as DomainResult
 import com.ians.korno.core.domain.error.TrackFileError
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.dominantKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.logging.AppLogger
@@ -58,6 +60,8 @@ internal fun trackFileFormatOf(name: String?): TrackFileFormat =
 internal data class LoadedTrack(
     val activity: Activity,
     val points: List<GeoPoint>,
+    /** Лицо записи — её доминирующий вид. Формат описывает один вид спорта на файл. */
+    val kind: SegmentKind,
 )
 
 /**
@@ -76,7 +80,8 @@ internal suspend fun TrackRepository.loadTrack(
         is DomainResult.Error -> return DomainResult.Error(TrackFileError.STORAGE_FAILURE)
     }
     if (points.isEmpty()) return DomainResult.Error(TrackFileError.NO_TRACK_POINTS)
-    return DomainResult.Success(LoadedTrack(activity, points))
+    val segments = (getSegments(activityId) as? DomainResult.Success)?.data.orEmpty()
+    return DomainResult.Success(LoadedTrack(activity, points, segments.dominantKind() ?: SegmentKind.UNKNOWN))
 }
 
 /**

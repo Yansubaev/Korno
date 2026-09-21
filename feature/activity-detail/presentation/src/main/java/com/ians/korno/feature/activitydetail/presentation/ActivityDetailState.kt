@@ -1,6 +1,5 @@
 package com.ians.korno.feature.activitydetail.presentation
 
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.logging.ActivityLogInfo
 import com.ians.korno.core.map.MapPoint
@@ -9,14 +8,15 @@ internal data class ActivityDetailState(
     val isLoading: Boolean = true,
     val title: String = "",
     val dateLabel: String = "",
-    val type: ActivityType = ActivityType.RUNNING,
+    /** Лицо записи — её доминирующий вид. */
+    val kind: SegmentKind = SegmentKind.UNKNOWN,
     val distanceText: String = "",
     val durationText: String = "",
     val movingText: String = "",
     val avgSpeedText: String = "",
     val maxSpeedText: String = "",
     val elevationText: String = "",
-    /** `null` — тип активности шаги не считает. */
+    /** `null` — вид движения шаги не считает. */
     val stepsText: String? = null,
     val routePoints: List<MapPoint> = emptyList(),
     /** Вид каждой точки [routePoints] — для линзы «Виды». Пусто, если вид в записи один. */
@@ -51,5 +51,5 @@ internal data class ActivityDetailState(
     val activityLog: ActivityLogInfo? = null,
     val isPreparingLogArchive: Boolean = false,
 ) {
-    val speedDisplay: SpeedDisplay get() = insights?.speedDisplay ?: type.speedDisplay
+    val speedDisplay: SpeedDisplay get() = insights?.speedDisplay ?: kind.speedDisplay
 }

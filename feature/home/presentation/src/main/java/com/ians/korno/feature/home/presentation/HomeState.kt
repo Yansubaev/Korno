@@ -1,6 +1,6 @@
 package com.ians.korno.feature.home.presentation
 
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 
 internal data class RecentActivityUi(
     val id: Long,
@@ -8,7 +8,8 @@ internal data class RecentActivityUi(
     val dateLabel: String,
     val durationText: String,
     val distanceText: String,
-    val type: ActivityType,
+    /** Лицо записи — её доминирующий вид. */
+    val kind: SegmentKind,
 )
 
 internal data class HomeState(
@@ -17,5 +18,5 @@ internal data class HomeState(
     val weekTimeText: String = "",
     val recentActivities: List<RecentActivityUi> = emptyList(),
     val hasMoreActivities: Boolean = false,
-    val selectedType: ActivityType = ActivityType.RUNNING,
+    val selectedKind: SegmentKind = SegmentKind.RUNNING,
 )

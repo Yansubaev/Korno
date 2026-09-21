@@ -10,10 +10,10 @@ data class UserPreferences(
     val dynamicColorEnabled: Boolean,
     val privacyZone: PrivacyZone,
     val onboardingCompleted: Boolean,
-    // Тип последней выбранной активности: подставляется на главном экране и в настройке
+    // Последний выбранный вид движения: подставляется на главном экране и в настройке
     // записи, чтобы не выбирать его заново перед каждой тренировкой.
-    val lastActivityType: ActivityType,
-    // Последний выбор режима записи на старте: авто или фиксированный тип. Новые
+    val lastSegmentKind: SegmentKind,
+    // Последний выбор режима записи на старте: авто или фиксированный вид. Новые
     // пользователи начинают с авто.
     val lastRecordingAutoMode: Boolean = true,
 )

@@ -56,7 +56,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.animation.disintegrateOnExit
 import com.ians.korno.core.designsystem.animation.rememberDisintegrationState
 import com.ians.korno.core.designsystem.theme.KornoTheme
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackMap
@@ -227,7 +226,7 @@ private fun ActivityDetailContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(state.type.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(state.kind.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text(state.dateLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
             }
 

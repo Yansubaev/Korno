@@ -120,8 +120,8 @@ internal class TrackingRecordingViewModel(
         val isMetric = measurementSystem == MeasurementSystem.METRIC
         return TrackingRecordingState(
             recordingStatus = status,
-            activityType = activityType,
             segmentKind = segmentKind,
+            segmentKindEditable = isAutoMode,
             segmentDistances = segmentDistancesMeters
                 .filterKeys { it != SegmentKind.UNKNOWN }
                 .toSortedMap()

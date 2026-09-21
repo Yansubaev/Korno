@@ -5,7 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.dominantKind
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.LogManager
@@ -14,6 +15,7 @@ import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatSpeed
 import com.ians.korno.feature.tracking.domain.usecase.DiscardActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveActivityUseCase
+import com.ians.korno.feature.tracking.domain.usecase.ObserveActivitySegmentsUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackPointsUseCase
 import com.ians.korno.feature.tracking.domain.usecase.SaveActivitySummaryUseCase
 import java.util.Calendar
@@ -29,6 +31,7 @@ internal class TrackingSummaryViewModel(
     private val context: Context,
     private val activityId: Long,
     observeActivity: ObserveActivityUseCase,
+    observeSegments: ObserveActivitySegmentsUseCase,
     observeTrackPoints: ObserveTrackPointsUseCase,
     private val saveActivitySummary: SaveActivitySummaryUseCase,
     private val discardActivity: DiscardActivityUseCase,
@@ -40,34 +43,32 @@ internal class TrackingSummaryViewModel(
     val state: StateFlow<TrackingSummaryState> = _state.asStateFlow()
 
     private var loadedActivity: Activity? = null
-    private var initialized = false
 
-    /** Пока пользователь не тронул название, оно следует за выбранным типом активности. */
+    /** Пока пользователь не тронул название, оно следует за доминирующим видом записи. */
     private var titleEditedByUser = false
 
     init {
         viewModelScope.launch {
             combine(
                 observeActivity(activityId),
+                observeSegments(activityId),
                 preferencesRepository.observePreferences(),
-            ) { result, preferences -> result to preferences.measurementSystem }
-                .collect { (result, measurementSystem) ->
+            ) { result, segments, preferences ->
+                Triple(result, segments.dominantKind() ?: SegmentKind.UNKNOWN, preferences.measurementSystem)
+            }
+                .collect { (result, kind, measurementSystem) ->
                 if (result is Result.Success) {
                     loadedActivity = result.data
                     _state.update {
-                        // Выбор пользователя на этом экране важнее того, что лежит в БД.
-                        val activityType = if (initialized) it.activityType else result.data.activityType
                         it.copy(
                             isLoading = false,
-                            activityType = activityType,
                             title = if (titleEditedByUser) {
                                 it.title
                             } else {
-                                defaultTitle(result.data.startTimeEpochMillis, activityType)
+                                defaultTitle(result.data.startTimeEpochMillis, kind)
                             },
                         ) + result.data.toStats(measurementSystem)
                     }
-                    initialized = true
                 }
             }
         }
@@ -81,17 +82,6 @@ internal class TrackingSummaryViewModel(
 
     fun onAction(action: TrackingSummaryAction) {
         when (action) {
-            is TrackingSummaryAction.SelectActivityType -> _state.update {
-                val startTime = loadedActivity?.startTimeEpochMillis
-                it.copy(
-                    activityType = action.activityType,
-                    title = if (titleEditedByUser || startTime == null) {
-                        it.title
-                    } else {
-                        defaultTitle(startTime, action.activityType)
-                    },
-                )
-            }
             is TrackingSummaryAction.SetTitle -> {
                 titleEditedByUser = true
                 _state.update { it.copy(title = action.title) }
@@ -104,7 +94,6 @@ internal class TrackingSummaryViewModel(
                     activity = activity,
                     title = currentState.title,
                     note = currentState.note,
-                    activityType = currentState.activityType,
                 )
                 _state.update { it.copy(saved = true) }
             }
@@ -117,7 +106,7 @@ internal class TrackingSummaryViewModel(
         }
     }
 
-    private fun defaultTitle(startTimeEpochMillis: Long, activityType: ActivityType): String {
+    private fun defaultTitle(startTimeEpochMillis: Long, kind: SegmentKind): String {
         val hour = Calendar.getInstance().apply {
             timeInMillis = startTimeEpochMillis
         }.get(Calendar.HOUR_OF_DAY)
@@ -126,13 +115,13 @@ internal class TrackingSummaryViewModel(
             hour < 18 -> R.string.tracking_summary_afternoon
             else -> R.string.tracking_summary_evening
         }
-        val activityNoun = when (activityType) {
-            ActivityType.RUNNING -> R.string.tracking_summary_activity_run
-            ActivityType.CYCLING -> R.string.tracking_summary_activity_ride
-            ActivityType.WALKING -> R.string.tracking_summary_activity_walk
-            ActivityType.DRIVING -> R.string.tracking_summary_activity_drive
-            ActivityType.HIKING -> R.string.tracking_summary_activity_hike
-            ActivityType.OTHER -> R.string.tracking_summary_activity_other
+        val activityNoun = when (kind) {
+            SegmentKind.RUNNING -> R.string.tracking_summary_activity_run
+            SegmentKind.CYCLING -> R.string.tracking_summary_activity_ride
+            SegmentKind.ON_FOOT -> R.string.tracking_summary_activity_walk
+            SegmentKind.VEHICLE -> R.string.tracking_summary_activity_drive
+            SegmentKind.HIKING -> R.string.tracking_summary_activity_hike
+            SegmentKind.UNKNOWN, SegmentKind.PAUSE -> R.string.tracking_summary_activity_other
         }
         return context.getString(
             R.string.tracking_summary_default_title,

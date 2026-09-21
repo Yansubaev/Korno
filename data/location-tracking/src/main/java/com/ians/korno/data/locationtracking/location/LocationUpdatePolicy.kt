@@ -1,6 +1,6 @@
 package com.ians.korno.data.locationtracking.location
 
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.RecordingStatus
 
@@ -51,7 +51,7 @@ object LocationUpdatePolicy {
     fun configFor(
         accuracy: GpsAccuracy,
         status: RecordingStatus,
-        activityType: ActivityType,
+        kind: SegmentKind,
         autoPauseSettled: Boolean = false,
         autoPauseMovementHint: Boolean = false,
     ): LocationUpdateConfig {
@@ -71,7 +71,7 @@ object LocationUpdatePolicy {
             // разрежённый интервал, а вот выход из автопаузы решается по координатам и
             // доплеровской скорости — ровно тому, чего сетевой фикс не даёт.
             RecordingStatus.AUTO_PAUSE -> if (
-                autoPauseSettled && !autoPauseMovementHint && !activityType.holdsPaceOnAutoPause
+                autoPauseSettled && !autoPauseMovementHint && !kind.holdsPaceOnAutoPause
             ) {
                 recording.copy(
                     intervalMillis = (recording.intervalMillis * AUTO_PAUSE_FACTOR)
@@ -99,7 +99,7 @@ object LocationUpdatePolicy {
     }
 
     /**
-     * Держит ли вид активности темп записи и на автопаузе.
+     * Держит ли вид движения темп записи и на автопаузе.
      *
      * Транспорт держит. Автобус на остановке стоит двадцать-сорок секунд, то есть меньше
      * [AUTO_PAUSE_SETTLE_MILLIS], — до экономии дело и не доходило, зато каждый отъезд
@@ -107,13 +107,13 @@ object LocationUpdatePolicy {
      * интервал уходил на десять секунд, а фактический шаг опроса доходил до двенадцати,
      * и в окно детектора остановок попадало две точки вместо пяти.
      */
-    private val ActivityType.holdsPaceOnAutoPause: Boolean
-        get() = this == ActivityType.DRIVING
+    private val SegmentKind.holdsPaceOnAutoPause: Boolean
+        get() = this == SegmentKind.VEHICLE
 
     /**
      * Шаг опроса во время записи.
      *
-     * Один и тот же для всех видов активности: настройка точности — это и есть тот
+     * Один и тот же для всех видов движения: настройка точности — это и есть тот
      * рычаг, которым пользователь меняет частоту, и делить его ещё и по темпу движения
      * значило бы, что одно и то же положение переключателя означает у разных активностей
      * разное. Прежняя таблица 4×3 разводила пешехода, тропу, колесо и транспорт и

@@ -24,14 +24,10 @@
     <string name="segment_kind_on_foot">On foot</string>
     <string name="segment_kind_running">Running</string>
     <string name="segment_kind_cycling">Cycling</string>
+    <string name="segment_kind_hiking">Hiking</string>
     <string name="segment_kind_vehicle">Vehicle</string>
-    <string name="segment_kind_unknown">Detecting…</string>
+    <string name="segment_kind_unknown">Unknown</string>
+    <string name="segment_kind_detecting">Detecting…</string>
     <string name="segment_kind_pause">Paused</string>
 
-    <string name="activity_type_run">Run</string>
-    <string name="activity_type_ride">Ride</string>
-    <string name="activity_type_walk">Walk</string>
-    <string name="activity_type_hike">Hike</string>
-    <string name="activity_type_drive">Drive</string>
-    <string name="activity_type_unknown">Unknown</string>
 </resources>

@@ -1,16 +1,17 @@
 package com.ians.korno.feature.tracking.presentation
 
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.map.MapPoint
 
 internal data class TrackingRecordingState(
     val recordingStatus: RecordingStatus = RecordingStatus.IDLE,
-    val activityType: ActivityType = ActivityType.RUNNING,
-    /** Вид текущего сегмента в авторежиме; `null` — фиксированный режим. */
-    val segmentKind: SegmentKind? = null,
+    /** Вид текущего сегмента; в фиксированном режиме — выбранный до старта. */
+    val segmentKind: SegmentKind = SegmentKind.UNKNOWN,
+    /** Вид правится на ходу: в авторежиме его ставит детектор, и человек может поспорить. */
+    val segmentKindEditable: Boolean = false,
     /** Дистанция по встреченным видам в единицах пользователя, без `UNKNOWN`. */
     val segmentDistances: List<Pair<SegmentKind, Double>> = emptyList(),
     val segmentMenuOpen: Boolean = false,
@@ -20,7 +21,7 @@ internal data class TrackingRecordingState(
     val currentSpeedValue: Double = 0.0,
     val averageSpeedValue: Double = 0.0,
     val elevationGainValue: Double = 0.0,
-    /** `null` — тип активности шаги не считает. */
+    /** `null` — вид движения шаги не считает. */
     val stepCount: Int? = null,
     val measurementSystem: MeasurementSystem = MeasurementSystem.METRIC,
     val routePoints: List<MapPoint> = emptyList(),
@@ -31,5 +32,5 @@ internal data class TrackingRecordingState(
 ) {
     /** Для пешего вида главная метрика — темп, для колёс — скорость. */
     val showsPace: Boolean
-        get() = segmentKind == SegmentKind.ON_FOOT || segmentKind == SegmentKind.RUNNING
+        get() = segmentKind.countsSteps
 }

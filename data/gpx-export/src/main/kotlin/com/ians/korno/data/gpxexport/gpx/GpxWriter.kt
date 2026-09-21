@@ -1,6 +1,6 @@
 package com.ians.korno.data.gpxexport.gpx
 
-import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
+import com.ians.korno.data.gpxexport.format.SegmentKindCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
 import com.ians.korno.data.gpxexport.format.KORNO_CREATOR
 import com.ians.korno.data.gpxexport.format.KORNO_NAMESPACE
@@ -38,7 +38,7 @@ internal object GpxWriter {
             }
             element("trk") {
                 text("name", document.name)
-                text("type", ActivityTypeCodec.toGpxType(document.activityType))
+                text("type", SegmentKindCodec.toGpxType(document.kind))
                 element("trkseg") {
                     document.points.forEach { point -> writePoint(point) }
                 }

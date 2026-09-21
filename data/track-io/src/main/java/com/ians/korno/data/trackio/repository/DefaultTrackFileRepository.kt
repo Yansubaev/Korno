@@ -111,7 +111,7 @@ internal class DefaultTrackFileRepository(
         if (trackFileWriter.exportablePoints(track.points).isEmpty()) {
             return Result.Error(TrackFileError.NO_TRACK_POINTS)
         }
-        return Result.Success(TrackFileNaming.fileName(track.activity, format))
+        return Result.Success(TrackFileNaming.fileName(track.activity, format, track.kind))
     }
 
     override suspend fun prepareShare(
@@ -127,7 +127,7 @@ internal class DefaultTrackFileRepository(
             is Result.Error -> return result
         }
         return documentStore.writeToShareCache(
-            fileName = TrackFileNaming.fileName(track.activity, format),
+            fileName = TrackFileNaming.fileName(track.activity, format, track.kind),
             content = content,
             format = format,
         )

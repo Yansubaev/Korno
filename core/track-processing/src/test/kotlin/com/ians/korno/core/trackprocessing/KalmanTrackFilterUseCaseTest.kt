@@ -5,7 +5,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isLessThan
 import assertk.assertions.isTrue
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GeoPoint
 import kotlin.math.abs
 import kotlin.math.cos
@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test
 class KalmanTrackFilterUseCaseTest {
 
     private val filter = KalmanTrackFilterUseCase()
-    private val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+    private val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
 
     @Test
     fun `stationary noise is suppressed at least twofold`() {

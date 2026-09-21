@@ -15,9 +15,9 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
@@ -62,17 +62,17 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `begin session creates activity and waits for a gps fix`() = runTest {
-        val activityId = coordinator.beginSession(ActivityType.RUNNING)
+        val activityId = coordinator.beginSession(SegmentKind.RUNNING)
 
         assertThat(activityId).isEqualTo(1L)
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
         assertThat(coordinator.session.value.activityId).isEqualTo(1L)
-        assertThat(repository.createdActivities.first().activityType).isEqualTo(ActivityType.RUNNING)
+        assertThat(repository.createdSegments.single().kind).isEqualTo(SegmentKind.RUNNING)
     }
 
     @Test
     fun `a rough sample does not count as a fix but a precise one starts the recording`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         // Первые сэмплы приходят от сети с погрешностью в сотни метров.
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 400f))
@@ -89,7 +89,7 @@ class TrackingSessionCoordinatorTest {
     @Test
     fun `the activity clock starts from the fix, not from the button`() = runTest {
         val pressedAt = clockMillis
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         clockMillis += 12_000L
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
@@ -102,7 +102,7 @@ class TrackingSessionCoordinatorTest {
     fun `fix caught while warming up starts the recording right away`() = runTest {
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
 
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
         assertThat(repository.activityUpdates).hasSize(0)
@@ -113,7 +113,7 @@ class TrackingSessionCoordinatorTest {
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         clockMillis += 60_000L
 
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.WAITING_FOR_GPS)
     }
@@ -123,7 +123,7 @@ class TrackingSessionCoordinatorTest {
         // Первой эмиссией Fused Location Provider почти всегда отдаёт последнюю известную
         // координату из кэша. По времени получения она неотличима от свежей, а относиться
         // может к тому месту, где телефон лежал час назад.
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         coordinator.applySample(
             sample(
@@ -141,7 +141,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `a network fix is not treated as a position measurement`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         coordinator.applySample(
             sample(
@@ -158,7 +158,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `after a long wait even a rough point starts the recording`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         clockMillis += 31_000L
 
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 400f))
@@ -168,7 +168,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `stopping before the fix arrives leaves an activity of zero length`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         clockMillis += 20_000L
 
         coordinator.endSession()
@@ -178,7 +178,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `consecutive samples accumulate distance and moving time`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         // Живые значения отстают на нестабильный хвост: вердикт по точке может ещё
         // перевернуться — детектор остановок помечает стоянкой всё своё окно задним
@@ -200,7 +200,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `live distance never goes backwards between samples`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         var previousDistance = 0.0
         repeat(20) { index ->
@@ -225,7 +225,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `a long manual pause does not leak into moving time`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         repeat(4) { index ->
             coordinator.applySample(
                 sample(latitude = index * 0.0001, longitude = 0.0, timestamp = index * 5_000L),
@@ -253,7 +253,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `samples while paused do not change distance or moving time`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.pause()
 
@@ -267,7 +267,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `samples while manually paused are stored with pause status`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.pause()
         coordinator.applySample(sample(latitude = 1.0, longitude = 1.0, timestamp = 60_000L))
@@ -297,7 +297,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `stationary samples switch session to auto pause and movement resumes it`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L))
@@ -336,7 +336,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `trusted doppler resumes auto pause even when the position is an outlier`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L, accuracyMeters = 5f))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
@@ -363,7 +363,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `an uncertain doppler spike does not resume auto pause for an outlier`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L, accuracyMeters = 5f))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
@@ -387,7 +387,7 @@ class TrackingSessionCoordinatorTest {
         preferencesRepository.preferences.value = preferencesRepository.preferences.value.copy(
             autoPauseEnabled = false,
         )
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L))
@@ -397,7 +397,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `manual pause can override auto pause`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 5_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 10_000L))
@@ -419,7 +419,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `buffer is flushed automatically once threshold is reached`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         repeat(10) { index ->
             coordinator.applySample(sample(latitude = index * 0.0001, longitude = 0.0, timestamp = index * 1_000L))
@@ -430,7 +430,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `buffer is flushed by time even below the threshold`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         assertThat(repository.insertedPoints).hasSize(0)
@@ -443,7 +443,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `end session finalizes activity and resets state`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L))
         coordinator.applySample(sample(latitude = 0.0005, longitude = 0.0, timestamp = 10_000L))
 
@@ -460,7 +460,7 @@ class TrackingSessionCoordinatorTest {
     fun `the activity keeps the sensitivity it was recorded with, even if the setting changes`() = runTest {
         preferencesRepository.preferences.value =
             preferencesRepository.preferences.value.copy(autoPauseSensitivity = AutoPauseSensitivity.HIGH)
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
         preferencesRepository.preferences.value =
             preferencesRepository.preferences.value.copy(autoPauseSensitivity = AutoPauseSensitivity.LOW)
 
@@ -475,7 +475,6 @@ class TrackingSessionCoordinatorTest {
         repository.activeActivity = Activity(
             id = 5L,
             startTimeEpochMillis = clockMillis - 600_000L,
-            activityType = ActivityType.RUNNING,
             autoPauseSensitivity = AutoPauseSensitivity.LOW,
         )
 
@@ -487,7 +486,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `end session from app confirms activity right away`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         coordinator.endSession()
 
@@ -496,7 +495,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `end session from notification leaves activity waiting for summary screen`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING)
+        coordinator.beginSession(SegmentKind.RUNNING)
 
         coordinator.endSession(pendingSummary = true)
 
@@ -505,7 +504,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `first step counter reading only sets the base, without counting steps`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
 
         coordinator.applyStepCounter(1_000L)
@@ -515,7 +514,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `steps accumulate while recording`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
 
         coordinator.applyStepCounter(1_000L)
@@ -527,7 +526,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `steps do not accumulate during manual pause`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.applyStepCounter(1_000L)
 
@@ -543,7 +542,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `a sensor reset does not produce a negative step count`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.applyStepCounter(1_000L)
         coordinator.applyStepCounter(1_050L)
@@ -557,7 +556,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `activities that do not count steps ignore the sensor`() = runTest {
-        coordinator.beginSession(ActivityType.DRIVING)
+        coordinator.beginSession(SegmentKind.VEHICLE)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
 
         coordinator.applyStepCounter(1_000L)
@@ -589,7 +588,7 @@ class TrackingSessionCoordinatorTest {
             logger,
             NoOpActivityLogScope,
         ) { clockMillis }
-        loggingCoordinator.beginSession(ActivityType.CYCLING)
+        loggingCoordinator.beginSession(SegmentKind.CYCLING)
 
         loggingCoordinator.applyStepCounter(1_000L)
         clockMillis += 1_000L
@@ -604,7 +603,7 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `ending the session stores the accumulated step count on the activity`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.applyStepCounter(1_000L)
         coordinator.applyStepCounter(1_042L)
@@ -616,17 +615,17 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `begin session creates the activity with one open segment of its kind`() = runTest {
-        coordinator.beginSession(ActivityType.HIKING)
+        coordinator.beginSession(SegmentKind.HIKING)
 
         val segment = repository.createdSegments.single()
-        assertThat(segment.kind).isEqualTo(SegmentKind.ON_FOOT)
+        assertThat(segment.kind).isEqualTo(SegmentKind.HIKING)
         assertThat(segment.startTimeEpochMillis).isEqualTo(clockMillis)
         assertThat(segment.endTimeEpochMillis).isNull()
     }
 
     @Test
     fun `ending the session closes the segment over the whole recording with its steps and distance`() = runTest {
-        coordinator.beginSession(ActivityType.WALKING)
+        coordinator.beginSession(SegmentKind.ON_FOOT)
         clockMillis += 5_000L
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.applySample(sample(latitude = 0.0005, longitude = 0.0, timestamp = 10_000L, accuracyMeters = 5f))
@@ -648,21 +647,19 @@ class TrackingSessionCoordinatorTest {
 
     @Test
     fun `a fixed-mode hike is saved as a hike, not as the walk its segment kind suggests`() = runTest {
-        beginWarmedSession(ActivityType.HIKING)
+        beginWarmedSession(SegmentKind.HIKING)
 
         coordinator.endSession()
 
-        assertThat(repository.updatedActivities.single().activityType).isEqualTo(ActivityType.HIKING)
-        assertThat(repository.replacedSegments!!.single().kind).isEqualTo(SegmentKind.ON_FOOT)
+        assertThat(repository.replacedSegments!!.single().kind).isEqualTo(SegmentKind.HIKING)
     }
 
     @Test
-    fun `auto mode starts with an unknown segment regardless of the chosen type`() = runTest {
-        coordinator.beginSession(ActivityType.RUNNING, autoMode = true)
+    fun `auto mode starts with an unknown segment regardless of the chosen kind`() = runTest {
+        coordinator.beginSession(SegmentKind.RUNNING, autoMode = true)
 
         val activity = repository.createdActivities.single()
-        assertThat(activity.isAutoMode).isEqualTo(true)
-        assertThat(activity.activityType).isEqualTo(ActivityType.OTHER)
+        assertThat(activity.recordingMode).isEqualTo(RecordingMode.AUTO)
         assertThat(repository.createdSegments.single().kind).isEqualTo(SegmentKind.UNKNOWN)
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.UNKNOWN)
     }
@@ -672,7 +669,7 @@ class TrackingSessionCoordinatorTest {
         // Слияние коротких выключено: точек в тесте нет, и оба сегмента иначе были бы «короткими».
         val coordinator = autoCoordinator(SegmentDetectorConfig(minSegmentDurationMillis = 0L, minSegmentDistanceMeters = 0.0))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
-        coordinator.beginSession(ActivityType.RUNNING, autoMode = true)
+        coordinator.beginSession(SegmentKind.RUNNING, autoMode = true)
         val startedAt = clockMillis
 
         coordinator.applyActivityRecognition(recognized("ON_BICYCLE"))
@@ -683,7 +680,7 @@ class TrackingSessionCoordinatorTest {
         assertThat(repository.savedOpenSegments.single()).isEqualTo(
             ActivitySegment(activityId = 1L, kind = SegmentKind.CYCLING, startTimeEpochMillis = startedAt) to null,
         )
-        assertThat(coordinator.session.value.activityType).isEqualTo(ActivityType.CYCLING)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
 
         clockMillis += 20_000L
         coordinator.applyStepCounter(1_030L)
@@ -719,7 +716,7 @@ class TrackingSessionCoordinatorTest {
         assertThat(segments.last().endTimeEpochMillis).isEqualTo(clockMillis)
         assertThat(segments.last().stepCount).isEqualTo(120)
         val activity = repository.updatedActivities.single()
-        assertThat(activity.isAutoMode).isEqualTo(true)
+        assertThat(activity.recordingMode).isEqualTo(RecordingMode.AUTO)
         // В сводку — только шаги на ногах.
         assertThat(activity.stepCount).isEqualTo(120)
     }
@@ -728,7 +725,7 @@ class TrackingSessionCoordinatorTest {
     fun `a walking candidate resumes a cycling auto pause before segment confirmation`() = runTest {
         val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
-        coordinator.beginSession(ActivityType.CYCLING, autoMode = true)
+        coordinator.beginSession(SegmentKind.CYCLING, autoMode = true)
 
         coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
         clockMillis += 40_000L
@@ -783,7 +780,7 @@ class TrackingSessionCoordinatorTest {
     fun `a confirmed movement hint returns to battery saving after a stationary sample`() = runTest {
         val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
-        coordinator.beginSession(ActivityType.CYCLING, autoMode = true)
+        coordinator.beginSession(SegmentKind.CYCLING, autoMode = true)
 
         coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
         clockMillis += 40_000L
@@ -857,7 +854,6 @@ class TrackingSessionCoordinatorTest {
         coordinator.endSession()
 
         assertThat(repository.replacedSegments!!.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING))
-        assertThat(repository.updatedActivities.single().activityType).isEqualTo(ActivityType.CYCLING)
     }
 
     private fun autoCoordinator(config: SegmentDetectorConfig) = TrackingSessionCoordinator(
@@ -889,8 +885,7 @@ class TrackingSessionCoordinatorTest {
         repository.activeActivity = Activity(
             id = 5L,
             startTimeEpochMillis = clockMillis - 600_000L,
-            activityType = ActivityType.OTHER,
-            isAutoMode = true,
+            recordingMode = RecordingMode.AUTO,
         )
         repository.storedSegments = listOf(
             ActivitySegment(5L, 5L, SegmentKind.CYCLING, clockMillis - 600_000L, clockMillis - 300_000L),
@@ -918,11 +913,11 @@ class TrackingSessionCoordinatorTest {
      * без ожидания на экране записи.
      */
     private suspend fun beginWarmedSession(
-        activityType: ActivityType = ActivityType.RUNNING,
+        kind: SegmentKind = SegmentKind.RUNNING,
         autoMode: Boolean = false,
     ): Long? {
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
-        return coordinator.beginSession(activityType, autoMode)
+        return coordinator.beginSession(kind, autoMode)
     }
 
     private fun sample(
@@ -1057,7 +1052,7 @@ class TrackingSessionCoordinatorTest {
                 dynamicColorEnabled = true,
                 privacyZone = PrivacyZone.OFF,
                 onboardingCompleted = true,
-                lastActivityType = ActivityType.RUNNING,
+                lastSegmentKind = SegmentKind.RUNNING,
             ),
         )
 
@@ -1070,7 +1065,7 @@ class TrackingSessionCoordinatorTest {
         override suspend fun setPrivacyZone(value: PrivacyZone): EmptyResult<DataError.Local> = success()
         override suspend fun setDynamicColorEnabled(value: Boolean): EmptyResult<DataError.Local> = success()
         override suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local> = success()
-        override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
+        override suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local> = success()
 
         override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
 

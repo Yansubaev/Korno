@@ -2,7 +2,7 @@ package com.ians.korno.feature.tracking.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.feature.tracking.domain.usecase.IsAutoModeAvailableUseCase
 import com.ians.korno.feature.tracking.domain.usecase.StartTrackingUseCase
@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 internal class TrackingSetupViewModel(
-    initialActivityType: ActivityType,
+    initialSegmentKind: SegmentKind,
     private val startTracking: StartTrackingUseCase,
     private val preferencesRepository: UserPreferencesRepository,
     private val cancelTrackingPreparation: CancelTrackingPreparationUseCase,
@@ -23,7 +23,7 @@ internal class TrackingSetupViewModel(
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
-        TrackingSetupState(activityType = initialActivityType, autoModeAvailable = isAutoModeAvailable()),
+        TrackingSetupState(segmentKind = initialSegmentKind, autoModeAvailable = isAutoModeAvailable()),
     )
     val state: StateFlow<TrackingSetupState> = _state.asStateFlow()
 
@@ -49,12 +49,12 @@ internal class TrackingSetupViewModel(
 
     fun onAction(action: TrackingSetupAction) {
         when (action) {
-            // Экран открыт с типом из маршрута, поэтому он живёт в локальном состоянии,
+            // Экран открыт с видом из маршрута, поэтому он живёт в локальном состоянии,
             // а в настройки уходит копией — чтобы следующая сессия начиналась с него же.
-            is TrackingSetupAction.SelectActivityType -> {
-                _state.update { it.copy(activityType = action.type, autoMode = false, autoModeUnavailableHint = false) }
+            is TrackingSetupAction.SelectSegmentKind -> {
+                _state.update { it.copy(segmentKind = action.kind, autoMode = false, autoModeUnavailableHint = false) }
                 viewModelScope.launch {
-                    preferencesRepository.setLastActivityType(action.type)
+                    preferencesRepository.setLastSegmentKind(action.kind)
                     preferencesRepository.setLastRecordingAutoMode(false)
                 }
             }
@@ -70,7 +70,7 @@ internal class TrackingSetupViewModel(
                 preferencesRepository.setAutoPauseSensitivity(action.sensitivity)
             }
             TrackingSetupAction.StartClicked -> viewModelScope.launch {
-                startTracking(_state.value.activityType, _state.value.autoMode)
+                startTracking(_state.value.segmentKind, _state.value.autoMode)
                 _state.update { it.copy(started = true) }
             }
         }

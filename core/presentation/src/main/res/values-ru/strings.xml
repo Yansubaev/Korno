@@ -20,14 +20,10 @@
     <string name="segment_kind_on_foot">Пешком</string>
     <string name="segment_kind_running">Бег</string>
     <string name="segment_kind_cycling">Велосипед</string>
+    <string name="segment_kind_hiking">Хайкинг</string>
     <string name="segment_kind_vehicle">Транспорт</string>
-    <string name="segment_kind_unknown">Определяем…</string>
+    <string name="segment_kind_unknown">Не определено</string>
+    <string name="segment_kind_detecting">Определяем…</string>
     <string name="segment_kind_pause">Пауза</string>
 
-    <string name="activity_type_run">Бег</string>
-    <string name="activity_type_ride">Велосипед</string>
-    <string name="activity_type_walk">Ходьба</string>
-    <string name="activity_type_hike">Хайкинг</string>
-    <string name="activity_type_drive">Поездка</string>
-    <string name="activity_type_unknown">Не определено</string>
 </resources>

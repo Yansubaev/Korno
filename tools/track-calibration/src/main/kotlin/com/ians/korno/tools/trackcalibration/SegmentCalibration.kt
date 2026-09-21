@@ -3,7 +3,7 @@ package com.ians.korno.tools.trackcalibration
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RecordingStatus
@@ -61,7 +61,7 @@ fun segmentInput(
         update.filterSpeed?.let { DetectorSignal.Speed(point.timestampEpochMillis, it.metersPerSecond) }
     }
     val signals = (loggedSignals + speeds).sortedBy(DetectorSignal::timestampMillis)
-    val validPoints = TrackProcessor().process(points, ActivityType.DRIVING, SEGMENT_TRACK_CONFIG, TrackSource.RAW)
+    val validPoints = TrackProcessor().process(points, SEGMENT_TRACK_CONFIG, TrackSource.RAW)
         .points.filterNot(GeoPoint::isOutlier)
     return SegmentInput(
         signals = signals,
@@ -153,8 +153,7 @@ private fun SegmentInput.finalize(
     activity = Activity(
         startTimeEpochMillis = startMillis,
         endTimeEpochMillis = endMillis,
-        activityType = ActivityType.OTHER,
-        isAutoMode = true,
+        recordingMode = RecordingMode.AUTO,
         autoPauseSensitivity = sensitivity,
     ),
     points = points,

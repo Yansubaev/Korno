@@ -12,8 +12,6 @@ data class ActivityEntity(
     val startTimeEpochMillis: Long,
     @ColumnInfo(name = "end_time")
     val endTimeEpochMillis: Long? = null,
-    @ColumnInfo(name = "activity_type")
-    val activityType: String,
     val title: String? = null,
     val note: String? = null,
     @ColumnInfo(name = "distance")
@@ -34,10 +32,8 @@ data class ActivityEntity(
     val isPendingSummary: Boolean = false,
     @ColumnInfo(name = "step_count")
     val stepCount: Int? = null,
-    @ColumnInfo(name = "is_auto_mode", defaultValue = "0")
-    val isAutoMode: Boolean = false,
+    @ColumnInfo(name = "recording_mode", defaultValue = "FIXED")
+    val recordingMode: String = "FIXED",
     @ColumnInfo(name = "auto_pause_sensitivity", defaultValue = "MEDIUM")
     val autoPauseSensitivity: String = "MEDIUM",
-    @ColumnInfo(name = "is_type_chosen_by_user", defaultValue = "0")
-    val isTypeChosenByUser: Boolean = false,
 )

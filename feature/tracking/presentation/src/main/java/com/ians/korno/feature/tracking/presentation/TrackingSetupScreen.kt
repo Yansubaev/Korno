@@ -36,7 +36,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.presentation.icon
@@ -46,11 +46,11 @@ import org.koin.core.parameter.parametersOf
 
 @Composable
 internal fun TrackingSetupScreen(
-    initialActivityType: ActivityType,
+    initialSegmentKind: SegmentKind,
     onStartRecording: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: TrackingSetupViewModel = koinViewModel(parameters = { parametersOf(initialActivityType) }),
+    viewModel: TrackingSetupViewModel = koinViewModel(parameters = { parametersOf(initialSegmentKind) }),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -108,7 +108,7 @@ private fun TrackingSetupContent(
         ) {
             Column {
                 Text(
-                    text = stringResource(R.string.tracking_setup_activity_type),
+                    text = stringResource(R.string.tracking_setup_segment_kind),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp),
@@ -140,14 +140,14 @@ private fun TrackingSetupContent(
                         },
                         label = { Text(stringResource(R.string.tracking_setup_auto)) },
                     )
-                    SETUP_ACTIVITY_TYPES.forEach { type ->
+                    SETUP_SEGMENT_KINDS.forEach { kind ->
                         FilterChip(
-                            selected = !state.autoMode && type == state.activityType,
-                            onClick = { onAction(TrackingSetupAction.SelectActivityType(type)) },
+                            selected = !state.autoMode && kind == state.segmentKind,
+                            onClick = { onAction(TrackingSetupAction.SelectSegmentKind(kind)) },
                             leadingIcon = {
-                                Icon(type.icon(), contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(18.dp))
                             },
-                            label = { Text(stringResource(type.labelRes())) },
+                            label = { Text(stringResource(kind.labelRes())) },
                         )
                     }
                 }

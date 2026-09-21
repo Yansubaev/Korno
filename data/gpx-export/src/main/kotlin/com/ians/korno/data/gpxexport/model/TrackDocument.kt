@@ -1,6 +1,6 @@
 package com.ians.korno.data.gpxexport.model
 
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 
 /**
  * Трек в том виде, в каком он живёт в файле: без идентификаторов БД и без
@@ -9,7 +9,8 @@ import com.ians.korno.core.domain.model.ActivityType
  */
 data class TrackDocument(
     val name: String?,
-    val activityType: ActivityType,
+    /** Вид спорта файла: у активности это её доминирующий вид. */
+    val kind: SegmentKind,
     val points: List<TrackDocumentPoint>,
     val note: String? = null,
     /**

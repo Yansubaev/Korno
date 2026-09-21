@@ -47,7 +47,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackThumbnail
@@ -177,7 +176,7 @@ internal fun ActivityListContent(
                     selected = state.filterKind == kind,
                     onClick = { onAction(ActivityListAction.SetFilterKind(kind)) },
                     leadingIcon = { Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    label = { Text(stringResource(kind.chipLabelRes())) },
+                    label = { Text(stringResource(kind.labelRes())) },
                 )
             }
         }
@@ -237,13 +236,6 @@ internal fun ActivityListContent(
     }
 }
 
-/**
- * `UNKNOWN` в чипе — не «определяем…», как у живого сегмента записи, а «не определено»:
- * здесь это уже окончательный ответ детектора.
- */
-private fun SegmentKind.chipLabelRes(): Int =
-    if (this == SegmentKind.UNKNOWN) CoreR.string.activity_type_unknown else labelRes()
-
 @Composable
 private fun ActivityRow(
     item: ActivityListItemUi,
@@ -268,7 +260,7 @@ private fun ActivityRow(
                     .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(item.type.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(item.kind.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         } else {
             TrackThumbnail(
@@ -307,7 +299,7 @@ private fun ActivityListContentPreview() {
                 isLoading = false,
                 availableKinds = listOf(SegmentKind.RUNNING),
                 items = listOf(
-                    ActivityListItemUi(1, "Morning run", "29:40", "5.2 km", ActivityType.RUNNING),
+                    ActivityListItemUi(1, "Morning run", "29:40", "5.2 km", SegmentKind.RUNNING),
                 ),
                 statsDistanceText = "5.2 km",
                 statsTimeText = "29 min",

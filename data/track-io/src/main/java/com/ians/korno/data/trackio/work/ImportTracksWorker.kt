@@ -7,7 +7,9 @@ import com.ians.korno.core.domain.error.Result as DomainResult
 import com.ians.korno.core.domain.error.TrackFileError
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.toSingleSegment
+import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.logging.AppLogger
 import com.ians.korno.core.logging.LogCategory
@@ -113,13 +115,13 @@ internal class ImportTracksWorker(
         // Геометрию при этом трогаем не всегда — свой же экспорт её уже прошёл.
         val processed = trackProcessor.process(
             points = points,
-            activityType = document.activityType,
+            config = TrackProcessingConfig.forSegmentKind(document.kind),
             source = if (document.isKornoExport) TrackSource.KORNO_EXPORT else TrackSource.RAW,
         )
         if (processed.points.isEmpty()) return DomainResult.Error(TrackFileError.NO_TRACK_POINTS)
 
         val activity = document.toActivity(processed.points, processed.statistics, fileName)
-        return when (val result = trackRepository.insertTrack(activity, processed.points, listOf(activity.toSingleSegment()))) {
+        return when (val result = trackRepository.insertTrack(activity, processed.points, listOf(activity.toSingleSegment(document.kind)))) {
             is DomainResult.Success -> DomainResult.Success(result.data)
             is DomainResult.Error -> DomainResult.Error(TrackFileError.STORAGE_FAILURE)
         }
@@ -135,7 +137,7 @@ internal class ImportTracksWorker(
             // Время окончания обязательно: активность без него репозиторий считает
             // незавершённой записью и после перезапуска попытается её продолжить.
             endTimeEpochMillis = points.last().timestampEpochMillis,
-            activityType = activityType,
+            recordingMode = RecordingMode.IMPORTED,
             title = name ?: fileName?.substringBeforeLast('.'),
             note = note,
             distanceMeters = statistics.distanceMeters,

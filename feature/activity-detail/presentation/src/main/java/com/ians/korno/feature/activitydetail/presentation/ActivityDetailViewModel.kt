@@ -11,7 +11,9 @@ import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.dominantKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.model.TrackFileOperation
 import com.ians.korno.core.domain.model.isTrackGap
@@ -26,6 +28,7 @@ import com.ians.korno.core.presentation.formatElevation
 import com.ians.korno.core.presentation.formatPace
 import com.ians.korno.core.presentation.formatSpeed
 import com.ians.korno.core.presentation.formatTimerDuration
+import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.core.trackanalytics.TrackAnalysis
 import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
@@ -366,7 +369,8 @@ internal class ActivityDetailViewModel(
         measurementSystem: MeasurementSystem,
     ): ActivityDetailState {
         val isMixed = track.kindSummaries.size > 1
-        val insights = context.toInsightsUi(track.analysis, activityType, measurementSystem)?.let {
+        val kind = track.segments.dominantKind() ?: SegmentKind.UNKNOWN
+        val insights = context.toInsightsUi(track.analysis, kind, measurementSystem)?.let {
             if (!isMixed) {
                 it
             } else {
@@ -379,12 +383,12 @@ internal class ActivityDetailViewModel(
             }
         }
         val defaultLens = if (isMixed) MapLens.KINDS else MapLens.ROUTE
-        val display = activityType.speedDisplay
+        val display = kind.speedDisplay
         return ActivityDetailState(
             isLoading = false,
-            title = title ?: activityType.name,
+            title = title ?: context.getString(kind.labelRes()),
             dateLabel = dateLabel(startTimeEpochMillis),
-            type = activityType,
+            kind = kind,
             distanceText = context.formatDistance(distanceMeters, measurementSystem).text,
             durationText = formatTimerDuration(elapsedTimeMillis),
             movingText = formatTimerDuration(movingTimeMillis),
@@ -414,7 +418,7 @@ internal class ActivityDetailViewModel(
             } else {
                 emptyList()
             },
-            segments = if (isAutoMode) {
+            segments = if (recordingMode == RecordingMode.AUTO) {
                 track.segments.mapIndexed { index, segment ->
                     SegmentUi(
                         index = index,
@@ -448,7 +452,7 @@ internal class ActivityDetailViewModel(
             lens = localUi.lens?.takeIf { insights == null || it in insights.availableLenses }
                 ?: defaultLens,
             selection = localUi.selectedFraction?.let {
-                context.toSelectionUi(track.analysis, it, activityType, measurementSystem)
+                context.toSelectionUi(track.analysis, it, kind, measurementSystem)
             },
             selectedSplitNumber = localUi.selectedSplitNumber,
             snackbarMessageRes = localUi.snackbarMessageRes,

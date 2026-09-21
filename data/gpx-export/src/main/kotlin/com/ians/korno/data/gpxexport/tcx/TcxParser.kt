@@ -1,9 +1,9 @@
 package com.ians.korno.data.gpxexport.tcx
 
 import com.ians.korno.core.domain.error.TrackFileError
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.data.gpxexport.TrackFileParseException
-import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
+import com.ians.korno.data.gpxexport.format.SegmentKindCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
 import com.ians.korno.data.gpxexport.format.isKornoDocument
 import com.ians.korno.data.gpxexport.format.parseDecimal
@@ -21,8 +21,8 @@ internal object TcxParser {
 
         var sawRoot = false
         var ownFile = false
-        var sportType: ActivityType? = null
-        var exactType: ActivityType? = null
+        var sportKind: SegmentKind? = null
+        var exactKind: SegmentKind? = null
         var name: String? = null
         var note: String? = null
         val points = mutableListOf<TrackDocumentPoint>()
@@ -37,7 +37,7 @@ internal object TcxParser {
                             sawRoot = true
                             ownFile = isKornoDocument(event.attributes)
                         }
-                        "Activity" -> sportType = ActivityTypeCodec.parse(event.attributes["Sport"])
+                        "Activity" -> sportKind = SegmentKindCodec.parse(event.attributes["Sport"])
                         "Trackpoint" -> point = MutableTcxPoint()
                     }
                 }
@@ -58,7 +58,8 @@ internal object TcxParser {
                         "Accuracy" -> point?.accuracyMeters = parseDecimal(value)?.toFloat()
                         "Stop" -> point?.isStop = value.isTruthy()
                         "ActivityName" -> name = value.takeIf { it.isNotEmpty() }
-                        "ActivityType" -> exactType = ActivityTypeCodec.parse(value) ?: exactType
+                        // `korno:ActivityType` — тег прежних версий: точный вид оттуда тоже читается.
+                        "SegmentKind", "ActivityType" -> exactKind = SegmentKindCodec.parse(value) ?: exactKind
                         "Notes" -> if (note == null) note = value.takeIf { it.isNotEmpty() }
                         "Trackpoint" -> {
                             point?.toPoint()?.let(points::add)
@@ -75,7 +76,7 @@ internal object TcxParser {
 
         return TrackDocument(
             name = name,
-            activityType = exactType ?: sportType ?: ActivityType.OTHER,
+            kind = exactKind ?: sportKind ?: SegmentKind.UNKNOWN,
             points = points,
             note = note,
             isKornoExport = ownFile,

@@ -4,6 +4,7 @@ import com.ians.korno.core.domain.error.Result as DomainResult
 import com.ians.korno.core.domain.error.TrackFileError
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.trackprocessing.PrivacyZoneUseCase
@@ -43,21 +44,25 @@ internal class TrackFileWriter(
         // честнее, чем отдать файл с парой точек рядом с домом.
         if (points.isEmpty()) return DomainResult.Error(TrackFileError.NO_TRACK_POINTS)
 
-        val activity = track.activity.withStatisticsFor(points, trimmed = points.size != track.points.size)
-        return DomainResult.Success(codec.write(trackDocumentOf(activity, points), format))
+        val activity = track.activity.withStatisticsFor(points, track.kind, points.size != track.points.size)
+        return DomainResult.Success(codec.write(trackDocumentOf(activity, points, track.kind), format))
     }
 
     /**
      * После обрезки исходная статистика описывает уже другой трек, поэтому она
      * пересчитывается: иначе файл сообщал бы дистанцию, которой в нём нет.
      */
-    private fun Activity.withStatisticsFor(points: List<GeoPoint>, trimmed: Boolean): Activity {
+    private fun Activity.withStatisticsFor(
+        points: List<GeoPoint>,
+        kind: SegmentKind,
+        trimmed: Boolean,
+    ): Activity {
         if (!trimmed) return this
-        // Пороги берутся по типу активности: у пешехода и у машины разные и шумовой
+        // Пороги берутся по виду движения: у пешехода и у машины разные и шумовой
         // пол дистанции, и длительность, после которой отрезок считается разрывом.
         val statistics = statisticsCalculator(
             points = points,
-            config = TrackProcessingConfig.forActivityType(activityType),
+            config = TrackProcessingConfig.forSegmentKind(kind),
         )
         return copy(
             startTimeEpochMillis = points.first().timestampEpochMillis,

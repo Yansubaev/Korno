@@ -9,7 +9,7 @@ import assertk.assertions.isTrue
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.error.TrackFileError
@@ -361,7 +361,7 @@ class SettingsViewModelTest {
                 dynamicColorEnabled = dynamicColorEnabled,
                 privacyZone = PrivacyZone.OFF,
                 onboardingCompleted = true,
-                lastActivityType = ActivityType.RUNNING,
+                lastSegmentKind = SegmentKind.RUNNING,
             ),
         )
 
@@ -372,7 +372,7 @@ class SettingsViewModelTest {
         override suspend fun setGpsAccuracy(value: GpsAccuracy): EmptyResult<DataError.Local> = success()
         override suspend fun setAutoPauseSensitivity(value: AutoPauseSensitivity): EmptyResult<DataError.Local> = success()
         override suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local> = success()
-        override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
+        override suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local> = success()
 
         override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
 

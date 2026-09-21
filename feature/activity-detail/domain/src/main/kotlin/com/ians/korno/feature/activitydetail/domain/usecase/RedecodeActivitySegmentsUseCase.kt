@@ -5,6 +5,7 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.trackprocessing.ActivityModeDecoder
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
@@ -37,7 +38,9 @@ class RedecodeActivitySegmentsUseCase(
         segments: List<ActivitySegment>,
     ): Result<Unit, Skipped> {
         val endMillis = activity.endTimeEpochMillis
-        if (!activity.isAutoMode || endMillis == null) return Result.Error(Skipped.NOT_AUTO_MODE)
+        if (activity.recordingMode != RecordingMode.AUTO || endMillis == null) {
+            return Result.Error(Skipped.NOT_AUTO_MODE)
+        }
 
         val recognitions = (trackRepository.getRecognitionSamples(activity.id) as? Result.Success)
             ?.data

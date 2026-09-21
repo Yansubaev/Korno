@@ -2,7 +2,7 @@ package com.ians.korno
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.feature.onboarding.domain.model.PermissionType
 import com.ians.korno.feature.onboarding.domain.repository.PermissionRepository
@@ -28,7 +28,7 @@ data class KornoAppState(
 sealed interface KornoAppEvent {
     data object RequestForegroundLocation : KornoAppEvent
     data object LocationPermissionDenied : KornoAppEvent
-    data class OpenTrackingSetup(val activityType: ActivityType) : KornoAppEvent
+    data class OpenTrackingSetup(val kind: SegmentKind) : KornoAppEvent
 }
 
 class KornoAppViewModel(
@@ -42,7 +42,7 @@ class KornoAppViewModel(
     val state: StateFlow<KornoAppState> = _state.asStateFlow()
     private val eventChannel = Channel<KornoAppEvent>()
     val events = eventChannel.receiveAsFlow()
-    private var pendingActivityType: ActivityType? = null
+    private var pendingSegmentKind: SegmentKind? = null
 
     init {
         // Если процесс был убит во время записи — незавершённая Activity (end_time IS NULL)
@@ -70,27 +70,27 @@ class KornoAppViewModel(
         }
     }
 
-    fun onStartActivityRequested(activityType: ActivityType) {
+    fun onStartActivityRequested(kind: SegmentKind) {
         if (permissionRepository.isGranted(PermissionType.FOREGROUND_LOCATION)) {
-            openTrackingSetup(activityType)
+            openTrackingSetup(kind)
         } else {
-            pendingActivityType = activityType
+            pendingSegmentKind = kind
             viewModelScope.launch { eventChannel.send(KornoAppEvent.RequestForegroundLocation) }
         }
     }
 
     fun onForegroundPermissionResult(granted: Boolean) {
-        val activityType = pendingActivityType ?: return
-        pendingActivityType = null
+        val kind = pendingSegmentKind ?: return
+        pendingSegmentKind = null
         if (granted || permissionRepository.isGranted(PermissionType.FOREGROUND_LOCATION)) {
-            openTrackingSetup(activityType)
+            openTrackingSetup(kind)
         } else {
             viewModelScope.launch { eventChannel.send(KornoAppEvent.LocationPermissionDenied) }
         }
     }
 
-    private fun openTrackingSetup(activityType: ActivityType) {
+    private fun openTrackingSetup(kind: SegmentKind) {
         prepareTracking()
-        viewModelScope.launch { eventChannel.send(KornoAppEvent.OpenTrackingSetup(activityType)) }
+        viewModelScope.launch { eventChannel.send(KornoAppEvent.OpenTrackingSetup(kind)) }
     }
 }

@@ -7,7 +7,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isNull
 import assertk.assertions.isTrue
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.trackprocessing.DetectorSignal
@@ -54,7 +54,7 @@ class LogTrackReaderTest {
             sampleCoordinates(timestamp = 1_000L),
         )
 
-        assertThat(activity.activityType).isEqualTo(ActivityType.WALKING)
+        assertThat(activity.segmentKind).isEqualTo(SegmentKind.ON_FOOT)
         assertThat(activity.sensitivity).isEqualTo(AutoPauseSensitivity.MEDIUM)
     }
 
@@ -146,7 +146,7 @@ class LogTrackReaderTest {
             sampleCoordinates(timestamp = 1_000L),
         )
 
-        assertThat(activity.activityType).isNull()
+        assertThat(activity.segmentKind).isNull()
         assertThat(activity.points.size).isEqualTo(1)
     }
 
@@ -172,7 +172,7 @@ class LogTrackReaderTest {
 
     private fun sessionStarted() =
         """{"message":"Tracking session started","activityId":"7","fields":""" +
-            """{"activityId":"7","activityType":"WALKING","autoPauseSensitivity":"MEDIUM"}}"""
+            """{"activityId":"7","segmentKind":"ON_FOOT","autoPauseSensitivity":"MEDIUM"}}"""
 
     private fun sampleReceived(
         timestamp: Long,

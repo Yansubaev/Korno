@@ -12,9 +12,9 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.model.toSingleSegment
@@ -33,9 +33,7 @@ class SaveTrackCorrectionUseCaseTest {
             id = 7L,
             startTimeEpochMillis = 0L,
             endTimeEpochMillis = 10_000L,
-            activityType = ActivityType.WALKING,
             distanceMeters = 50_000.0,
-            isTypeChosenByUser = true,
         )
         val points = listOf(
             point(id = 1L, latitude = 0.0),
@@ -43,7 +41,7 @@ class SaveTrackCorrectionUseCaseTest {
             point(id = 3L, latitude = 0.0001),
         )
 
-        val result = useCase(activity, points, listOf(activity.toSingleSegment()), removedPointIds = setOf(2L))
+        val result = useCase(activity, points, listOf(activity.toSingleSegment(SegmentKind.ON_FOOT)), removedPointIds = setOf(2L))
 
         assertThat(result).isEqualTo(Result.Success(Unit))
         assertThat(repository.replacedPoints).hasSize(2)
@@ -56,7 +54,7 @@ class SaveTrackCorrectionUseCaseTest {
     @Test
     fun `correcting a mixed activity keeps each segment on its own profile, and the preview agrees`() = runTest {
         val repository = FakeTrackRepository()
-        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, activityType = ActivityType.DRIVING, isAutoMode = true)
+        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, recordingMode = RecordingMode.AUTO)
         val removed = setOf(30L)
 
         SaveTrackCorrectionUseCase(repository, FinalizeTrackUseCase())(activity, mixedPoints, mixedSegments, removed)
@@ -92,9 +90,8 @@ class SaveTrackCorrectionUseCaseTest {
             id = 7L,
             startTimeEpochMillis = 0L,
             endTimeEpochMillis = 300_000L,
-            activityType = ActivityType.DRIVING,
             stepCount = 220,
-            isAutoMode = true,
+            recordingMode = RecordingMode.AUTO,
         )
 
         useCase(activity, mixedPoints, mixedSegments, segmentIndex = 1, kind = SegmentKind.CYCLING)
@@ -104,20 +101,22 @@ class SaveTrackCorrectionUseCaseTest {
             .isEqualTo(listOf(SegmentKind.ON_FOOT, SegmentKind.CYCLING, SegmentKind.ON_FOOT))
         assertThat(segments[1].isManuallyEdited).isTrue()
         assertThat(segments[1].distanceMeters).isGreaterThan(1_000.0)
-        assertThat(repository.replacedActivity!!.activityType).isEqualTo(ActivityType.CYCLING)
         assertThat(repository.replacedActivity!!.stepCount).isEqualTo(220)
     }
 
     @Test
-    fun `a type chosen by the user survives a kind change`() = runTest {
+    fun `marking one segment as hiking repaints every on-foot segment of the record`() = runTest {
         val repository = FakeTrackRepository()
-        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, activityType = ActivityType.HIKING, isAutoMode = true, isTypeChosenByUser = true)
+        val activity = Activity(id = 7L, startTimeEpochMillis = 0L, recordingMode = RecordingMode.AUTO)
 
+        // Помечен только первый пеший участок; второй — тоже пеший, и правило хайкинга
+        // (ADR 0005) красит его следом: пометить хайкингом один участок нельзя.
         ChangeActivitySegmentKindUseCase(repository, FinalizeTrackUseCase())(
-            activity, mixedPoints, mixedSegments, segmentIndex = 1, kind = SegmentKind.CYCLING,
+            activity, mixedPoints, mixedSegments, segmentIndex = 0, kind = SegmentKind.HIKING,
         )
 
-        assertThat(repository.replacedActivity!!.activityType).isEqualTo(ActivityType.HIKING)
+        assertThat(repository.replacedSegments!!.map { it.kind })
+            .isEqualTo(listOf(SegmentKind.HIKING, SegmentKind.VEHICLE, SegmentKind.HIKING))
     }
 
     /** 100 с пешком, 100 с автобусом на 15 м/с, 100 с пешком; фикс раз в 5 с. */

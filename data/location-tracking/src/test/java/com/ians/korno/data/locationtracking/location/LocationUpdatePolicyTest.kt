@@ -5,7 +5,7 @@ import assertk.assertions.hasSize
 import assertk.assertions.isEqualTo
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThanOrEqualTo
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.RecordingStatus
 import org.junit.jupiter.api.Test
@@ -17,7 +17,7 @@ class LocationUpdatePolicyTest {
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
     fun `recording keeps the interval chosen in settings`(accuracy: GpsAccuracy) {
-        val config = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.WALKING)
+        val config = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, SegmentKind.ON_FOOT)
 
         assertThat(config.intervalMillis).isEqualTo(
             when (accuracy) {
@@ -36,7 +36,7 @@ class LocationUpdatePolicyTest {
         // стометровая погрешность, отсутствие скорости и провалы опроса на минуты.
         listOf(RecordingStatus.RECORDING, RecordingStatus.WAITING_FOR_GPS, RecordingStatus.AUTO_PAUSE)
             .forEach { status ->
-                assertThat(LocationUpdatePolicy.configFor(accuracy, status, ActivityType.RUNNING).accuracy)
+                assertThat(LocationUpdatePolicy.configFor(accuracy, status, SegmentKind.RUNNING).accuracy)
                     .isEqualTo(GpsAccuracy.HIGH)
             }
     }
@@ -44,17 +44,17 @@ class LocationUpdatePolicyTest {
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
     fun `preparing before the start uses the recording interval`(accuracy: GpsAccuracy) {
-        assertThat(LocationUpdatePolicy.configFor(accuracy, RecordingStatus.IDLE, ActivityType.CYCLING))
-            .isEqualTo(LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.CYCLING))
+        assertThat(LocationUpdatePolicy.configFor(accuracy, RecordingStatus.IDLE, SegmentKind.CYCLING))
+            .isEqualTo(LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, SegmentKind.CYCLING))
     }
 
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
-    fun `the recording interval does not depend on the activity type`(accuracy: GpsAccuracy) {
+    fun `the recording interval does not depend on the segment kind`(accuracy: GpsAccuracy) {
         // Настройка точности — единственный рычаг частоты. Прежняя таблица разводила
         // пешехода, тропу, колесо и транспорт, и одно положение переключателя означало
         // у разных активностей разное — вплоть до пятикратной разницы.
-        val intervals = ActivityType.entries.map {
+        val intervals = SegmentKind.entries.map {
             LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, it).intervalMillis
         }
 
@@ -62,15 +62,15 @@ class LocationUpdatePolicyTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ActivityType::class)
-    fun `battery saver stays usable for the activity it records`(activityType: ActivityType) {
+    @EnumSource(SegmentKind::class)
+    fun `battery saver stays usable for the activity it records`(kind: SegmentKind) {
         // Порог отбраковки по погрешности для ходьбы — 40 м, и при опросе раз в пять
         // секунд туда не проходила каждая третья точка. Шаг опроса обязан оставаться
         // таким, чтобы окно детектора остановок набирало несколько точек.
         val config = LocationUpdatePolicy.configFor(
             GpsAccuracy.BATTERY_SAVER,
             RecordingStatus.RECORDING,
-            activityType,
+            kind,
         )
 
         assertThat(config.intervalMillis).isLessThanOrEqualTo(10_000L)
@@ -81,11 +81,11 @@ class LocationUpdatePolicyTest {
     fun `a short auto pause does not change the polling rate at all`(accuracy: GpsAccuracy) {
         // Светофор, переход, шнурки — это десятки секунд. Разредить опрос на них значит
         // решать выход из паузы по загрублённому сигналу и не сэкономить ничего.
-        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.WALKING)
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, SegmentKind.ON_FOOT)
         val fresh = LocationUpdatePolicy.configFor(
             accuracy,
             RecordingStatus.AUTO_PAUSE,
-            ActivityType.WALKING,
+            SegmentKind.ON_FOOT,
             autoPauseSettled = false,
         )
 
@@ -95,11 +95,11 @@ class LocationUpdatePolicyTest {
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
     fun `a settled auto pause polls less often but stays responsive`(accuracy: GpsAccuracy) {
-        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.WALKING)
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, SegmentKind.ON_FOOT)
         val settled = LocationUpdatePolicy.configFor(
             accuracy,
             RecordingStatus.AUTO_PAUSE,
-            ActivityType.WALKING,
+            SegmentKind.ON_FOOT,
             autoPauseSettled = true,
         )
 
@@ -111,11 +111,11 @@ class LocationUpdatePolicyTest {
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
     fun `movement hint restores the recording interval during a settled auto pause`(accuracy: GpsAccuracy) {
-        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.CYCLING)
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, SegmentKind.CYCLING)
         val waking = LocationUpdatePolicy.configFor(
             accuracy = accuracy,
             status = RecordingStatus.AUTO_PAUSE,
-            activityType = ActivityType.CYCLING,
+            kind = SegmentKind.CYCLING,
             autoPauseSettled = true,
             autoPauseMovementHint = true,
         )
@@ -126,7 +126,7 @@ class LocationUpdatePolicyTest {
     @ParameterizedTest
     @EnumSource(GpsAccuracy::class)
     fun `manual pause drops to the cheapest mode regardless of the setting`(accuracy: GpsAccuracy) {
-        val paused = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.MANUAL_PAUSE, ActivityType.WALKING)
+        val paused = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.MANUAL_PAUSE, SegmentKind.ON_FOOT)
 
         assertThat(paused.accuracy).isEqualTo(GpsAccuracy.BATTERY_SAVER)
         assertThat(paused.intervalMillis).isEqualTo(60_000L)
@@ -137,11 +137,11 @@ class LocationUpdatePolicyTest {
     fun `a vehicle keeps the recording pace through a settled auto pause`(accuracy: GpsAccuracy) {
         // Автобус на остановке стоит меньше AUTO_PAUSE_SETTLE_MILLIS: разредить опрос
         // не успеваешь сэкономить, зато отъезд решается по уже загрублённому сигналу.
-        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, ActivityType.DRIVING)
+        val recording = LocationUpdatePolicy.configFor(accuracy, RecordingStatus.RECORDING, SegmentKind.VEHICLE)
         val settled = LocationUpdatePolicy.configFor(
             accuracy,
             RecordingStatus.AUTO_PAUSE,
-            ActivityType.DRIVING,
+            SegmentKind.VEHICLE,
             autoPauseSettled = true,
         )
 

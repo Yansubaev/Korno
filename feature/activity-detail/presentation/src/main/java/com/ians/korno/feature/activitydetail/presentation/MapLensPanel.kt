@@ -64,6 +64,7 @@ internal fun SegmentKind.color(): Color? = when (this) {
     SegmentKind.RUNNING -> Color(0xFFD55E00)
     SegmentKind.CYCLING -> Color(0xFF0072B2)
     SegmentKind.VEHICLE -> Color(0xFFCC79A7)
+    SegmentKind.HIKING -> Color(0xFFE69F00)
     SegmentKind.UNKNOWN, SegmentKind.PAUSE -> null
 }
 

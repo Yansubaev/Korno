@@ -10,7 +10,6 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
@@ -110,7 +109,6 @@ class PendingSummaryViewModelTest {
         id = id,
         startTimeEpochMillis = 1_000L,
         endTimeEpochMillis = 2_000L,
-        activityType = ActivityType.RUNNING,
         isPendingSummary = true,
     )
 
@@ -127,7 +125,7 @@ class PendingSummaryViewModelTest {
 
         override fun cancelPreparation() = Unit
 
-        override suspend fun start(activityType: ActivityType, autoMode: Boolean) = Unit
+        override suspend fun start(kind: SegmentKind, autoMode: Boolean) = Unit
 
         override fun isAutoModeAvailable(): Boolean = true
 

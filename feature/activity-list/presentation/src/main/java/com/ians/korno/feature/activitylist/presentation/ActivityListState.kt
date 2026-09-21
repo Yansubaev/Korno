@@ -1,6 +1,5 @@
 package com.ians.korno.feature.activitylist.presentation
 
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
 
@@ -11,7 +10,8 @@ internal data class ActivityListItemUi(
     val title: String,
     val supportingText: String,
     val distanceText: String,
-    val type: ActivityType,
+    /** Лицо записи — её доминирующий вид. */
+    val kind: SegmentKind,
 )
 
 internal data class ActivityListState(

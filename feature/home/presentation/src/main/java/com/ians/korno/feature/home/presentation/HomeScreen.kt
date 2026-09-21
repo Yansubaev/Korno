@@ -35,7 +35,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.presentation.icon
 import org.koin.androidx.compose.koinViewModel
 
@@ -43,7 +43,7 @@ private val RECENT_LIST_BOTTOM_PADDING = 96.dp
 
 @Composable
 internal fun HomeScreen(
-    onStartSetup: (ActivityType) -> Unit,
+    onStartSetup: (SegmentKind) -> Unit,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (Long) -> Unit,
     onOpenSettings: () -> Unit,
@@ -55,7 +55,7 @@ internal fun HomeScreen(
     HomeContent(
         state = state,
         onAction = viewModel::onAction,
-        onStartSetup = { onStartSetup(state.selectedType) },
+        onStartSetup = { onStartSetup(state.selectedKind) },
         onSeeAllActivities = onSeeAllActivities,
         onOpenActivity = onOpenActivity,
         onOpenSettings = onOpenSettings,
@@ -170,7 +170,7 @@ private fun RecentActivityRow(activity: RecentActivityUi, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = activity.type.icon(),
+                imageVector = activity.kind.icon(),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -226,7 +226,7 @@ private fun HomeContentPreview() {
                         dateLabel = "Today",
                         durationText = "29:40",
                         distanceText = "5.2 km",
-                        type = ActivityType.RUNNING,
+                        kind = SegmentKind.RUNNING,
                     ),
                     RecentActivityUi(
                         id = 2,
@@ -234,7 +234,7 @@ private fun HomeContentPreview() {
                         dateLabel = "Yesterday",
                         durationText = "42:10",
                         distanceText = "18.3 km",
-                        type = ActivityType.CYCLING,
+                        kind = SegmentKind.CYCLING,
                     ),
                 ),
                 hasMoreActivities = true,

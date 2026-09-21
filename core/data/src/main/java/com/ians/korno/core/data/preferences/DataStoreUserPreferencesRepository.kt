@@ -9,7 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.ians.korno.core.data.local.safeLocalCall
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
@@ -42,7 +42,7 @@ class DataStoreUserPreferencesRepository(
                 preferences[Keys.DYNAMIC_COLOR_ENABLED] = true
                 preferences[Keys.PRIVACY_ZONE] = PrivacyZone.OFF.name
                 preferences[Keys.ONBOARDING_COMPLETED] = false
-                preferences[Keys.LAST_ACTIVITY_TYPE] = ActivityType.RUNNING.name
+                preferences[Keys.LAST_SEGMENT_KIND] = SegmentKind.RUNNING.name
                 preferences[Keys.INITIALIZED] = true
             }
         }
@@ -70,8 +70,8 @@ class DataStoreUserPreferencesRepository(
     override suspend fun setOnboardingCompleted(value: Boolean) =
         update(Keys.ONBOARDING_COMPLETED, value)
 
-    override suspend fun setLastActivityType(value: ActivityType) =
-        update(Keys.LAST_ACTIVITY_TYPE, value.name)
+    override suspend fun setLastSegmentKind(value: SegmentKind) =
+        update(Keys.LAST_SEGMENT_KIND, value.name)
 
     override suspend fun setLastRecordingAutoMode(value: Boolean) =
         update(Keys.LAST_RECORDING_AUTO_MODE, value)
@@ -104,9 +104,9 @@ class DataStoreUserPreferencesRepository(
             ?.let { runCatching { PrivacyZone.valueOf(it) }.getOrNull() }
             ?: PrivacyZone.OFF,
         onboardingCompleted = preferences[Keys.ONBOARDING_COMPLETED] ?: false,
-        lastActivityType = preferences[Keys.LAST_ACTIVITY_TYPE]
-            ?.let { runCatching { ActivityType.valueOf(it) }.getOrNull() }
-            ?: ActivityType.RUNNING,
+        lastSegmentKind = preferences[Keys.LAST_SEGMENT_KIND]
+            ?.let { runCatching { SegmentKind.valueOf(it) }.getOrNull() }
+            ?: SegmentKind.RUNNING,
         lastRecordingAutoMode = preferences[Keys.LAST_RECORDING_AUTO_MODE] ?: true,
     )
 
@@ -124,7 +124,7 @@ class DataStoreUserPreferencesRepository(
         val DYNAMIC_COLOR_ENABLED = booleanPreferencesKey("dynamic_color_enabled")
         val PRIVACY_ZONE = stringPreferencesKey("privacy_zone")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
-        val LAST_ACTIVITY_TYPE = stringPreferencesKey("last_activity_type")
+        val LAST_SEGMENT_KIND = stringPreferencesKey("last_segment_kind")
         val LAST_RECORDING_AUTO_MODE = booleanPreferencesKey("last_recording_auto_mode")
     }
 

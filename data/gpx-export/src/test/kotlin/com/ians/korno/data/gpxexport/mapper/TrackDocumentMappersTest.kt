@@ -8,7 +8,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isTrue
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.data.gpxexport.TrackFileCodec
@@ -27,7 +27,7 @@ class TrackDocumentMappersTest {
             geoPoint(id = 2, timestamp = START + 1_000L),
         )
 
-        val document = trackDocumentOf(activity, points)
+        val document = trackDocumentOf(activity, points, SegmentKind.RUNNING)
 
         assertThat(document.points.map { it.timestampEpochMillis })
             .containsExactly(START + 1_000L, START + 2_000L)
@@ -118,7 +118,7 @@ class TrackDocumentMappersTest {
         )
 
         TrackFileFormat.entries.forEach { format ->
-            val written = codec.write(trackDocumentOf(activity(), stored), format)
+            val written = codec.write(trackDocumentOf(activity(), stored, SegmentKind.RUNNING), format)
             val parsed = when (val result = codec.parse(written)) {
                 is Result.Success -> result.data
                 is Result.Error -> error("Parsing failed: ${result.error}")
@@ -133,14 +133,14 @@ class TrackDocumentMappersTest {
                 assertThat(point.latitude).isCloseTo(stored[index].latitude, 1e-7)
                 assertThat(point.longitude).isCloseTo(stored[index].longitude, 1e-7)
             }
-            assertThat(parsed.activityType).isEqualTo(ActivityType.RUNNING)
+            assertThat(parsed.kind).isEqualTo(SegmentKind.RUNNING)
             assertThat(parsed.name).isEqualTo("Morning run")
         }
     }
 
     private fun document(vararg points: TrackDocumentPoint) = TrackDocument(
         name = "Imported",
-        activityType = ActivityType.RUNNING,
+        kind = SegmentKind.RUNNING,
         points = points.toList(),
     )
 
@@ -148,7 +148,6 @@ class TrackDocumentMappersTest {
         id = 7L,
         startTimeEpochMillis = START,
         endTimeEpochMillis = START + 1_780_000L,
-        activityType = ActivityType.RUNNING,
         title = "Morning run",
         distanceMeters = 5_180.0,
     )

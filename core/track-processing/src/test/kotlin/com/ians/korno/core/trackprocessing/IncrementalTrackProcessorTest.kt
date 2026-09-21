@@ -5,7 +5,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThan
 import assertk.assertions.isTrue
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
 import kotlin.random.Random
@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
 
 class IncrementalTrackProcessorTest {
 
-    private val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+    private val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
 
     @Test
     fun `live distance never goes backwards`() {
@@ -46,7 +46,6 @@ class IncrementalTrackProcessorTest {
                 id = points.size + 1L,
                 timestampEpochMillis = points.last().timestampEpochMillis + 5_000L,
             ),
-            activityType = ActivityType.WALKING,
             config = config,
         )
 
@@ -106,7 +105,6 @@ class IncrementalTrackProcessorTest {
 
         val full = TrackProcessor().process(
             points = points + stale,
-            activityType = ActivityType.WALKING,
             config = config,
         )
         assertThat(update.statistics.distanceMeters)

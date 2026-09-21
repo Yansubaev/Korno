@@ -2,6 +2,7 @@ package com.ians.korno.data.gpxexport.mapper
 
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.data.gpxexport.model.TrackDocument
 import com.ians.korno.data.gpxexport.model.TrackDocumentPoint
 import com.ians.korno.data.gpxexport.model.TrackDocumentSummary
@@ -9,9 +10,9 @@ import com.ians.korno.data.gpxexport.model.TrackDocumentSummary
 /** Интервал, которым заполняются точки без времени: одна секунда — типичный шаг трека. */
 private const val SYNTHETIC_INTERVAL_MILLIS = 1_000L
 
-fun trackDocumentOf(activity: Activity, points: List<GeoPoint>): TrackDocument = TrackDocument(
+fun trackDocumentOf(activity: Activity, points: List<GeoPoint>, kind: SegmentKind): TrackDocument = TrackDocument(
     name = activity.title,
-    activityType = activity.activityType,
+    kind = kind,
     note = activity.note,
     // Точки, помеченные как ошибка GPS, в файл не попадают: экспортируется трек
     // в том виде, в каком его видит пользователь на карте.

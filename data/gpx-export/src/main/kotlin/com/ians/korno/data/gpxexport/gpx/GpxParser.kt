@@ -1,9 +1,9 @@
 package com.ians.korno.data.gpxexport.gpx
 
 import com.ians.korno.core.domain.error.TrackFileError
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.data.gpxexport.TrackFileParseException
-import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
+import com.ians.korno.data.gpxexport.format.SegmentKindCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
 import com.ians.korno.data.gpxexport.format.isKornoDocument
 import com.ians.korno.data.gpxexport.format.parseDecimal
@@ -24,7 +24,7 @@ internal object GpxParser {
         var metadataName: String? = null
         var note: String? = null
         var trackName: String? = null
-        var activityType: ActivityType? = null
+        var kind: SegmentKind? = null
         val trackPoints = mutableListOf<TrackDocumentPoint>()
         // Маршрут — запасной источник: часть экспортёров кладёт трек в <rte>,
         // и брать его стоит, только когда <trk> в файле нет вовсе.
@@ -59,7 +59,7 @@ internal object GpxParser {
                         }
                         "desc" -> if (note == null) note = value.takeIf { it.isNotEmpty() }
                         "type" -> if (parent == "trk") {
-                            activityType = ActivityTypeCodec.parse(value) ?: activityType
+                            kind = SegmentKindCodec.parse(value) ?: kind
                         }
                         "ele" -> point?.altitudeMeters = parseDecimal(value)
                         "time" -> point?.let { it.timestampEpochMillis = Iso8601.parse(value) }
@@ -87,7 +87,7 @@ internal object GpxParser {
 
         return TrackDocument(
             name = trackName ?: metadataName,
-            activityType = activityType ?: ActivityType.OTHER,
+            kind = kind ?: SegmentKind.UNKNOWN,
             points = trackPoints.ifEmpty { routePoints },
             note = note,
             isKornoExport = ownFile,

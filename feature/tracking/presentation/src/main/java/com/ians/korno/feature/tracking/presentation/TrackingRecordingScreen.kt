@@ -161,10 +161,9 @@ private fun RecordingHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val segmentKind = state.segmentKind
-        if (segmentKind != null) {
+        if (state.segmentKindEditable) {
             SegmentKindChip(
-                kind = segmentKind,
+                kind = state.segmentKind,
                 menuOpen = state.segmentMenuOpen,
                 onAction = onAction,
             )
@@ -173,13 +172,13 @@ private fun RecordingHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
-                imageVector = state.activityType.icon(),
+                imageVector = state.segmentKind.icon(),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                text = stringResource(state.activityType.labelRes()),
+                text = stringResource(state.segmentKind.liveLabelRes()),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -211,7 +210,7 @@ private fun SegmentKindChip(
                 )
             },
             label = {
-                Text(stringResource(R.string.tracking_segment_auto_label, stringResource(kind.labelRes())))
+                Text(stringResource(R.string.tracking_segment_auto_label, stringResource(kind.liveLabelRes())))
             },
         )
         DropdownMenu(
@@ -938,3 +937,7 @@ private fun previewState(mode: MapSheetMode) = TrackingRecordingState(
     elevationGainValue = 148.0,
     mapSheetMode = mode,
 )
+
+/** Пока детектор не ответил, вид не «не определён», а ещё определяется. */
+private fun SegmentKind.liveLabelRes(): Int =
+    if (this == SegmentKind.UNKNOWN) CoreR.string.segment_kind_detecting else labelRes()

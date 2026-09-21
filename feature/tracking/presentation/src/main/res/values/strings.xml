@@ -6,7 +6,7 @@
 
 
     <string name="tracking_setup_title">New activity</string>
-    <string name="tracking_setup_activity_type">Activity type</string>
+    <string name="tracking_setup_segment_kind">Kind of movement</string>
     <string name="tracking_setup_autopause_title">Auto-pause</string>
     <string name="tracking_setup_autopause_subtitle">Pause recording when you stop moving</string>
     <string name="tracking_setup_autopause_sensitivity">Auto-pause sensitivity</string>

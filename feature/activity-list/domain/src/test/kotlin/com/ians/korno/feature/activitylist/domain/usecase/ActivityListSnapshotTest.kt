@@ -2,39 +2,33 @@ package com.ians.korno.feature.activitylist.domain.usecase
 
 import assertk.assertThat
 import assertk.assertions.contains
+import assertk.assertions.doesNotContain
 import assertk.assertions.containsExactly
 import assertk.assertions.isEqualTo
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import org.junit.jupiter.api.Test
 
 class ActivityListSnapshotTest {
 
     /** Авто-прогулка с перегоном на автобусе и ручной паузой между ними. */
-    private val mixed = activity(id = 1L, type = ActivityType.WALKING, distance = 5_000.0, movingTime = 40 * MINUTE)
+    private val mixed = activity(id = 1L, distance = 5_000.0, movingTime = 40 * MINUTE)
     private val mixedSegments = listOf(
         segment(1L, SegmentKind.ON_FOOT, distance = 3_000.0, movingTime = 30 * MINUTE),
         segment(1L, SegmentKind.PAUSE, distance = 0.0, movingTime = 0L),
         segment(1L, SegmentKind.VEHICLE, distance = 2_000.0, movingTime = 10 * MINUTE),
     )
 
-    /** Хайкинг: тип выбрал человек, внутри — пеший участок и переезд. */
-    private val hike = activity(
-        id = 2L,
-        type = ActivityType.HIKING,
-        distance = 12_000.0,
-        movingTime = 3 * HOUR,
-        chosenByUser = true,
-    )
+    /** Хайкинг: вид поставил человек, внутри — пеший участок и переезд. */
+    private val hike = activity(id = 2L, distance = 12_000.0, movingTime = 3 * HOUR)
     private val hikeSegments = listOf(
-        segment(2L, SegmentKind.ON_FOOT, distance = 10_000.0, movingTime = 2 * HOUR),
+        segment(2L, SegmentKind.HIKING, distance = 10_000.0, movingTime = 2 * HOUR),
         segment(2L, SegmentKind.VEHICLE, distance = 2_000.0, movingTime = HOUR),
     )
 
     /** Авто-запись, где детектор не решил ничего. */
-    private val undetected = activity(id = 3L, type = ActivityType.OTHER, distance = 800.0, movingTime = 15 * MINUTE)
+    private val undetected = activity(id = 3L, distance = 800.0, movingTime = 15 * MINUTE)
     private val undetectedSegments = listOf(
         segment(3L, SegmentKind.UNKNOWN, distance = 800.0, movingTime = 15 * MINUTE),
     )
@@ -47,19 +41,28 @@ class ActivityListSnapshotTest {
     @Test
     fun `activity falls under every kind it contains`() {
         // Смешанная запись — под каждым своим видом, любой длины.
-        assertThat(snapshot.select(SegmentKind.ON_FOOT, ALL).activities.map(Activity::id)).containsExactly(1L, 2L)
+        assertThat(snapshot.select(SegmentKind.ON_FOOT, ALL).activities.map(Activity::id)).containsExactly(1L)
+        assertThat(snapshot.select(SegmentKind.HIKING, ALL).activities.map(Activity::id)).containsExactly(2L)
         assertThat(snapshot.select(SegmentKind.VEHICLE, ALL).activities.map(Activity::id)).containsExactly(1L, 2L)
         // Вида, которого в записи нет, — нет и чипа.
         assertThat(snapshot.select(SegmentKind.RUNNING, ALL).activities).isEqualTo(emptyList<Activity>())
     }
 
     @Test
-    fun `type of the activity does not affect the chip`() {
-        // У записи 2 тип выбрал человек («хайкинг»), но фильтр смотрит только на сегменты:
-        // её переезд виден под «Транспортом», а сама она — под «Пешком».
+    fun `hiking is a chip of its own, apart from on foot`() {
+        // Хайкинг — отдельный вид, а не разновидность «Пешком»: под пеший чип запись 2
+        // не попадает. Её переезд при этом виден под «Транспортом», как у любой смешанной.
+        assertThat(snapshot.select(SegmentKind.ON_FOOT, ALL).activities.map(Activity::id)).doesNotContain(2L)
         assertThat(snapshot.select(SegmentKind.VEHICLE, ALL).activities.map(Activity::id)).contains(2L)
-        // И запись с типом «другое» под чипы своих видов не попадает, если таких сегментов нет.
-        assertThat(snapshot.select(SegmentKind.UNKNOWN, ALL).activities.map(Activity::id)).containsExactly(3L)
+    }
+
+    @Test
+    fun `dominant kind is the face of the activity`() {
+        // Три часа записи, из них два — тропа: лицо записи — хайкинг, а не автобус.
+        assertThat(snapshot.dominantKindOf(hike)).isEqualTo(SegmentKind.HIKING)
+        assertThat(snapshot.dominantKindOf(mixed)).isEqualTo(SegmentKind.ON_FOOT)
+        // Судить не по чему: ни одного сегмента движения.
+        assertThat(snapshot.dominantKindOf(undetected)).isEqualTo(SegmentKind.UNKNOWN)
     }
 
     @Test
@@ -72,10 +75,14 @@ class ActivityListSnapshotTest {
 
     @Test
     fun `chip totals count only segments of that kind`() {
-        // Пешие сегменты обеих записей, без автобуса внутри них.
+        // Пеший сегмент смешанной записи, без автобуса внутри неё.
         val onFoot = snapshot.select(SegmentKind.ON_FOOT, ALL)
-        assertThat(onFoot.distanceMeters).isEqualTo(13_000.0)
-        assertThat(onFoot.movingTimeMillis).isEqualTo(2 * HOUR + 30 * MINUTE)
+        assertThat(onFoot.distanceMeters).isEqualTo(3_000.0)
+        assertThat(onFoot.movingTimeMillis).isEqualTo(30 * MINUTE)
+
+        val hiking = snapshot.select(SegmentKind.HIKING, ALL)
+        assertThat(hiking.distanceMeters).isEqualTo(10_000.0)
+        assertThat(hiking.movingTimeMillis).isEqualTo(2 * HOUR)
 
         val vehicle = snapshot.select(SegmentKind.VEHICLE, ALL)
         assertThat(vehicle.distanceMeters).isEqualTo(4_000.0)
@@ -93,7 +100,7 @@ class ActivityListSnapshotTest {
 
     @Test
     fun `segment without moving time falls back to its span`() {
-        val legacy = activity(id = 4L, type = ActivityType.CYCLING, distance = 1_000.0, movingTime = 10 * MINUTE)
+        val legacy = activity(id = 4L, distance = 1_000.0, movingTime = 10 * MINUTE)
         val snapshot = ActivityListSnapshot(
             activities = listOf(legacy),
             segments = listOf(
@@ -108,6 +115,7 @@ class ActivityListSnapshotTest {
     fun `chips cover the whole database and keep unknown last`() {
         assertThat(snapshot.chipKinds).containsExactly(
             SegmentKind.ON_FOOT,
+            SegmentKind.HIKING,
             SegmentKind.VEHICLE,
             SegmentKind.UNKNOWN,
         )
@@ -124,19 +132,14 @@ class ActivityListSnapshotTest {
 
     private fun activity(
         id: Long,
-        type: ActivityType,
         distance: Double,
         movingTime: Long,
-        chosenByUser: Boolean = false,
     ) = Activity(
         id = id,
         startTimeEpochMillis = 0L,
         endTimeEpochMillis = movingTime,
-        activityType = type,
         distanceMeters = distance,
         movingTimeMillis = movingTime,
-        isAutoMode = !chosenByUser,
-        isTypeChosenByUser = chosenByUser,
     )
 
     private fun segment(

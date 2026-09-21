@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.designsystem.layout.LocalBottomBarPadding
 import kotlinx.serialization.Serializable
 
@@ -12,7 +12,7 @@ import kotlinx.serialization.Serializable
 data object HomeRoute
 
 fun NavGraphBuilder.homeGraph(
-    onStartSetup: (ActivityType) -> Unit,
+    onStartSetup: (SegmentKind) -> Unit,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (activityId: Long) -> Unit,
     onOpenSettings: () -> Unit,

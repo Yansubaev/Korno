@@ -97,7 +97,7 @@ internal class ExportAllActivitiesWorker(
             is DomainResult.Success -> result.data
             is DomainResult.Error -> return DomainResult.Error(result.error)
         }
-        val fileName = TrackFileNaming.uniqueFileName(activity, format)
+        val fileName = TrackFileNaming.uniqueFileName(activity, format, track.kind)
         val documentUri = when (
             val created = documentStore.createInTree(treeUri, fileName, format.mimeType)
         ) {

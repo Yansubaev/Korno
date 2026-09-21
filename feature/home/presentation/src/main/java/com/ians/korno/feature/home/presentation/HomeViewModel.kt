@@ -5,11 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatDuration
+import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.feature.home.domain.model.HomeSummary
 import com.ians.korno.feature.home.domain.usecase.ObserveHomeSummaryUseCase
@@ -30,7 +31,7 @@ internal class HomeViewModel(
         observeHomeSummary(),
         preferencesRepository.observePreferences(),
     ) { result, preferences ->
-        result.toUiState(preferences.lastActivityType, preferences.measurementSystem)
+        result.toUiState(preferences.lastSegmentKind, preferences.measurementSystem)
     }
         .stateIn(
             scope = viewModelScope,
@@ -45,7 +46,7 @@ internal class HomeViewModel(
     }
 
     private fun Result<HomeSummary, *>.toUiState(
-        type: ActivityType,
+        kind: SegmentKind,
         measurementSystem: MeasurementSystem,
     ): HomeState =
         when (this) {
@@ -53,21 +54,24 @@ internal class HomeViewModel(
                 isLoading = false,
                 weekDistanceText = context.formatDistance(data.weekDistanceMeters, measurementSystem, 1).text,
                 weekTimeText = context.formatDuration(data.weekMovingTimeMillis),
-                recentActivities = data.recentActivities.map { it.toUi(measurementSystem) },
+                recentActivities = data.recentActivities.map {
+                    it.toUi(data.dominantKinds[it.id] ?: SegmentKind.UNKNOWN, measurementSystem)
+                },
                 hasMoreActivities = data.hasMoreActivitiesThisWeek,
-                selectedType = type,
+                selectedKind = kind,
             )
-            is Result.Error -> HomeState(isLoading = false, selectedType = type)
+            is Result.Error -> HomeState(isLoading = false, selectedKind = kind)
         }
 
-    private fun Activity.toUi(measurementSystem: MeasurementSystem): RecentActivityUi = RecentActivityUi(
-        id = id,
-        title = title ?: activityType.name,
-        dateLabel = dateLabel(startTimeEpochMillis),
-        durationText = context.formatDuration(elapsedTimeMillis),
-        distanceText = context.formatDistance(distanceMeters, measurementSystem, 1).text,
-        type = activityType,
-    )
+    private fun Activity.toUi(kind: SegmentKind, measurementSystem: MeasurementSystem): RecentActivityUi =
+        RecentActivityUi(
+            id = id,
+            title = title ?: context.getString(kind.labelRes()),
+            dateLabel = dateLabel(startTimeEpochMillis),
+            durationText = context.formatDuration(elapsedTimeMillis),
+            distanceText = context.formatDistance(distanceMeters, measurementSystem, 1).text,
+            kind = kind,
+        )
 
     private fun dateLabel(epochMillis: Long): String {
         val today = Calendar.getInstance()

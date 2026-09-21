@@ -8,7 +8,6 @@ import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
@@ -23,10 +22,10 @@ class TrackingUseCasesTest {
     private val controller = FakeTrackingController()
 
     @Test
-    fun `start delegates the selected activity type to the controller`() = runTest {
-        StartTrackingUseCase(controller)(ActivityType.CYCLING, autoMode = false)
+    fun `start delegates the selected segment kind to the controller`() = runTest {
+        StartTrackingUseCase(controller)(SegmentKind.CYCLING, autoMode = false)
 
-        assertThat(controller.startedWith).isEqualTo(ActivityType.CYCLING)
+        assertThat(controller.startedWith).isEqualTo(SegmentKind.CYCLING)
     }
 
     @Test
@@ -76,7 +75,7 @@ class TrackingUseCasesTest {
     }
 
     @Test
-    fun `a type changed on the summary screen counts as chosen, a confirmed one does not`() = runTest {
+    fun `the summary screen saves the title, the note and the confirmation`() = runTest {
         val saved = mutableListOf<Activity>()
         val repository = object : TrackRepository by unusedTrackRepository() {
             override suspend fun updateActivity(activity: Activity): EmptyResult<DataError.Local> {
@@ -84,12 +83,13 @@ class TrackingUseCasesTest {
                 return Result.Success(Unit)
             }
         }
-        val derived = Activity(startTimeEpochMillis = 0L, activityType = ActivityType.WALKING, isAutoMode = true)
+        val pending = Activity(startTimeEpochMillis = 0L, isPendingSummary = true)
 
-        SaveActivitySummaryUseCase(repository)(derived, title = "", note = "", activityType = ActivityType.WALKING)
-        SaveActivitySummaryUseCase(repository)(derived, title = "", note = "", activityType = ActivityType.HIKING)
+        SaveActivitySummaryUseCase(repository)(pending, title = " ", note = "Easy pace")
 
-        assertThat(saved.map(Activity::isTypeChosenByUser)).isEqualTo(listOf(false, true))
+        assertThat(saved.single().title).isEqualTo(null)
+        assertThat(saved.single().note).isEqualTo("Easy pace")
+        assertThat(saved.single().isPendingSummary).isEqualTo(false)
     }
 
     private fun unusedTrackRepository(): TrackRepository = Proxy.newProxyInstance(
@@ -98,7 +98,7 @@ class TrackingUseCasesTest {
     ) { _, method, _ -> error("${method.name} is not expected here") } as TrackRepository
 
     private class FakeTrackingController : TrackingController {
-        var startedWith: ActivityType? = null
+        var startedWith: SegmentKind? = null
         var pauseCalled = false
         var resumeCalled = false
         var stopCalled = false
@@ -117,8 +117,8 @@ class TrackingUseCasesTest {
             cancelPreparationCalled = true
         }
 
-        override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
-            startedWith = activityType
+        override suspend fun start(kind: SegmentKind, autoMode: Boolean) {
+            startedWith = kind
         }
 
         override fun isAutoModeAvailable(): Boolean = true

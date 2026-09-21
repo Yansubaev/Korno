@@ -9,10 +9,10 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
@@ -252,7 +252,6 @@ class TrackingRecordingViewModelTest {
         private val sessionFlow = MutableStateFlow(
             RecordingSession(
                 status = RecordingStatus.RECORDING,
-                activityType = ActivityType.RUNNING,
                 startTimeEpochMillis = System.currentTimeMillis(),
             ),
         )
@@ -274,14 +273,14 @@ class TrackingRecordingViewModelTest {
 
         fun emitAutoSegments(kind: SegmentKind, distancesMeters: Map<SegmentKind, Double>) {
             sessionFlow.value = sessionFlow.value.copy(
-                isAutoMode = true,
+                recordingMode = RecordingMode.AUTO,
                 segmentKind = kind,
                 segmentDistancesMeters = distancesMeters,
             )
         }
 
-        override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
-            sessionFlow.value = sessionFlow.value.copy(status = RecordingStatus.RECORDING, activityType = activityType)
+        override suspend fun start(kind: SegmentKind, autoMode: Boolean) {
+            sessionFlow.value = sessionFlow.value.copy(status = RecordingStatus.RECORDING, segmentKind = kind)
         }
 
         override fun pause() {
@@ -333,7 +332,7 @@ class TrackingRecordingViewModelTest {
                 dynamicColorEnabled = true,
                 privacyZone = PrivacyZone.OFF,
                 onboardingCompleted = true,
-                lastActivityType = ActivityType.RUNNING,
+                lastSegmentKind = SegmentKind.RUNNING,
             ),
         )
 
@@ -349,7 +348,7 @@ class TrackingRecordingViewModelTest {
         override suspend fun setPrivacyZone(value: PrivacyZone): EmptyResult<DataError.Local> = success()
         override suspend fun setDynamicColorEnabled(value: Boolean): EmptyResult<DataError.Local> = success()
         override suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local> = success()
-        override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> = success()
+        override suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local> = success()
 
         override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
 

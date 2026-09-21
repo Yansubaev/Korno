@@ -6,7 +6,7 @@
 
 
     <string name="tracking_setup_title">Новая активность</string>
-    <string name="tracking_setup_activity_type">Тип активности</string>
+    <string name="tracking_setup_segment_kind">Вид движения</string>
     <string name="tracking_setup_autopause_title">Автопауза</string>
     <string name="tracking_setup_autopause_subtitle">Приостанавливать запись, когда вы останавливаетесь</string>
     <string name="tracking_setup_gps_accuracy">Точность GPS</string>

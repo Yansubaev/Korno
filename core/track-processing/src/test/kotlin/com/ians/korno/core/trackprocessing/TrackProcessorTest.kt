@@ -8,7 +8,6 @@ import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThan
 import assertk.assertions.isTrue
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
@@ -37,7 +36,7 @@ class TrackProcessorTest {
                 point(id = 2L, latitude = 1.0, timestamp = 5_000L),
                 point(id = 3L, latitude = 0.0001, timestamp = 10_000L),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points[1].isOutlier).isTrue()
@@ -56,7 +55,7 @@ class TrackProcessorTest {
                 point(id = 1L, latitude = 43.238_949, timestamp = 0L, accuracy = 10f),
                 point(id = 2L, latitude = 43.239_000, timestamp = 5_000L, accuracy = 10f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.none(GeoPoint::isOutlier)).isTrue()
@@ -72,7 +71,7 @@ class TrackProcessorTest {
             point(id = 3L, latitude = 0.0, timestamp = 10_000L, accuracy = 10f),
         )
 
-        val filtered = processor.process(points, ActivityType.WALKING).points
+        val filtered = processor.process(points, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)).points
 
         assertThat(filtered[1].latitude).isLessThan(0.0002)
         assertThat(filtered[1].latitude).isGreaterThan(0.0)
@@ -91,7 +90,7 @@ class TrackProcessorTest {
             point(id = 5L, latitude = 0.000_200, timestamp = 20_000L, accuracy = 8f),
         )
 
-        val filtered = processor.process(points, ActivityType.WALKING).points
+        val filtered = processor.process(points, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)).points
 
         // Последний фикс прыгнул на 19 м вбок от ровного хода в 1 м за пять секунд.
         // Оценка обязана оказаться заметно ближе к продолжению траектории, чем к нему.
@@ -118,7 +117,6 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.000_002, timestamp = 10_000L),
                 point(id = 4L, latitude = 43.000_003, timestamp = 15_000L),
             ),
-            activityType = ActivityType.WALKING,
             config = config,
         )
 
@@ -146,7 +144,6 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 0.0, timestamp = 10_000L),
                 point(id = 4L, latitude = 0.00012, timestamp = 15_000L),
             ),
-            activityType = ActivityType.RUNNING,
             config = config,
         )
 
@@ -164,7 +161,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.000_126, timestamp = 10_000L, accuracy = 8f),
                 point(id = 4L, latitude = 43.000_189, timestamp = 15_000L, accuracy = 8f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.last().isStop).isFalse()
@@ -180,7 +177,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.000_126, timestamp = 10_000L, accuracy = 10f, speed = 1.4f),
                 point(id = 4L, latitude = 43.000_189, timestamp = 15_000L, accuracy = 10f, speed = 1.4f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.none(GeoPoint::isStop)).isTrue()
@@ -195,7 +192,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.000_126, timestamp = 10_000L, accuracy = 8f, speed = 0f),
                 point(id = 4L, latitude = 43.000_189, timestamp = 15_000L, accuracy = 8f, speed = 0f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.last().isStop).isFalse()
@@ -210,7 +207,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 42.999_991, timestamp = 10_000L, accuracy = 8f, speed = 0f),
                 point(id = 4L, latitude = 43.000_009, timestamp = 15_000L, accuracy = 8f, speed = 0f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.last().isStop).isTrue()
@@ -226,7 +223,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.0, timestamp = 10_000L, accuracy = 8f, speed = 0f),
                 point(id = 4L, latitude = 43.000_018, timestamp = 15_000L, accuracy = 8f, speed = 0.4f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.last().isStop).isTrue()
@@ -241,7 +238,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.0, timestamp = 10_000L, accuracy = 10f, speed = 0f),
                 point(id = 4L, latitude = 43.000_063, timestamp = 15_000L, accuracy = 10f, speed = 1.4f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points[2].isStop).isTrue()
@@ -254,7 +251,7 @@ class TrackProcessorTest {
         // точками становится больше stopWindowMillis, и окно схлопывается до одной точки.
         // Раньше проверка возобновления в этом случае просто не выполнялась, и запись
         // оставалась на автопаузе всю поездку.
-        val config = TrackProcessingConfig.forActivityType(ActivityType.DRIVING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.VEHICLE)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
@@ -267,7 +264,6 @@ class TrackProcessorTest {
                 point(id = 6L, latitude = 43.002_968, timestamp = 48_000L, accuracy = 8f),
                 point(id = 7L, latitude = 43.004_452, timestamp = 64_500L, accuracy = 8f),
             ),
-            activityType = ActivityType.DRIVING,
             config = config,
         )
 
@@ -280,7 +276,7 @@ class TrackProcessorTest {
     fun `resuming does not bounce back into a stop on the very next sample`() {
         // Точки стоянки оставались в окне и после возобновления, поэтому следующий же
         // сэмпл возвращал автопаузу — в логах это видно как переход туда-обратно за 100 мс.
-        val config = TrackProcessingConfig.forActivityType(ActivityType.DRIVING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.VEHICLE)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
@@ -290,7 +286,6 @@ class TrackProcessorTest {
                 point(id = 4L, latitude = 43.0, timestamp = 15_000L, accuracy = 8f, speed = 2.5f),
                 point(id = 5L, latitude = 43.0, timestamp = 15_100L, accuracy = 8f, speed = 0f),
             ),
-            activityType = ActivityType.DRIVING,
             config = config,
         )
 
@@ -307,7 +302,7 @@ class TrackProcessorTest {
                 point(id = 2L, latitude = 0.0001, timestamp = 10_000L, altitude = 102.0),
                 point(id = 3L, latitude = 0.0002, timestamp = 20_000L, altitude = 107.0),
             ),
-            config = TrackProcessingConfig.forActivityType(ActivityType.RUNNING),
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.RUNNING),
         )
 
         assertThat(stats.distanceMeters).isGreaterThan(22.0)
@@ -339,7 +334,7 @@ class TrackProcessorTest {
                 point(id = 5L, latitude = 0.0002, timestamp = 40_000L),
                 point(id = 6L, latitude = 0.0003, timestamp = 50_000L),
             ),
-            activityType = ActivityType.RUNNING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.RUNNING),
         )
 
         assertThat(result.points).hasSize(6)
@@ -361,7 +356,7 @@ class TrackProcessorTest {
                 point(id = 3L, latitude = 43.001_500, timestamp = 10_000L, accuracy = 100f),
                 point(id = 4L, latitude = 43.000_126, timestamp = 15_000L, accuracy = 10f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points[2].isOutlier).isTrue()
@@ -391,7 +386,7 @@ class TrackProcessorTest {
             accuracy = 8f,
         )
 
-        val result = processor.process(steady + leap, ActivityType.WALKING)
+        val result = processor.process(steady + leap, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT))
 
         assertThat(result.points.last().isOutlier).isTrue()
         assertThat(result.points.dropLast(1).none(GeoPoint::isOutlier)).isTrue()
@@ -415,7 +410,7 @@ class TrackProcessorTest {
         val leapLatitude = 43.0 + 9 * 0.000_063 + 0.000_701
         val leap = point(id = 99L, latitude = leapLatitude, timestamp = 70_000L, accuracy = 25f)
 
-        val result = processor.process(steady + leap, ActivityType.WALKING)
+        val result = processor.process(steady + leap, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT))
 
         assertThat(result.points.last().isOutlier).isFalse()
         // Сырая точка ушла бы на все 71 м от продолжения прогулки; оценка проходит около
@@ -445,7 +440,7 @@ class TrackProcessorTest {
                 point(id = 5L, latitude = 43.000_130, timestamp = 74_000L, accuracy = 11f),
                 point(id = 6L, latitude = 43.000_130, timestamp = 104_000L, accuracy = 11f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.last().isStop).isTrue()
@@ -471,7 +466,7 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(points, ActivityType.WALKING)
+        val result = processor.process(points, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT))
 
         assertThat(result.points.none(GeoPoint::isStop)).isTrue()
         assertThat(result.statistics.movingTimeMillis).isEqualTo(56_000L)
@@ -497,7 +492,7 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(walking + standing, ActivityType.WALKING)
+        val result = processor.process(walking + standing, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT))
 
         assertThat(result.points.takeLast(5).all(GeoPoint::isStop)).isTrue()
     }
@@ -516,7 +511,7 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(points, ActivityType.WALKING)
+        val result = processor.process(points, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT))
 
         assertThat(result.points.none(GeoPoint::isStop)).isTrue()
     }
@@ -540,7 +535,7 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(stationary + walking, ActivityType.WALKING)
+        val result = processor.process(stationary + walking, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT))
 
         assertThat(result.points.take(8).all(GeoPoint::isStop)).isTrue()
         assertThat(result.points.last().isStop).isFalse()
@@ -553,7 +548,7 @@ class TrackProcessorTest {
 
     @Test
     fun `stale evidence does not turn a long gap into a stop`() {
-        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         val result = processor.process(
             points = listOf(
@@ -562,7 +557,6 @@ class TrackProcessorTest {
                 // можно уйти и вернуться, и прямая между концами ничего не доказывает.
                 point(id = 2L, latitude = 43.000_001, timestamp = 600_000L, accuracy = 11f),
             ),
-            activityType = ActivityType.WALKING,
             config = config,
         )
 
@@ -571,7 +565,7 @@ class TrackProcessorTest {
 
     @Test
     fun `the walk up to a stop is not swallowed by it`() {
-        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         // Человек подошёл и встал. Стоянка объявляется по окну целиком, а окно к этому
         // моменту дотягивается до подхода: раньше та ходьба помечалась стоянкой заодно
@@ -598,7 +592,7 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(walking + standing, ActivityType.WALKING, config)
+        val result = processor.process(walking + standing, config)
 
         assertThat(result.points.take(walking.size).none(GeoPoint::isStop)).isTrue()
         assertThat(result.points.last().isStop).isTrue()
@@ -606,7 +600,7 @@ class TrackProcessorTest {
 
     @Test
     fun `a point without provider speed stays inside the stop`() {
-        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         // Обрезается только то, про что доплер прямо говорит «идёт». Отсутствие скорости
         // ничего не доказывает, и вырезать по нему начало стоянки значило бы терять её
@@ -620,14 +614,14 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(standing, ActivityType.WALKING, config)
+        val result = processor.process(standing, config)
 
         assertThat(result.points.first().isStop).isTrue()
     }
 
     @Test
     fun `doppler overrides a collapsed window that looks like rest`() {
-        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         // Схлопнутое окно: два фикса в 34 секундах друг от друга, между ними всё
         // отбраковано по погрешности. Прямая между концами короткая и сама по себе
@@ -645,7 +639,6 @@ class TrackProcessorTest {
                     speedAccuracy = 0.36f,
                 ),
             ),
-            activityType = ActivityType.WALKING,
             config = config,
         )
 
@@ -654,7 +647,7 @@ class TrackProcessorTest {
 
     @Test
     fun `doppler speed keeps a curved walk out of auto pause`() {
-        val config = TrackProcessingConfig.forActivityType(ActivityType.WALKING)
+        val config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
             .copy(processNoiseAccelerationMetersPerSecondSquared = UNCONSTRAINED_ACCELERATION)
         // Ходьба по дуге: смещение по прямой за окно мало и само по себе читается как
         // покой, но приёмник всё это время меряет скорость по сдвигу несущей и уверенно
@@ -672,7 +665,7 @@ class TrackProcessorTest {
             )
         }
 
-        val result = processor.process(walking, ActivityType.WALKING, config)
+        val result = processor.process(walking, config)
 
         assertThat(result.points.none(GeoPoint::isStop)).isTrue()
     }
@@ -689,7 +682,7 @@ class TrackProcessorTest {
                 // этого отрезка ничего не описывает.
                 point(id = 3L, latitude = 43.002_063, timestamp = 127_000L, accuracy = 10f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.statistics.maxSpeedMetersPerSecond).isLessThan(2.0)
@@ -714,7 +707,7 @@ class TrackProcessorTest {
                     speed = 0f,
                 )
             },
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.statistics.distanceMeters).isLessThan(3.0)
@@ -730,7 +723,7 @@ class TrackProcessorTest {
             point(id = 3L, latitude = 0.000_300, timestamp = 10_000L, accuracy = 39f),
         )
 
-        val filtered = processor.process(points, ActivityType.WALKING).points
+        val filtered = processor.process(points, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)).points
 
         // 33 м при заявленных 39 м погрешности — фикс проходит гейт, но сдвинуть оценку
         // на всю свою величину не вправе.
@@ -750,7 +743,7 @@ class TrackProcessorTest {
 
         val result = processor.process(
             points = points,
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
             source = TrackSource.KORNO_EXPORT,
         )
 
@@ -765,7 +758,7 @@ class TrackProcessorTest {
             point(id = 3L, latitude = 0.0, timestamp = 10_000L, accuracy = 5f),
         )
 
-        val result = processor.process(points, ActivityType.WALKING, source = TrackSource.RAW)
+        val result = processor.process(points, TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT), TrackSource.RAW)
 
         assertThat(result.points[1].latitude).isLessThan(0.0001)
     }
@@ -778,7 +771,7 @@ class TrackProcessorTest {
                 point(id = 1L, latitude = 0.0, timestamp = 0L),
                 point(id = 2L, latitude = 0.0001, timestamp = 5_000L),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
             source = TrackSource.KORNO_EXPORT,
         )
 
@@ -797,8 +790,8 @@ class TrackProcessorTest {
             ActivitySegment(kind = SegmentKind.VEHICLE, startTimeEpochMillis = 100_000L, endTimeEpochMillis = 200_000L),
         )
         val profiles = mapOf(
-            SegmentKind.ON_FOOT to TrackProcessingConfig.forActivityType(ActivityType.WALKING),
-            SegmentKind.VEHICLE to TrackProcessingConfig.forActivityType(ActivityType.DRIVING),
+            SegmentKind.ON_FOOT to TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
+            SegmentKind.VEHICLE to TrackProcessingConfig.forSegmentKind(SegmentKind.VEHICLE),
         )
 
         val result = processor.processSegments(walk + bus, segments) { profiles.getValue(it) }
@@ -823,7 +816,7 @@ class TrackProcessorTest {
                 point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 30f),
                 point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 8f, speed = 1.2f, bearing = 90f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.map(GeoPoint::isOutlier)).isEqualTo(listOf(false, true, false))
@@ -839,7 +832,7 @@ class TrackProcessorTest {
                 point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 30f),
                 point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 30f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.none(GeoPoint::isOutlier)).isTrue()
@@ -855,7 +848,7 @@ class TrackProcessorTest {
                 point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 5f),
                 point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 8f, speed = 1.2f, bearing = 90f),
             ),
-            activityType = ActivityType.WALKING,
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT),
         )
 
         assertThat(result.points.none(GeoPoint::isOutlier)).isTrue()
@@ -876,7 +869,6 @@ class TrackProcessorTest {
                 point(id = 2L, latitude = 0.000_100, timestamp = 5_000L, accuracy = 40f, speed = 1.2f, bearing = 90f),
                 point(id = 3L, latitude = 0.000_200, timestamp = 10_000L, accuracy = 8f, speed = 1.2f, bearing = 90f),
             ),
-            activityType = ActivityType.WALKING,
             config = config,
         )
 

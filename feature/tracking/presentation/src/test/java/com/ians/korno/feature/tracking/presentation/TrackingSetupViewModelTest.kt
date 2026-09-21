@@ -5,7 +5,6 @@ import assertk.assertions.isEqualTo
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
@@ -81,11 +80,11 @@ class TrackingSetupViewModelTest {
     }
 
     @Test
-    fun `choosing a type turns auto off and remembers that`() = runTest(testDispatcher) {
+    fun `choosing a kind turns auto off and remembers that`() = runTest(testDispatcher) {
         val viewModel = viewModel()
         runCurrent()
 
-        viewModel.onAction(TrackingSetupAction.SelectActivityType(ActivityType.CYCLING))
+        viewModel.onAction(TrackingSetupAction.SelectSegmentKind(SegmentKind.CYCLING))
         runCurrent()
 
         assertThat(viewModel.state.value.autoMode).isEqualTo(false)
@@ -93,7 +92,7 @@ class TrackingSetupViewModelTest {
     }
 
     private fun viewModel() = TrackingSetupViewModel(
-        initialActivityType = ActivityType.RUNNING,
+        initialSegmentKind = SegmentKind.RUNNING,
         startTracking = StartTrackingUseCase(controller),
         preferencesRepository = preferences,
         cancelTrackingPreparation = CancelTrackingPreparationUseCase(controller),
@@ -107,7 +106,7 @@ class TrackingSetupViewModelTest {
         override fun observeSession(): Flow<RecordingSession> = emptyFlow()
         override fun prepare() = Unit
         override fun cancelPreparation() = Unit
-        override suspend fun start(activityType: ActivityType, autoMode: Boolean) {
+        override suspend fun start(kind: SegmentKind, autoMode: Boolean) {
             startedAutoMode = autoMode
         }
         override fun isAutoModeAvailable(): Boolean = available
@@ -128,7 +127,7 @@ class TrackingSetupViewModelTest {
                 dynamicColorEnabled = true,
                 privacyZone = PrivacyZone.OFF,
                 onboardingCompleted = true,
-                lastActivityType = ActivityType.RUNNING,
+                lastSegmentKind = SegmentKind.RUNNING,
                 lastRecordingAutoMode = true,
             ),
         )
@@ -142,8 +141,8 @@ class TrackingSetupViewModelTest {
         override suspend fun setDynamicColorEnabled(value: Boolean) = success()
         override suspend fun setPrivacyZone(value: PrivacyZone) = success()
         override suspend fun setOnboardingCompleted(value: Boolean) = success()
-        override suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local> {
-            state.value = state.value.copy(lastActivityType = value)
+        override suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local> {
+            state.value = state.value.copy(lastSegmentKind = value)
             return success()
         }
         override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> {

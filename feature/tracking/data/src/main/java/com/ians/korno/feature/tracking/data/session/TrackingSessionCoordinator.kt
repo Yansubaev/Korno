@@ -4,7 +4,6 @@ import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.error.onSuccess
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.domain.model.GeoPoint
@@ -13,7 +12,7 @@ import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RecognizedActivity
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
-import com.ians.korno.core.domain.model.activityType
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.toSingleSegment
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
@@ -148,7 +147,7 @@ internal class TrackingSessionCoordinator(
     private val sessionPoints = mutableListOf<GeoPoint>()
     private var lastFlushAtMillis = 0L
     private var autoPauseEnabled = true
-    private var processingConfig = TrackProcessingConfig.forActivityType(ActivityType.RUNNING)
+    private var processingConfig = TrackProcessingConfig.forSegmentKind(SegmentKind.RUNNING)
     private var liveProcessor = IncrementalTrackProcessor(processingConfig)
     private var gpsAccuracy = GpsAccuracy.BALANCED
     private var autoPauseSensitivity = AutoPauseSensitivity.MEDIUM
@@ -205,19 +204,13 @@ internal class TrackingSessionCoordinator(
      * Точка, пойманная на прогреве до нажатия «Начать», позволяет стартовать сразу.
      */
     /**
-     * @param autoMode вид движения определяет детектор: [activityType] не учитывается,
+     * @param autoMode вид движения определяет детектор: [kind] не учитывается,
      *   запись начинается с сегмента `UNKNOWN` и самого терпимого профиля порогов.
      */
-    suspend fun beginSession(activityType: ActivityType, autoMode: Boolean = false): Long? {
+    suspend fun beginSession(kind: SegmentKind, autoMode: Boolean = false): Long? {
         val startTime = nowMillis()
-        val sessionType = if (autoMode) ActivityType.OTHER else activityType
-        loadRecordingPreferences(
-            if (autoMode) {
-                TrackProcessingConfig.forSegmentKind(SegmentKind.UNKNOWN)
-            } else {
-                TrackProcessingConfig.forActivityType(activityType)
-            },
-        )
+        val sessionKind = if (autoMode) SegmentKind.UNKNOWN else kind
+        loadRecordingPreferences(TrackProcessingConfig.forSegmentKind(sessionKind))
         val hasWarmFix = lastReliableFixAtMillis
             ?.let { startTime - it <= WARM_FIX_VALIDITY_MILLIS } == true
         val initialStatus = if (hasWarmFix) RecordingStatus.RECORDING else RecordingStatus.WAITING_FOR_GPS
@@ -225,14 +218,12 @@ internal class TrackingSessionCoordinator(
 
         val activity = Activity(
             startTimeEpochMillis = startTime,
-            activityType = sessionType,
-            isAutoMode = autoMode,
+            recordingMode = if (autoMode) RecordingMode.AUTO else RecordingMode.FIXED,
             autoPauseSensitivity = autoPauseSensitivity,
-            isTypeChosenByUser = !autoMode,
         )
         // Запись начинается с одного открытого сегмента: в фиксированном режиме он так
         // и останется единственным, в авторежиме его вид уточнит детектор.
-        val firstSegment = activity.toSingleSegment()
+        val firstSegment = activity.toSingleSegment(sessionKind)
         trackRepository.createActivity(activity, listOf(firstSegment)).onSuccess { id ->
             newActivityId = id
             pointBuffer.clear()
@@ -246,13 +237,12 @@ internal class TrackingSessionCoordinator(
             _session.value = RecordingSession(
                 status = initialStatus,
                 activityId = id,
-                activityType = sessionType,
                 startTimeEpochMillis = startTime,
                 // В авторежиме шаги считаются всю запись, но появятся с первым показанием:
                 // без датчика их нет вовсе.
-                stepCount = if (!autoMode && activityType.countsSteps) 0 else null,
-                isAutoMode = autoMode,
-                segmentKind = if (autoMode) SegmentKind.UNKNOWN else null,
+                stepCount = if (!autoMode && sessionKind.countsSteps) 0 else null,
+                recordingMode = activity.recordingMode,
+                segmentKind = sessionKind,
             )
         }
 
@@ -268,7 +258,7 @@ internal class TrackingSessionCoordinator(
                 tag = TAG,
                 fields = mapOf(
                     "activityId" to startedActivityId.toString(),
-                    "activityType" to sessionType.name,
+                    "segmentKind" to sessionKind.name,
                     "autoMode" to autoMode.toString(),
                     "status" to initialStatus.name,
                     "hasWarmFix" to hasWarmFix.toString(),
@@ -313,17 +303,15 @@ internal class TrackingSessionCoordinator(
             if (activity != null) {
                 // Открытый сегмент авторежима продолжается: его вид задаёт и профиль порогов,
                 // и то, от чего детектор отсчитывает смену.
-                val segments = if (activity.isAutoMode) {
-                    (trackRepository.getSegments(activity.id) as? Result.Success)?.data.orEmpty()
-                        .ifEmpty { listOf(activity.toSingleSegment()) }
-                } else {
-                    emptyList()
-                }
-                val segmentKind = segments.lastOrNull()?.kind
+                val stored = (trackRepository.getSegments(activity.id) as? Result.Success)?.data.orEmpty()
+                val isAutoMode = activity.recordingMode == RecordingMode.AUTO
+                val segments = if (isAutoMode) stored else emptyList()
+                // Вид продолжается тот же, каким запись шла: в авторежиме — вид открытого
+                // сегмента, в фиксированном — тот единственный, что выбрали до старта.
+                val segmentKind = stored.lastOrNull()?.kind ?: SegmentKind.UNKNOWN
                 // Чувствительность — та, с которой запись началась, а не текущая настройка.
                 loadRecordingPreferences(
-                    base = segmentKind?.let(TrackProcessingConfig::forSegmentKind)
-                        ?: TrackProcessingConfig.forActivityType(activity.activityType),
+                    base = TrackProcessingConfig.forSegmentKind(segmentKind),
                     sensitivity = activity.autoPauseSensitivity,
                 )
                 resetSegments(segments, stepCount = activity.stepCount)
@@ -341,7 +329,7 @@ internal class TrackingSessionCoordinator(
                 // ponytail: весь восстановленный трек пересчитывается профилем текущего
                 // сегмента; по профилю на сегмент — если восстановление смешанных записей
                 // начнёт терять дистанцию.
-                val processed = trackProcessor.process(rawPoints, activity.activityType, processingConfig)
+                val processed = trackProcessor.process(rawPoints, processingConfig)
                 lastFlushAtMillis = nowMillis()
                 waitingForFixSinceMillis = null
                 // Шаги не флашатся в БД по ходу записи (см. applyStepCounter), поэтому
@@ -352,7 +340,6 @@ internal class TrackingSessionCoordinator(
                 _session.value = RecordingSession(
                     status = RecordingStatus.RECORDING,
                     activityId = activity.id,
-                    activityType = activity.activityType,
                     startTimeEpochMillis = activity.startTimeEpochMillis,
                     distanceMeters = processed.statistics.distanceMeters,
                     movingTimeMillis = processed.statistics.movingTimeMillis,
@@ -361,9 +348,9 @@ internal class TrackingSessionCoordinator(
                     elevationGainMeters = processed.statistics.elevationGainMeters,
                     lastPoint = processed.points.lastOrNull { !it.isOutlier },
                     stepCount = activity.stepCount,
-                    isAutoMode = activity.isAutoMode,
+                    recordingMode = activity.recordingMode,
                     segmentKind = segmentKind,
-                    segmentDistancesMeters = if (activity.isAutoMode) {
+                    segmentDistancesMeters = if (isAutoMode) {
                         synchronized(segmentLock) { segmentDistances(processed.statistics.distanceMeters) }
                     } else {
                         emptyMap()
@@ -409,7 +396,7 @@ internal class TrackingSessionCoordinator(
         if (current.isAutoMode) feedDetector(DetectorSignal.StepCounter(nowMillis(), counter))
         // В авторежиме шаги считаются всю запись: делятся они по сегментам, а в сводку
         // попадают только пешие.
-        if (!current.isAutoMode && !current.activityType.countsSteps) return
+        if (!current.isAutoMode && !current.segmentKind.countsSteps) return
 
         val previous = lastStepCounter
         lastStepCounter = counter
@@ -572,7 +559,6 @@ internal class TrackingSessionCoordinator(
         liveProcessor.switchConfig(processingConfig)
         _session.update {
             it.copy(
-                activityType = event.to.activityType,
                 segmentKind = event.to,
                 segmentDistancesMeters = segmentDistances(it.distanceMeters),
             )
@@ -1030,10 +1016,8 @@ internal class TrackingSessionCoordinator(
                 Activity(
                     id = activityId,
                     startTimeEpochMillis = atMillis,
-                    activityType = current.activityType,
-                    isAutoMode = current.isAutoMode,
+                    recordingMode = current.recordingMode,
                     autoPauseSensitivity = autoPauseSensitivity,
-                    isTypeChosenByUser = !current.isAutoMode,
                 ),
             )
         }
@@ -1122,20 +1106,18 @@ internal class TrackingSessionCoordinator(
                 id = activityId,
                 startTimeEpochMillis = current.startTimeEpochMillis,
                 endTimeEpochMillis = endTime,
-                activityType = current.activityType,
                 elapsedTimeMillis = elapsedTime,
                 isPendingSummary = pendingSummary,
                 stepCount = current.stepCount,
-                isAutoMode = current.isAutoMode,
+                recordingMode = current.recordingMode,
                 autoPauseSensitivity = autoPauseSensitivity,
-                isTypeChosenByUser = !current.isAutoMode,
             )
             // Открытый сегмент перезаписывается закрытым целиком из сессии: так он
             // переживает и восстановление после смерти процесса, и сдвиг старта к фиксу.
             val segments = if (current.isAutoMode) {
                 decodedSessionSegments(current, activityId, endTime)
             } else {
-                listOf(activity.toSingleSegment())
+                listOf(activity.toSingleSegment(current.segmentKind))
             }
             finalizeTrack(activity, sessionPoints, segments).also { track ->
                 trackRepository.replaceTrack(track.activity, track.points, track.segments)

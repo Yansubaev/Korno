@@ -1,6 +1,5 @@
 package com.ians.korno.tools.trackcalibration
 
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.trackprocessing.TrackProcessingConfig
 import com.ians.korno.core.trackprocessing.TrackProcessor
@@ -25,10 +24,9 @@ data class TrackRun(
  */
 fun runPipeline(
     points: List<GeoPoint>,
-    activityType: ActivityType,
     config: TrackProcessingConfig,
 ): TrackRun {
-    val processed = TrackProcessor().process(points, activityType, config, TrackSource.RAW)
+    val processed = TrackProcessor().process(points, config, TrackSource.RAW)
     return TrackRun(
         outlierCount = processed.points.count(GeoPoint::isOutlier),
         stopCount = countStopRuns(processed.points),

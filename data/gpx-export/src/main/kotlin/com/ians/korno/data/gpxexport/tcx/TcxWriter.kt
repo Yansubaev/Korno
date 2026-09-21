@@ -1,6 +1,6 @@
 package com.ians.korno.data.gpxexport.tcx
 
-import com.ians.korno.data.gpxexport.format.ActivityTypeCodec
+import com.ians.korno.data.gpxexport.format.SegmentKindCodec
 import com.ians.korno.data.gpxexport.format.Iso8601
 import com.ians.korno.data.gpxexport.format.KORNO_NAMESPACE
 import com.ians.korno.data.gpxexport.format.formatDecimal
@@ -33,7 +33,7 @@ internal object TcxWriter {
             element("Activities") {
                 element(
                     name = "Activity",
-                    attributes = listOf("Sport" to ActivityTypeCodec.toTcxSport(document.activityType)),
+                    attributes = listOf("Sport" to SegmentKindCodec.toTcxSport(document.kind)),
                 ) {
                     text("Id", startTime?.let(Iso8601::format))
                     element(
@@ -66,7 +66,7 @@ internal object TcxWriter {
                     // и название дублируются расширением — ради round-trip своих же файлов.
                     element("Extensions") {
                         text("korno:ActivityName", document.name)
-                        text("korno:ActivityType", document.activityType.name)
+                        text("korno:SegmentKind", document.kind.name)
                     }
                 }
             }

@@ -19,7 +19,7 @@ import com.ians.korno.core.database.entity.RecognitionSampleEntity
         ActivitySegmentEntity::class,
         RecognitionSampleEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: activities.is_pending_summary (NOT NULL DEFAULT 0).
@@ -43,12 +43,15 @@ import com.ians.korno.core.database.entity.RecognitionSampleEntity
         // 8 -> 9: activities.auto_pause_sensitivity (NOT NULL DEFAULT 'MEDIUM') и
         // activities.is_type_chosen_by_user (NOT NULL DEFAULT 0). С какой чувствительностью
         // писались прежние записи, неизвестно; MEDIUM — значение по умолчанию.
-        AutoMigration(from = 8, to = 9, spec = KornoDatabase.Migration8To9::class),
+        AutoMigration(from = 8, to = 9),
         // 9 -> 10: activity_segments.moving_time_millis (nullable). У прежних участков
         // времени в движении нет: до ближайшего пересчёта трека оно читается как вся
         // длительность участка (см. `ActivitySegment.movingTime`).
         AutoMigration(from = 9, to = 10),
-        // 10 -> 11: схема не меняется, чинятся данные — см. `MIGRATION_10_11`.
+        // 10 -> 11: схема не менялась, переход остаётся пустым.
+        AutoMigration(from = 10, to = 11),
+        // 11 -> 12: activity_type и is_type_chosen_by_user сносятся, is_auto_mode
+        // становится режимом записи — см. `MIGRATION_11_12`.
     ],
 )
 abstract class KornoDatabase : RoomDatabase() {
@@ -56,8 +59,8 @@ abstract class KornoDatabase : RoomDatabase() {
 
     /**
      * Код чтения работает только с сегментами, без ветки «сегментов нет», поэтому старым
-     * активностям сегмент нужен сразу. Вид — по тому же правилу, что и
-     * `ActivityType.segmentKind`; у незавершённой записи сегмент остаётся открытым.
+     * активностям сегмент нужен сразу. Вид — из тогдашнего типа активности, которого
+     * с версии 12 уже нет; у незавершённой записи сегмент остаётся открытым.
      */
     class Migration5To6 : AutoMigrationSpec {
         override fun onPostMigrate(db: SupportSQLiteDatabase) {
@@ -82,74 +85,63 @@ abstract class KornoDatabase : RoomDatabase() {
         }
     }
 
-    /**
-     * Выбран ли тип пользователем, восстанавливается по тому, что уже лежит в БД: в
-     * фиксированном режиме тип выбирают до старта, а в авторежиме выбор виден по
-     * расхождению с видом сегмента с наибольшей дистанцией.
-     *
-     * «Другое» из этого правила исключено: выбрать его нельзя (см. `SETUP_ACTIVITY_TYPES`),
-     * и расхождение там означает не ручной выбор, а то, что тип авторежима так и остался
-     * невыведенным. Уже мигрированные базы чинит [MIGRATION_10_11].
-     */
-    class Migration8To9 : AutoMigrationSpec {
-        override fun onPostMigrate(db: SupportSQLiteDatabase) {
-            db.execSQL(
-                """
-                UPDATE activities SET is_type_chosen_by_user = 1
-                WHERE activity_type != 'OTHER' AND (is_auto_mode = 0
-                    OR activity_type != (
-                        SELECT CASE kind
-                            WHEN 'ON_FOOT' THEN 'WALKING'
-                            WHEN 'RUNNING' THEN 'RUNNING'
-                            WHEN 'CYCLING' THEN 'CYCLING'
-                            WHEN 'VEHICLE' THEN 'DRIVING'
-                        END
-                        FROM activity_segments
-                        WHERE activity_id = activities.id AND kind != 'UNKNOWN'
-                        GROUP BY kind
-                        ORDER BY SUM(distance_meters) DESC
-                        LIMIT 1
-                    ))
-                """.trimIndent(),
-            )
-        }
-    }
-
     companion object {
         const val DATABASE_NAME = "korno.db"
 
         /**
-         * Чинит записи, которым миграция 8 → 9 приписала ручной выбор типа «другое».
-         * Выбрать «другое» нельзя, так что такой флаг — всегда ошибка, и цена у неё не
-         * косметическая: он замораживает тип (пересчёт трека больше не выводит его из
-         * доминирующего вида) и заставляет список фильтровать запись по типу вместо её
-         * видов, из-за чего вся история авторежима оседала в чипе «Другое».
+         * Перечень видов сегментов заменил тип активности (`docs/adr/0004`): колонки
+         * `activity_type` и `is_type_chosen_by_user` сносятся, а булево `is_auto_mode`
+         * становится режимом записи.
          *
-         * Тип выводится здесь же, тем же правилом, что и при пересчёте трека: иначе он
-         * остался бы «не определено» до ближайшей правки записи.
+         * Данные типа не переносятся: релиза не было (`versionCode = 1`, тегов нет), а
+         * вид у каждой активности и так лежит в её сегментах. Хайкинг в истории при этом
+         * теряется — он был только в типе — и при надобности проставляется руками.
+         *
+         * Таблица пересоздаётся целиком: `ALTER TABLE ... DROP COLUMN` есть только в
+         * SQLite 3.35, то есть с Android 14, а minSdk у нас 24.
          */
-        val MIGRATION_10_11 = object : Migration(10, 11) {
+        val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """
-                    UPDATE activities
-                    SET activity_type = COALESCE((
-                            SELECT CASE kind
-                                WHEN 'ON_FOOT' THEN 'WALKING'
-                                WHEN 'RUNNING' THEN 'RUNNING'
-                                WHEN 'CYCLING' THEN 'CYCLING'
-                                WHEN 'VEHICLE' THEN 'DRIVING'
-                            END
-                            FROM activity_segments
-                            WHERE activity_id = activities.id AND kind NOT IN ('UNKNOWN', 'PAUSE')
-                            GROUP BY kind
-                            ORDER BY SUM(distance_meters) DESC
-                            LIMIT 1
-                        ), 'OTHER'),
-                        is_type_chosen_by_user = 0
-                    WHERE activity_type = 'OTHER'
+                    CREATE TABLE activities_new (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `start_time` INTEGER NOT NULL,
+                        `end_time` INTEGER,
+                        `title` TEXT,
+                        `note` TEXT,
+                        `distance` REAL NOT NULL,
+                        `moving_time` INTEGER NOT NULL,
+                        `elapsed_time` INTEGER NOT NULL,
+                        `avg_speed` REAL NOT NULL,
+                        `max_speed` REAL NOT NULL,
+                        `elevation_gain` REAL NOT NULL,
+                        `is_manually_edited` INTEGER NOT NULL,
+                        `is_pending_summary` INTEGER NOT NULL DEFAULT 0,
+                        `step_count` INTEGER,
+                        `recording_mode` TEXT NOT NULL DEFAULT 'FIXED',
+                        `auto_pause_sensitivity` TEXT NOT NULL DEFAULT 'MEDIUM'
+                    )
                     """.trimIndent(),
                 )
+                db.execSQL(
+                    """
+                    INSERT INTO activities_new (
+                        id, start_time, end_time, title, note, distance, moving_time,
+                        elapsed_time, avg_speed, max_speed, elevation_gain,
+                        is_manually_edited, is_pending_summary, step_count,
+                        recording_mode, auto_pause_sensitivity
+                    )
+                    SELECT id, start_time, end_time, title, note, distance, moving_time,
+                        elapsed_time, avg_speed, max_speed, elevation_gain,
+                        is_manually_edited, is_pending_summary, step_count,
+                        CASE WHEN is_auto_mode = 1 THEN 'AUTO' ELSE 'FIXED' END,
+                        auto_pause_sensitivity
+                    FROM activities
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE activities")
+                db.execSQL("ALTER TABLE activities_new RENAME TO activities")
             }
         }
     }

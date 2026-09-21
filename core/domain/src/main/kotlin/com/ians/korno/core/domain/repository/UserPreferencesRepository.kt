@@ -2,7 +2,7 @@ package com.ians.korno.core.domain.repository
 
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
@@ -29,7 +29,7 @@ interface UserPreferencesRepository {
 
     suspend fun setOnboardingCompleted(value: Boolean): EmptyResult<DataError.Local>
 
-    suspend fun setLastActivityType(value: ActivityType): EmptyResult<DataError.Local>
+    suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local>
 
     suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local>
 }

@@ -6,10 +6,10 @@ import assertk.assertions.isNull
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RecognizedActivity
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import kotlinx.coroutines.test.runTest
@@ -98,8 +98,7 @@ class RedecodeActivitySegmentsUseCaseTest {
         id = ACTIVITY_ID,
         startTimeEpochMillis = 0L,
         endTimeEpochMillis = DURATION_MILLIS,
-        activityType = ActivityType.OTHER,
-        isAutoMode = autoMode,
+        recordingMode = if (autoMode) RecordingMode.AUTO else RecordingMode.FIXED,
     )
 
     private fun segment(kind: SegmentKind, start: Long, end: Long, steps: Int) = ActivitySegment(

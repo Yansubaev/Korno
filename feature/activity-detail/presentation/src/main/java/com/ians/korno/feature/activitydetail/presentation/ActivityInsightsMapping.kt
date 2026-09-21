@@ -1,7 +1,7 @@
 package com.ians.korno.feature.activitydetail.presentation
 
 import android.content.Context
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.map.MapDistanceMarker
 import com.ians.korno.core.map.MapPoint
@@ -37,12 +37,12 @@ private const val MINIMUM_SPLIT_BAR = 0.15f
 
 internal fun Context.toInsightsUi(
     analysis: TrackAnalysis,
-    activityType: ActivityType,
+    kind: SegmentKind,
     system: MeasurementSystem,
 ): ActivityInsightsUi? {
     if (analysis.isEmpty || analysis.totalDistanceMeters <= 0.0) return null
 
-    val display = activityType.speedDisplay
+    val display = kind.speedDisplay
     val total = analysis.totalDistanceMeters
     val speedScale = analysis.speedScale
     val elevationScale = analysis.elevationScale
@@ -116,13 +116,13 @@ internal fun Context.toInsightsUi(
 internal fun Context.toSelectionUi(
     analysis: TrackAnalysis,
     fraction: Float,
-    activityType: ActivityType,
+    kind: SegmentKind,
     system: MeasurementSystem,
 ): TrackSelectionUi? {
     if (analysis.isEmpty || analysis.totalDistanceMeters <= 0.0) return null
     val target = fraction.coerceIn(0f, 1f) * analysis.totalDistanceMeters
     val sample = analysis.samples.nearestByDistance(target) ?: return null
-    val display = activityType.speedDisplay
+    val display = kind.speedDisplay
 
     return TrackSelectionUi(
         point = MapPoint(sample.latitude, sample.longitude),

@@ -1,8 +1,9 @@
 package com.ians.korno.core.domain.model
 
 /**
- * Грубый вид движения, который различают датчики. Не путать с [ActivityType] —
- * пользовательской меткой: хайкинг от прогулки по датчикам не отличить.
+ * Чем человек передвигался на участке — единственное понятие о том, что он делал.
+ * Перечень шире того, что умеют датчики: хайкинг они не выдают никогда, его ставит
+ * только человек (см. `docs/adr/0005`).
  */
 enum class SegmentKind {
     ON_FOOT,
@@ -10,7 +11,10 @@ enum class SegmentKind {
     CYCLING,
     VEHICLE,
 
-    /** Детектор его не выдаёт: только активности типа [ActivityType.OTHER]. */
+    /** Датчики его не выдают: только ручная правка (см. [applyHikingRule]). */
+    HIKING,
+
+    /** Детектор ещё не ответил или ответить не смог. */
     UNKNOWN,
 
     /** Ручная пауза: движения в это время не записывали, вида у участка нет. */
@@ -20,6 +24,10 @@ enum class SegmentKind {
 /** Виды, по которым есть что считать: на паузе и до ответа детектора движения нет. */
 val SegmentKind.isMovement: Boolean
     get() = this != SegmentKind.UNKNOWN && this != SegmentKind.PAUSE
+
+/** Виды на своих ногах, где шагомер что-то значит: велосипед и машина шагов не считают. */
+val SegmentKind.countsSteps: Boolean
+    get() = this == SegmentKind.ON_FOOT || this == SegmentKind.RUNNING || this == SegmentKind.HIKING
 
 /** Участок записи с одним видом движения. Точки привязываются к нему по времени. */
 data class ActivitySegment(
@@ -45,28 +53,10 @@ data class ActivitySegment(
 val ActivitySegment.movingTime: Long
     get() = movingTimeMillis ?: ((endTimeEpochMillis ?: startTimeEpochMillis) - startTimeEpochMillis)
 
-val ActivityType.segmentKind: SegmentKind
-    get() = when (this) {
-        ActivityType.WALKING, ActivityType.HIKING -> SegmentKind.ON_FOOT
-        ActivityType.RUNNING -> SegmentKind.RUNNING
-        ActivityType.CYCLING -> SegmentKind.CYCLING
-        ActivityType.DRIVING -> SegmentKind.VEHICLE
-        ActivityType.OTHER -> SegmentKind.UNKNOWN
-    }
-
-/** Тип активности, который соответствует виду: обратное к [segmentKind] там, где оно однозначно. */
-val SegmentKind.activityType: ActivityType
-    get() = when (this) {
-        SegmentKind.ON_FOOT -> ActivityType.WALKING
-        SegmentKind.RUNNING -> ActivityType.RUNNING
-        SegmentKind.CYCLING -> ActivityType.CYCLING
-        SegmentKind.VEHICLE -> ActivityType.DRIVING
-        SegmentKind.UNKNOWN, SegmentKind.PAUSE -> ActivityType.OTHER
-    }
-
 /**
  * Вид, на который пришлась наибольшая дистанция; не-движение не в счёт. `null` — определить
- * не из чего. По нему авторежим выводит тип активности.
+ * не из чего. Он и есть лицо активности: иконка, подпись, темп или скорость, вид спорта
+ * при экспорте.
  */
 fun List<ActivitySegment>.dominantKind(): SegmentKind? =
     filter { it.kind.isMovement }
@@ -95,10 +85,10 @@ fun List<ActivitySegment>.slicePoints(points: List<GeoPoint>): List<Pair<Activit
  * Один сегмент на всю активность — так пишутся фиксированный режим и импорт.
  * То же правило, что и в миграции БД 5 → 6.
  */
-fun Activity.toSingleSegment(): ActivitySegment =
+fun Activity.toSingleSegment(kind: SegmentKind): ActivitySegment =
     ActivitySegment(
         activityId = id,
-        kind = activityType.segmentKind,
+        kind = kind,
         startTimeEpochMillis = startTimeEpochMillis,
         endTimeEpochMillis = endTimeEpochMillis,
         stepCount = stepCount,
@@ -107,3 +97,17 @@ fun Activity.toSingleSegment(): ActivitySegment =
         // не двигались»: такому участку время потом посчитает пересчёт трека.
         movingTimeMillis = movingTimeMillis.takeIf { it > 0L },
     )
+
+/**
+ * Правило хайкинга: есть хоть один сегмент [SegmentKind.HIKING] — все пешие сегменты
+ * записи читаются как хайкинг.
+ *
+ * Хайкинг датчики не выдают, поэтому его наличие само по себе означает «человек сказал».
+ * Правило выводится из данных — ни метки, ни момента правки хранить не нужно, — и
+ * переживает редекод: новые пешие куски выходят из декодера как `ON_FOOT`, а правило
+ * накладывается поверх. Обратное не распространяется: бег детектор говорит сам.
+ */
+fun List<ActivitySegment>.applyHikingRule(): List<ActivitySegment> {
+    if (none { it.kind == SegmentKind.HIKING }) return this
+    return map { if (it.kind == SegmentKind.ON_FOOT) it.copy(kind = SegmentKind.HIKING) else it }
+}

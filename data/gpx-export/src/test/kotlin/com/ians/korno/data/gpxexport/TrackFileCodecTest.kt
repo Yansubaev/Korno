@@ -14,7 +14,7 @@ import assertk.assertions.doesNotContain
 import assertk.assertions.hasSize
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.error.TrackFileError
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.data.gpxexport.model.TrackDocument
 import com.ians.korno.data.gpxexport.model.TrackDocumentPoint
@@ -35,7 +35,7 @@ class TrackFileCodecTest {
         val parsed = codec.parse(codec.write(document, format)).requireSuccess()
 
         assertThat(parsed.name).isEqualTo(document.name)
-        assertThat(parsed.activityType).isEqualTo(document.activityType)
+        assertThat(parsed.kind).isEqualTo(document.kind)
         assertThat(parsed.note).isEqualTo(document.note)
         assertThat(parsed.points).hasSize(document.points.size)
         parsed.points.forEachIndexed { index, point ->
@@ -62,11 +62,11 @@ class TrackFileCodecTest {
     @EnumSource(TrackFileFormat::class)
     fun `round trip keeps activity types the format cannot express natively`(format: TrackFileFormat) {
         // TCX знает только Running, Biking и Other, поэтому прогулка проверяется отдельно.
-        val document = sampleDocument().copy(activityType = ActivityType.WALKING)
+        val document = sampleDocument().copy(kind = SegmentKind.ON_FOOT)
 
         val parsed = codec.parse(codec.write(document, format)).requireSuccess()
 
-        assertThat(parsed.activityType).isEqualTo(ActivityType.WALKING)
+        assertThat(parsed.kind).isEqualTo(SegmentKind.ON_FOOT)
     }
 
     @ParameterizedTest
@@ -182,7 +182,7 @@ class TrackFileCodecTest {
         val parsed = codec.parse(gpx).requireSuccess()
 
         assertThat(parsed.name).isEqualTo("Trail day")
-        assertThat(parsed.activityType).isEqualTo(ActivityType.HIKING)
+        assertThat(parsed.kind).isEqualTo(SegmentKind.HIKING)
         assertThat(parsed.points).hasSize(1)
         assertThat(parsed.points.first().isStop).isFalse()
         assertThat(parsed.points.first().speedMetersPerSecond).isNull()
@@ -259,7 +259,7 @@ class TrackFileCodecTest {
 
         val parsed = codec.parse(tcx).requireSuccess()
 
-        assertThat(parsed.activityType).isEqualTo(ActivityType.CYCLING)
+        assertThat(parsed.kind).isEqualTo(SegmentKind.CYCLING)
         assertThat(parsed.points.single().speedMetersPerSecond!!.toDouble()).isCloseTo(7.5, 0.001)
     }
 
@@ -328,7 +328,7 @@ class TrackFileCodecTest {
 
     private fun sampleDocument(): TrackDocument = TrackDocument(
         name = "Morning run",
-        activityType = ActivityType.RUNNING,
+        kind = SegmentKind.RUNNING,
         note = "Felt good",
         points = listOf(
             TrackDocumentPoint(

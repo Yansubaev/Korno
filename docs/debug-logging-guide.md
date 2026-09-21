@@ -40,7 +40,7 @@
   "sessionId": "a1b2c3d4",
   "activityId": 42,
   "fields": {
-    "activityType": "RUNNING",
+    "segmentKind": "RUNNING",
     "autoPauseEnabled": "true"
   }
 }

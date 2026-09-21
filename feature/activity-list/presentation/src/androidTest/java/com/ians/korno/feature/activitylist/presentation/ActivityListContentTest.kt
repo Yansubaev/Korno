@@ -13,7 +13,6 @@ import assertk.assertions.contains
 import assertk.assertions.isEqualTo
 import assertk.assertions.isNull
 import com.ians.korno.core.designsystem.theme.KornoTheme
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.presentation.R as CoreR
 import org.junit.Rule
@@ -122,6 +121,6 @@ class ActivityListContentTest {
         title = "Morning run",
         supportingText = "5 September, 07:00",
         distanceText = "5.18 km",
-        type = ActivityType.RUNNING,
+        kind = SegmentKind.RUNNING,
     )
 }

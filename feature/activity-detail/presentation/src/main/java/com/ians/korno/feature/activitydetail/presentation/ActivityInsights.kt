@@ -1,8 +1,8 @@
 package com.ians.korno.feature.activitydetail.presentation
 
 import androidx.compose.runtime.Immutable
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.map.MapDistanceMarker
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.MapStopMarker
@@ -20,12 +20,6 @@ internal enum class MapLens { KINDS, ROUTE, SPEED, ELEVATION, STOPS }
  * «10,9 км/ч» — нет. Велосипед и автомобиль — наоборот.
  */
 internal enum class SpeedDisplay { PACE, SPEED }
-
-internal val ActivityType.speedDisplay: SpeedDisplay
-    get() = when (this) {
-        ActivityType.WALKING, ActivityType.RUNNING, ActivityType.HIKING -> SpeedDisplay.PACE
-        ActivityType.CYCLING, ActivityType.DRIVING, ActivityType.OTHER -> SpeedDisplay.SPEED
-    }
 
 /**
  * Точка маршрута вместе с её местом в шкалах линз.
@@ -125,7 +119,7 @@ internal data class TrackSelectionUi(
 )
 
 internal val SegmentKind.speedDisplay: SpeedDisplay
-    get() = if (this == SegmentKind.ON_FOOT || this == SegmentKind.RUNNING) SpeedDisplay.PACE else SpeedDisplay.SPEED
+    get() = if (countsSteps) SpeedDisplay.PACE else SpeedDisplay.SPEED
 
 /** Строка разбивки по видам: сколько, как долго и как быстро на этом виде. */
 @Immutable

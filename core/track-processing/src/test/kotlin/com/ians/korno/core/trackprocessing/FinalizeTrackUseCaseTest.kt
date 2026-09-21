@@ -7,10 +7,10 @@ import assertk.assertions.isNotEqualTo
 import assertk.assertions.isNull
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.toSingleSegment
 import org.junit.jupiter.api.Test
@@ -22,13 +22,12 @@ class FinalizeTrackUseCaseTest {
         id = 7L,
         startTimeEpochMillis = 0L,
         endTimeEpochMillis = 300_000L,
-        activityType = ActivityType.OTHER,
         stepCount = 0,
-        isAutoMode = true,
+        recordingMode = RecordingMode.AUTO,
     )
 
     @Test
-    fun `each segment gets its own distance and the type follows the dominant kind`() {
+    fun `each segment gets its own distance on its own profile`() {
         val result = finalize(autoActivity, mixedPoints, mixedSegments)
 
         assertThat(result.segments.map { it.kind })
@@ -36,14 +35,25 @@ class FinalizeTrackUseCaseTest {
         // Пешие пороги выкинули бы автобус целиком: 15 м/с — выброс для пешехода.
         assertThat(result.segments[1].distanceMeters).isGreaterThan(1_200.0)
         assertThat(result.activity.distanceMeters).isEqualTo(result.segments.sumOf { it.distanceMeters })
-        assertThat(result.activity.activityType).isEqualTo(ActivityType.DRIVING)
     }
 
     @Test
-    fun `a type chosen by the user is kept`() {
-        val hike = autoActivity.copy(activityType = ActivityType.HIKING, isTypeChosenByUser = true)
+    fun `one hiking segment repaints every on-foot segment of the record`() {
+        // Правило хайкинга (ADR 0005): датчики его не выдают, значит его поставил человек,
+        // и на пешие куски этой же записи он распространяется целиком. Транспорт — нет.
+        val marked = listOf(mixedSegments[0].copy(kind = SegmentKind.HIKING)) + mixedSegments.drop(1)
 
-        assertThat(finalize(hike, mixedPoints, mixedSegments).activity.activityType).isEqualTo(ActivityType.HIKING)
+        assertThat(finalize(autoActivity, mixedPoints, marked).segments.map { it.kind })
+            .isEqualTo(listOf(SegmentKind.HIKING, SegmentKind.VEHICLE, SegmentKind.HIKING))
+    }
+
+    @Test
+    fun `without a hiking segment nothing is repainted`() {
+        // Обратное не распространяется: бег детектор говорит сам, и правило его не трогает.
+        val marked = listOf(mixedSegments[0].copy(kind = SegmentKind.RUNNING)) + mixedSegments.drop(1)
+
+        assertThat(finalize(autoActivity, mixedPoints, marked).segments.map { it.kind })
+            .isEqualTo(listOf(SegmentKind.RUNNING, SegmentKind.VEHICLE, SegmentKind.ON_FOOT))
     }
 
     @Test
@@ -79,17 +89,15 @@ class FinalizeTrackUseCaseTest {
     }
 
     @Test
-    fun `a fixed-mode activity is one segment processed with its own type profile`() {
+    fun `a fixed-mode activity is one segment processed with its own kind profile`() {
         val hike = Activity(
             id = 7L,
             startTimeEpochMillis = 0L,
             endTimeEpochMillis = 300_000L,
-            activityType = ActivityType.HIKING,
-            isTypeChosenByUser = true,
         )
 
-        val result = finalize(hike, walkWithStop, listOf(hike.toSingleSegment()))
-        val direct = TrackProcessor().process(walkWithStop, ActivityType.HIKING)
+        val result = finalize(hike, walkWithStop, listOf(hike.toSingleSegment(SegmentKind.HIKING)))
+        val direct = TrackProcessor().process(walkWithStop, TrackProcessingConfig.forSegmentKind(SegmentKind.HIKING))
 
         assertThat(result.activity.distanceMeters).isEqualTo(direct.statistics.distanceMeters)
         assertThat(result.activity.movingTimeMillis).isEqualTo(direct.statistics.movingTimeMillis)
@@ -101,11 +109,9 @@ class FinalizeTrackUseCaseTest {
         fun movingTime(sensitivity: AutoPauseSensitivity): Long {
             val walk = Activity(
                 startTimeEpochMillis = 0L,
-                activityType = ActivityType.WALKING,
-                isTypeChosenByUser = true,
                 autoPauseSensitivity = sensitivity,
             )
-            return finalize(walk, walkWithStop, listOf(walk.toSingleSegment())).activity.movingTimeMillis
+            return finalize(walk, walkWithStop, listOf(walk.toSingleSegment(SegmentKind.ON_FOOT))).activity.movingTimeMillis
         }
 
         assertThat(movingTime(AutoPauseSensitivity.HIGH)).isNotEqualTo(movingTime(AutoPauseSensitivity.LOW))

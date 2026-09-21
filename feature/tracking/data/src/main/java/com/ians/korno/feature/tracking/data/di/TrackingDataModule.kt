@@ -9,6 +9,7 @@ import com.ians.korno.feature.tracking.domain.usecase.DiscardActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.CancelTrackingPreparationUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ChangeSegmentKindUseCase
 import com.ians.korno.feature.tracking.domain.usecase.IsAutoModeAvailableUseCase
+import com.ians.korno.feature.tracking.domain.usecase.ObserveActivitySegmentsUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObservePendingSummaryActivitiesUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveSessionTrackUseCase
@@ -41,6 +42,7 @@ val trackingDataModule = module {
     factoryOf(::StopTrackingUseCase)
     factoryOf(::RecoverActiveSessionUseCase)
     factoryOf(::ObserveActivityUseCase)
+    factoryOf(::ObserveActivitySegmentsUseCase)
     factoryOf(::ObservePendingSummaryActivitiesUseCase)
     factoryOf(::ObserveTrackPointsUseCase)
     factoryOf(::ObserveSessionTrackUseCase)

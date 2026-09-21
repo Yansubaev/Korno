@@ -7,12 +7,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import com.ians.korno.core.designsystem.animation.DISINTEGRATING_ENTRY_KEY
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.feature.tracking.domain.navigation.TrackingDeepLinks
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class TrackingSetupRoute(val initialActivityType: ActivityType = ActivityType.RUNNING)
+data class TrackingSetupRoute(val initialSegmentKind: SegmentKind = SegmentKind.RUNNING)
 
 @Serializable
 data object TrackingRecordingRoute
@@ -28,7 +28,7 @@ fun NavGraphBuilder.trackingGraph(
     composable<TrackingSetupRoute> { backStackEntry ->
         val route: TrackingSetupRoute = backStackEntry.toRoute()
         TrackingSetupScreen(
-            initialActivityType = route.initialActivityType,
+            initialSegmentKind = route.initialSegmentKind,
             onStartRecording = {
                 // Настройка отработала — возвращаться к ней уже некуда, а экран записи
                 // должен лежать сразу над Home: тем же местом, куда приводит диплинк

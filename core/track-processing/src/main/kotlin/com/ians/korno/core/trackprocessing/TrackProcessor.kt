@@ -1,7 +1,6 @@
 package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
@@ -43,8 +42,7 @@ class TrackProcessor(
 ) {
     fun process(
         points: List<GeoPoint>,
-        activityType: ActivityType,
-        config: TrackProcessingConfig = TrackProcessingConfig.forActivityType(activityType),
+        config: TrackProcessingConfig,
         source: TrackSource = TrackSource.RAW,
     ): ProcessedTrack {
         val processedPoints = when (source) {

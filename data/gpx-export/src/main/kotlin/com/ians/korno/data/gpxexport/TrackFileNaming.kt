@@ -1,6 +1,7 @@
 package com.ians.korno.data.gpxexport
 
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.data.gpxexport.format.Iso8601
 
@@ -13,12 +14,12 @@ object TrackFileNaming {
 
     private const val MAX_TITLE_LENGTH = 48
 
-    fun fileName(activity: Activity, format: TrackFileFormat): String {
+    fun fileName(activity: Activity, format: TrackFileFormat, kind: SegmentKind): String {
         val date = Iso8601.format(activity.startTimeEpochMillis).take(DATE_LENGTH)
         val title = activity.title
             ?.let(::slug)
             ?.takeIf { it.isNotEmpty() }
-            ?: activity.activityType.name.lowercase()
+            ?: kind.name.lowercase()
         return "$date-$title.${format.extension}"
     }
 
@@ -26,8 +27,8 @@ object TrackFileNaming {
      * Массовый экспорт складывает файлы в одну папку, а названия активностей
      * повторяются, поэтому к имени добавляется id — SAF иначе создаст «name (1)».
      */
-    fun uniqueFileName(activity: Activity, format: TrackFileFormat): String {
-        val base = fileName(activity, format).removeSuffix(".${format.extension}")
+    fun uniqueFileName(activity: Activity, format: TrackFileFormat, kind: SegmentKind): String {
+        val base = fileName(activity, format, kind).removeSuffix(".${format.extension}")
         return "$base-${activity.id}.${format.extension}"
     }
 
