@@ -17,13 +17,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.DirectionsBike
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -36,7 +31,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -45,6 +39,8 @@ import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
+import com.ians.korno.core.presentation.icon
+import com.ians.korno.core.presentation.labelRes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -78,24 +74,6 @@ internal fun TrackingSetupScreen(
     )
 }
 
-internal fun ActivityType.labelRes(): Int = when (this) {
-    ActivityType.RUNNING -> R.string.tracking_type_run
-    ActivityType.CYCLING -> R.string.tracking_type_ride
-    ActivityType.WALKING -> R.string.tracking_type_walk
-    ActivityType.HIKING -> R.string.tracking_type_hike
-    ActivityType.DRIVING -> R.string.tracking_type_drive
-    ActivityType.OTHER -> R.string.tracking_type_walk
-}
-
-internal fun ActivityType.icon(): ImageVector = when (this) {
-    ActivityType.RUNNING -> Icons.Filled.DirectionsRun
-    ActivityType.CYCLING -> Icons.Filled.DirectionsBike
-    ActivityType.WALKING -> Icons.Filled.DirectionsWalk
-    ActivityType.HIKING -> Icons.Filled.Hiking
-    ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
-}
-
 @Composable
 private fun TrackingSetupContent(
     state: TrackingSetupState,
@@ -113,7 +91,7 @@ private fun TrackingSetupContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
             }
             Text(
                 text = stringResource(R.string.tracking_setup_title),

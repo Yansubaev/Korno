@@ -23,8 +23,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -310,7 +310,7 @@ private fun KornoBottomBar(
         NavigationBarItem(
             selected = isListSelected,
             onClick = { if (!isListSelected) onListClick() },
-            icon = { Icon(Icons.Filled.List, contentDescription = null) },
+            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
             label = { Text(stringResource(R.string.nav_activities)) },
         )
         NavigationBarItem(

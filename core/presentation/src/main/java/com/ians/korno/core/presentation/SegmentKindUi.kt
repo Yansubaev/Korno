@@ -1,10 +1,10 @@
 package com.ians.korno.core.presentation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.automirrored.filled.DirectionsBike
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.ians.korno.core.domain.model.SegmentKind
@@ -19,9 +19,9 @@ fun SegmentKind.labelRes(): Int = when (this) {
 }
 
 fun SegmentKind.icon(): ImageVector = when (this) {
-    SegmentKind.ON_FOOT -> Icons.Filled.DirectionsWalk
-    SegmentKind.RUNNING -> Icons.Filled.DirectionsRun
-    SegmentKind.CYCLING -> Icons.Filled.DirectionsBike
+    SegmentKind.ON_FOOT -> Icons.AutoMirrored.Filled.DirectionsWalk
+    SegmentKind.RUNNING -> Icons.AutoMirrored.Filled.DirectionsRun
+    SegmentKind.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     SegmentKind.VEHICLE -> Icons.Filled.DirectionsCar
     SegmentKind.UNKNOWN -> Icons.Filled.Explore
 }

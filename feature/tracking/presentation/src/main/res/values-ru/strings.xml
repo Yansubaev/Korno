@@ -4,11 +4,6 @@
     <string name="tracking_resume">Продолжить</string>
     <string name="tracking_stop">Стоп</string>
 
-    <string name="tracking_type_run">Бег</string>
-    <string name="tracking_type_ride">Велосипед</string>
-    <string name="tracking_type_walk">Ходьба</string>
-    <string name="tracking_type_hike">Хайкинг</string>
-    <string name="tracking_type_drive">Поездка</string>
 
     <string name="tracking_setup_title">Новая активность</string>
     <string name="tracking_setup_activity_type">Тип активности</string>

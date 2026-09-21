@@ -20,12 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsBike
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -45,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,6 +49,8 @@ import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackThumbnail
+import com.ians.korno.core.presentation.icon
+import com.ians.korno.core.presentation.labelRes
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -105,24 +101,6 @@ internal fun ActivityListScreen(
             modifier = Modifier.padding(padding),
         )
     }
-}
-
-private fun ActivityType.icon(): ImageVector = when (this) {
-    ActivityType.RUNNING -> Icons.Filled.DirectionsRun
-    ActivityType.CYCLING -> Icons.Filled.DirectionsBike
-    ActivityType.WALKING -> Icons.Filled.DirectionsWalk
-    ActivityType.HIKING -> Icons.Filled.Hiking
-    ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
-}
-
-private fun ActivityType.labelRes(): Int = when (this) {
-    ActivityType.RUNNING -> R.string.activity_list_type_run
-    ActivityType.CYCLING -> R.string.activity_list_type_ride
-    ActivityType.WALKING -> R.string.activity_list_type_walk
-    ActivityType.HIKING -> R.string.activity_list_type_hike
-    ActivityType.DRIVING -> R.string.activity_list_type_drive
-    ActivityType.OTHER -> R.string.activity_list_type_walk
 }
 
 private fun ActivityPeriod.labelRes(): Int = when (this) {

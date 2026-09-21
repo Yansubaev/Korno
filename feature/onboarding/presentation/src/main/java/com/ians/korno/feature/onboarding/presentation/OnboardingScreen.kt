@@ -31,9 +31,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
@@ -316,7 +316,7 @@ private fun OnboardingIntroContent(
 
 private fun PermissionType.icon(): ImageVector = when (this) {
     PermissionType.FOREGROUND_LOCATION, PermissionType.BACKGROUND_LOCATION -> Icons.Filled.LocationOn
-    PermissionType.ACTIVITY_RECOGNITION -> Icons.Filled.DirectionsWalk
+    PermissionType.ACTIVITY_RECOGNITION -> Icons.AutoMirrored.Filled.DirectionsWalk
     PermissionType.POST_NOTIFICATIONS -> Icons.Filled.Notifications
 }
 

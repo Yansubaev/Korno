@@ -19,14 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DirectionsBike
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -50,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -66,6 +60,7 @@ import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackMap
+import com.ians.korno.core.presentation.icon
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -140,15 +135,6 @@ internal fun ActivityDetailScreen(
     }
 }
 
-internal fun ActivityType.icon(): ImageVector = when (this) {
-    ActivityType.RUNNING -> Icons.Filled.DirectionsRun
-    ActivityType.CYCLING -> Icons.Filled.DirectionsBike
-    ActivityType.WALKING -> Icons.Filled.DirectionsWalk
-    ActivityType.HIKING -> Icons.Filled.Hiking
-    ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
-}
-
 @Composable
 private fun ActivityDetailContent(
     state: ActivityDetailState,
@@ -168,7 +154,7 @@ private fun ActivityDetailContent(
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = null) }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
             Text(
                 text = state.title,
                 style = MaterialTheme.typography.titleLarge,

@@ -14,6 +14,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isNull
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.presentation.R as CoreR
 import org.junit.Rule
 import org.junit.Test
 
@@ -91,7 +92,7 @@ class ActivityListContentTest {
             ActivityListState(isLoading = false, availableTypes = listOf(ActivityType.CYCLING)),
         )
 
-        composeRule.onNodeWithText(string(R.string.activity_list_type_ride)).performClick()
+        composeRule.onNodeWithText(string(CoreR.string.activity_type_ride)).performClick()
 
         assertThat(actions).contains(ActivityListAction.SetFilterType(ActivityType.CYCLING))
     }

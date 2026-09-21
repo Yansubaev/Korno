@@ -40,6 +40,8 @@ import com.ians.korno.core.designsystem.animation.rememberDisintegrationState
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.map.TrackMap
+import com.ians.korno.core.presentation.icon
+import com.ians.korno.core.presentation.labelRes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 

@@ -26,9 +26,4 @@
         <item quantity="other">Не учтено: %1$d авто-активности</item>
     </plurals>
 
-    <string name="activity_list_type_run">Бег</string>
-    <string name="activity_list_type_ride">Велосипед</string>
-    <string name="activity_list_type_walk">Ходьба</string>
-    <string name="activity_list_type_hike">Хайкинг</string>
-    <string name="activity_list_type_drive">Поездка</string>
 </resources>

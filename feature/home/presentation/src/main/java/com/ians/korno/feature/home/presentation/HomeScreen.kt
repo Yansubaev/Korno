@@ -17,11 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsBike
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.DirectionsWalk
-import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
@@ -35,13 +30,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.presentation.icon
 import org.koin.androidx.compose.koinViewModel
 
 private val RECENT_LIST_BOTTOM_PADDING = 96.dp
@@ -66,15 +61,6 @@ internal fun HomeScreen(
         onOpenSettings = onOpenSettings,
         modifier = modifier,
     )
-}
-
-private fun ActivityType.icon(): ImageVector = when (this) {
-    ActivityType.RUNNING -> Icons.Filled.DirectionsRun
-    ActivityType.CYCLING -> Icons.Filled.DirectionsBike
-    ActivityType.WALKING -> Icons.Filled.DirectionsWalk
-    ActivityType.HIKING -> Icons.Filled.Hiking
-    ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    ActivityType.OTHER -> Icons.Filled.DirectionsWalk
 }
 
 @Composable
