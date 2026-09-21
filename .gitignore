@@ -16,5 +16,8 @@ korno-activity-*.zip
 .cxx
 local.properties
 
+# служебные данные Kotlin Gradle plugin (маркеры сессий, отчёты об ошибках)
+.kotlin/
+
 # graphify knowledge graph (derived, rebuild with /graphify)
 graphify-out/

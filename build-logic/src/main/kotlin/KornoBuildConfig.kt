@@ -15,6 +15,19 @@ internal const val KORNO_COMPILE_SDK = 37
 internal const val KORNO_MIN_SDK = 24
 internal const val KORNO_TARGET_SDK = 37
 
+/**
+ * Эмулятор для инструментальных тестов, которым управляет Gradle.
+ *
+ * Задача `kornoEmulatorDebugAndroidTest` поднимает его сама и на подключённое железо не
+ * смотрит вовсе — в отличие от `connectedAndroidTest`, которая ставит и **удаляет** APK
+ * на каждом устройстве из `adb devices`, а удаление приложения уносит его базу вместе с
+ * записями пользователя. Один раз так и потеряли историю с рабочего телефона.
+ *
+ * Уровень 36, а не [KORNO_COMPILE_SDK]: 37 сейчас превью, и образа под него нет.
+ */
+internal const val KORNO_MANAGED_DEVICE = "kornoEmulator"
+private const val KORNO_MANAGED_DEVICE_SDK = 36
+
 internal val Project.libs: VersionCatalog
     get() = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
@@ -28,6 +41,11 @@ internal fun Project.configureAndroid(
         compileOptions.targetCompatibility = JavaVersion.VERSION_17
         testOptions.unitTests.all {
             it.useJUnitPlatform()
+        }
+        testOptions.managedDevices.localDevices.create(KORNO_MANAGED_DEVICE) {
+            device = "Pixel 7 Pro"
+            sdkVersion = KORNO_MANAGED_DEVICE_SDK
+            systemImageSource = "google_apis_playstore"
         }
     }
 
