@@ -32,6 +32,8 @@ internal interface TrackLocalDataSource {
 
     suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local>
 
+    fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>>
+
     suspend fun saveOpenSegment(current: ActivitySegment, next: ActivitySegment?): EmptyResult<DataError.Local>
 
     suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local>

@@ -45,6 +45,9 @@ internal class FakeTrackRepository : TrackRepository {
     override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
         Result.Success(emptyList())
 
+    override fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>> =
+        flowOf(Result.Success(emptyList()))
+
     override suspend fun saveOpenSegment(
         current: ActivitySegment,
         next: ActivitySegment?,

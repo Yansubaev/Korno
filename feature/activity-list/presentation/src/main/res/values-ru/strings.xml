@@ -19,11 +19,5 @@
 
     <string name="activity_list_stats_distance">Дистанция</string>
     <string name="activity_list_stats_time">Время</string>
-    <plurals name="activity_list_stats_excluded">
-        <item quantity="one">Не учтено: %1$d авто-активность</item>
-        <item quantity="few">Не учтено: %1$d авто-активности</item>
-        <item quantity="many">Не учтено: %1$d авто-активностей</item>
-        <item quantity="other">Не учтено: %1$d авто-активности</item>
-    </plurals>
 
 </resources>

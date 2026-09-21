@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,8 +48,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackThumbnail
+import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.core.presentation.icon
 import com.ians.korno.core.presentation.labelRes
 import org.koin.androidx.compose.koinViewModel
@@ -118,6 +121,12 @@ internal fun ActivityListContent(
     onImportClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    // Смена фильтра даёт другой список — позиция от прежнего в нём бессмысленна.
+    LaunchedEffect(state.filterKind, state.filterPeriod, state.searchQuery) {
+        listState.scrollToItem(0)
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().height(64.dp).padding(start = 20.dp, end = 8.dp),
@@ -159,16 +168,16 @@ internal fun ActivityListContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip(
-                selected = state.filterType == null,
-                onClick = { onAction(ActivityListAction.SetFilterType(null)) },
+                selected = state.filterKind == null,
+                onClick = { onAction(ActivityListAction.SetFilterKind(null)) },
                 label = { Text(stringResource(R.string.activity_list_filter_all)) },
             )
-            state.availableTypes.forEach { type ->
+            state.availableKinds.forEach { kind ->
                 FilterChip(
-                    selected = state.filterType == type,
-                    onClick = { onAction(ActivityListAction.SetFilterType(type)) },
-                    leadingIcon = { Icon(type.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    label = { Text(stringResource(type.labelRes())) },
+                    selected = state.filterKind == kind,
+                    onClick = { onAction(ActivityListAction.SetFilterKind(kind)) },
+                    leadingIcon = { Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = { Text(stringResource(kind.chipLabelRes())) },
                 )
             }
         }
@@ -196,18 +205,6 @@ internal fun ActivityListContent(
             StatCard(stringResource(R.string.activity_list_stats_distance), state.statsDistanceText, Modifier.weight(1f))
             StatCard(stringResource(R.string.activity_list_stats_time), state.statsTimeText, Modifier.weight(1f))
         }
-        if (state.excludedFromStatsCount > 0) {
-            Text(
-                text = pluralStringResource(
-                    R.plurals.activity_list_stats_excluded,
-                    state.excludedFromStatsCount,
-                    state.excludedFromStatsCount,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(20.dp, 0.dp, 20.dp, 8.dp),
-            )
-        }
 
         if (state.items.isEmpty() && !state.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -219,6 +216,7 @@ internal fun ActivityListContent(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp, 4.dp, 20.dp, 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -238,6 +236,13 @@ internal fun ActivityListContent(
         }
     }
 }
+
+/**
+ * `UNKNOWN` в чипе — не «определяем…», как у живого сегмента записи, а «не определено»:
+ * здесь это уже окончательный ответ детектора.
+ */
+private fun SegmentKind.chipLabelRes(): Int =
+    if (this == SegmentKind.UNKNOWN) CoreR.string.activity_type_unknown else labelRes()
 
 @Composable
 private fun ActivityRow(
@@ -300,13 +305,12 @@ private fun ActivityListContentPreview() {
         ActivityListContent(
             state = ActivityListState(
                 isLoading = false,
-                availableTypes = listOf(ActivityType.RUNNING),
+                availableKinds = listOf(SegmentKind.RUNNING),
                 items = listOf(
                     ActivityListItemUi(1, "Morning run", "29:40", "5.2 km", ActivityType.RUNNING),
                 ),
                 statsDistanceText = "5.2 km",
                 statsTimeText = "29 min",
-                excludedFromStatsCount = 2,
                 routePreviews = mapOf(
                     1L to listOf(
                         MapPoint(55.7512, 37.6175),

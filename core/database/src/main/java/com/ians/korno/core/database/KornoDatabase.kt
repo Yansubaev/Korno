@@ -4,6 +4,7 @@ import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.AutoMigrationSpec
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ians.korno.core.database.dao.TrackDao
 import com.ians.korno.core.database.entity.ActivityEntity
@@ -18,7 +19,7 @@ import com.ians.korno.core.database.entity.RecognitionSampleEntity
         ActivitySegmentEntity::class,
         RecognitionSampleEntity::class,
     ],
-    version = 9,
+    version = 11,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: activities.is_pending_summary (NOT NULL DEFAULT 0).
@@ -43,6 +44,11 @@ import com.ians.korno.core.database.entity.RecognitionSampleEntity
         // activities.is_type_chosen_by_user (NOT NULL DEFAULT 0). С какой чувствительностью
         // писались прежние записи, неизвестно; MEDIUM — значение по умолчанию.
         AutoMigration(from = 8, to = 9, spec = KornoDatabase.Migration8To9::class),
+        // 9 -> 10: activity_segments.moving_time_millis (nullable). У прежних участков
+        // времени в движении нет: до ближайшего пересчёта трека оно читается как вся
+        // длительность участка (см. `ActivitySegment.movingTime`).
+        AutoMigration(from = 9, to = 10),
+        // 10 -> 11: схема не меняется, чинятся данные — см. `MIGRATION_10_11`.
     ],
 )
 abstract class KornoDatabase : RoomDatabase() {
@@ -80,13 +86,17 @@ abstract class KornoDatabase : RoomDatabase() {
      * Выбран ли тип пользователем, восстанавливается по тому, что уже лежит в БД: в
      * фиксированном режиме тип выбирают до старта, а в авторежиме выбор виден по
      * расхождению с видом сегмента с наибольшей дистанцией.
+     *
+     * «Другое» из этого правила исключено: выбрать его нельзя (см. `SETUP_ACTIVITY_TYPES`),
+     * и расхождение там означает не ручной выбор, а то, что тип авторежима так и остался
+     * невыведенным. Уже мигрированные базы чинит [MIGRATION_10_11].
      */
     class Migration8To9 : AutoMigrationSpec {
         override fun onPostMigrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """
                 UPDATE activities SET is_type_chosen_by_user = 1
-                WHERE is_auto_mode = 0
+                WHERE activity_type != 'OTHER' AND (is_auto_mode = 0
                     OR activity_type != (
                         SELECT CASE kind
                             WHEN 'ON_FOOT' THEN 'WALKING'
@@ -99,7 +109,7 @@ abstract class KornoDatabase : RoomDatabase() {
                         GROUP BY kind
                         ORDER BY SUM(distance_meters) DESC
                         LIMIT 1
-                    )
+                    ))
                 """.trimIndent(),
             )
         }
@@ -107,5 +117,40 @@ abstract class KornoDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "korno.db"
+
+        /**
+         * Чинит записи, которым миграция 8 → 9 приписала ручной выбор типа «другое».
+         * Выбрать «другое» нельзя, так что такой флаг — всегда ошибка, и цена у неё не
+         * косметическая: он замораживает тип (пересчёт трека больше не выводит его из
+         * доминирующего вида) и заставляет список фильтровать запись по типу вместо её
+         * видов, из-за чего вся история авторежима оседала в чипе «Другое».
+         *
+         * Тип выводится здесь же, тем же правилом, что и при пересчёте трека: иначе он
+         * остался бы «не определено» до ближайшей правки записи.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    UPDATE activities
+                    SET activity_type = COALESCE((
+                            SELECT CASE kind
+                                WHEN 'ON_FOOT' THEN 'WALKING'
+                                WHEN 'RUNNING' THEN 'RUNNING'
+                                WHEN 'CYCLING' THEN 'CYCLING'
+                                WHEN 'VEHICLE' THEN 'DRIVING'
+                            END
+                            FROM activity_segments
+                            WHERE activity_id = activities.id AND kind NOT IN ('UNKNOWN', 'PAUSE')
+                            GROUP BY kind
+                            ORDER BY SUM(distance_meters) DESC
+                            LIMIT 1
+                        ), 'OTHER'),
+                        is_type_chosen_by_user = 0
+                    WHERE activity_type = 'OTHER'
+                    """.trimIndent(),
+                )
+            }
+        }
     }
 }

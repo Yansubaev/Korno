@@ -42,6 +42,9 @@ interface TrackRepository {
 
     suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local>
 
+    /** Сегменты всех записей: списку активностей нужны виды движения по всей базе разом. */
+    fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>>
+
     /**
      * Сохраняет открытый сегмент записи полями [current] (закрывая его, если задан конец)
      * и открывает [next] — одной транзакцией. Открытый сегмент у записи один, поэтому id

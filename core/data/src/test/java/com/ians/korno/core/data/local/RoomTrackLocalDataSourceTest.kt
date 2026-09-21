@@ -138,6 +138,8 @@ class RoomTrackLocalDataSourceTest {
 
         override suspend fun segments(activityId: Long): List<ActivitySegmentEntity> = emptyList()
 
+        override fun observeAllSegments(): Flow<List<ActivitySegmentEntity>> = MutableStateFlow(emptyList())
+
         override suspend fun updateOpenSegment(
             activityId: Long,
             kind: String,
@@ -145,6 +147,7 @@ class RoomTrackLocalDataSourceTest {
             endTs: Long?,
             steps: Int?,
             distanceMeters: Double,
+            movingTimeMillis: Long?,
             isManuallyEdited: Boolean,
         ): Int = 1
 

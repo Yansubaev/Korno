@@ -17,9 +17,5 @@
 
     <string name="activity_list_stats_distance">Distance</string>
     <string name="activity_list_stats_time">Time</string>
-    <plurals name="activity_list_stats_excluded">
-        <item quantity="one">Not counted: %1$d auto-detected activity</item>
-        <item quantity="other">Not counted: %1$d auto-detected activities</item>
-    </plurals>
 
 </resources>

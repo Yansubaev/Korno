@@ -14,6 +14,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isNull
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.presentation.R as CoreR
 import org.junit.Rule
 import org.junit.Test
@@ -87,14 +88,14 @@ class ActivityListContentTest {
     }
 
     @Test
-    fun typeFilterIsReported() {
+    fun kindFilterIsReported() {
         setContent(
-            ActivityListState(isLoading = false, availableTypes = listOf(ActivityType.CYCLING)),
+            ActivityListState(isLoading = false, availableKinds = listOf(SegmentKind.CYCLING)),
         )
 
-        composeRule.onNodeWithText(string(CoreR.string.activity_type_ride)).performClick()
+        composeRule.onNodeWithText(string(CoreR.string.segment_kind_cycling)).performClick()
 
-        assertThat(actions).contains(ActivityListAction.SetFilterType(ActivityType.CYCLING))
+        assertThat(actions).contains(ActivityListAction.SetFilterKind(SegmentKind.CYCLING))
     }
 
     private fun setContent(

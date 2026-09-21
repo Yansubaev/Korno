@@ -1,11 +1,11 @@
 package com.ians.korno.feature.activitylist.presentation
 
-import com.ians.korno.core.domain.model.ActivityType
+import com.ians.korno.core.domain.model.SegmentKind
 
 internal sealed interface ActivityListAction {
     data class SetSearchQuery(val query: String) : ActivityListAction
 
-    data class SetFilterType(val type: ActivityType?) : ActivityListAction
+    data class SetFilterKind(val kind: SegmentKind?) : ActivityListAction
 
     data class SetFilterPeriod(val period: ActivityPeriod) : ActivityListAction
 

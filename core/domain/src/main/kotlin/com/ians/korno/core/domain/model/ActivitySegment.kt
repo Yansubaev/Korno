@@ -32,8 +32,18 @@ data class ActivitySegment(
     /** `null` — шаги не считались. */
     val stepCount: Int? = null,
     val distanceMeters: Double = 0.0,
+    /** `null` — время в движении по участку не считали: запись старше миграции БД 9 → 10. */
+    val movingTimeMillis: Long? = null,
     val isManuallyEdited: Boolean = false,
 )
+
+/**
+ * Время в движении участка. Там, где его не считали, берётся вся длительность: ручная
+ * пауза из неё уже вырезана отдельным участком, а остальное уточнится при первом же
+ * пересчёте трека.
+ */
+val ActivitySegment.movingTime: Long
+    get() = movingTimeMillis ?: ((endTimeEpochMillis ?: startTimeEpochMillis) - startTimeEpochMillis)
 
 val ActivityType.segmentKind: SegmentKind
     get() = when (this) {
@@ -93,4 +103,7 @@ fun Activity.toSingleSegment(): ActivitySegment =
         endTimeEpochMillis = endTimeEpochMillis,
         stepCount = stepCount,
         distanceMeters = distanceMeters,
+        // Ноль у активности — время ещё не считали (запись только началась), а не «нисколько
+        // не двигались»: такому участку время потом посчитает пересчёт трека.
+        movingTimeMillis = movingTimeMillis.takeIf { it > 0L },
     )

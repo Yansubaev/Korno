@@ -31,6 +31,8 @@ data class ActivitySegmentEntity(
     val steps: Int? = null,
     @ColumnInfo(name = "distance_meters")
     val distanceMeters: Double = 0.0,
+    @ColumnInfo(name = "moving_time_millis")
+    val movingTimeMillis: Long? = null,
     @ColumnInfo(name = "is_manually_edited")
     val isManuallyEdited: Boolean = false,
 )

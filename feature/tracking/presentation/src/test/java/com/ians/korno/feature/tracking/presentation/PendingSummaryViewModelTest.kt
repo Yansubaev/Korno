@@ -23,6 +23,7 @@ import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackingSessionUseC
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -174,6 +175,9 @@ class PendingSummaryViewModelTest {
 
         override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
             Result.Success(emptyList())
+
+        override fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>> =
+            flowOf(Result.Success(emptyList()))
 
         override suspend fun saveOpenSegment(
             current: ActivitySegment,

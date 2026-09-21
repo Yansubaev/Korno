@@ -13,6 +13,7 @@ internal fun ActivitySegmentEntity.toDomain(): ActivitySegment =
         endTimeEpochMillis = endTimeEpochMillis,
         stepCount = steps,
         distanceMeters = distanceMeters,
+        movingTimeMillis = movingTimeMillis,
         isManuallyEdited = isManuallyEdited,
     )
 
@@ -25,5 +26,6 @@ internal fun ActivitySegment.toEntity(): ActivitySegmentEntity =
         endTimeEpochMillis = endTimeEpochMillis,
         steps = stepCount,
         distanceMeters = distanceMeters,
+        movingTimeMillis = movingTimeMillis,
         isManuallyEdited = isManuallyEdited,
     )

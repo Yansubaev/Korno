@@ -10,7 +10,7 @@ val databaseModule = module {
             get(),
             KornoDatabase::class.java,
             KornoDatabase.DATABASE_NAME,
-        ).build()
+        ).addMigrations(KornoDatabase.MIGRATION_10_11).build()
     }
     single { get<KornoDatabase>().trackDao() }
 }

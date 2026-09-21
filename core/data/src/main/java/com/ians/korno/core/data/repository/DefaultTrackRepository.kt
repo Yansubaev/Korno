@@ -47,6 +47,9 @@ internal class DefaultTrackRepository(
     override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
         localDataSource.getSegments(activityId)
 
+    override fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>> =
+        localDataSource.observeAllSegments()
+
     override suspend fun saveOpenSegment(
         current: ActivitySegment,
         next: ActivitySegment?,

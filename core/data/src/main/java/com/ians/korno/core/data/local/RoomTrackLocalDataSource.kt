@@ -77,6 +77,11 @@ internal class RoomTrackLocalDataSource(
     override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
         safeLocalCall { trackDao.segments(activityId).map { it.toDomain() } }
 
+    override fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>> =
+        trackDao.observeAllSegments()
+            .map { entities -> entities.map { it.toDomain() } }
+            .asLocalResult()
+
     override suspend fun saveOpenSegment(
         current: ActivitySegment,
         next: ActivitySegment?,

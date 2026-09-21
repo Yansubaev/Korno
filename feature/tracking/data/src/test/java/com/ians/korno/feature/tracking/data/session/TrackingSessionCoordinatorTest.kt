@@ -980,6 +980,9 @@ class TrackingSessionCoordinatorTest {
         override suspend fun getSegments(activityId: Long): Result<List<ActivitySegment>, DataError.Local> =
             Result.Success(storedSegments)
 
+        override fun observeAllSegments(): Flow<Result<List<ActivitySegment>, DataError.Local>> =
+            flowOf(Result.Success(storedSegments))
+
         override suspend fun saveOpenSegment(
             current: ActivitySegment,
             next: ActivitySegment?,

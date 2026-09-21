@@ -103,7 +103,14 @@ class TrackProcessor(
             val processed = processPoints(if (tail == null) slice else slice + tail, config)
             val statistics = statisticsCalculator(processed, config)
             val own = if (tail == null) processed else processed.dropLast(1)
-            SegmentPart(segment.copy(distanceMeters = statistics.distanceMeters), own, statistics)
+            SegmentPart(
+                segment.copy(
+                    distanceMeters = statistics.distanceMeters,
+                    movingTimeMillis = statistics.movingTimeMillis,
+                ),
+                own,
+                statistics,
+            )
         }
         val speedParts = parts.filter { it.segment.kind != SegmentKind.VEHICLE }.ifEmpty { parts }
         val speedDistance = speedParts.sumOf { it.statistics.distanceMeters }

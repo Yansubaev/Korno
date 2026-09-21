@@ -5,9 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
-import com.ians.korno.core.domain.model.ActivityType
 import com.ians.korno.core.domain.model.CalendarPeriodUnit
 import com.ians.korno.core.domain.model.MeasurementSystem
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.TrackFileOperation
 import com.ians.korno.core.domain.model.startOfCalendarPeriodMillis
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
@@ -16,7 +16,7 @@ import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatDuration
 import com.ians.korno.feature.activitylist.domain.usecase.GetRoutePreviewUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ImportTracksUseCase
-import com.ians.korno.feature.activitylist.domain.usecase.ObserveActivitiesUseCase
+import com.ians.korno.feature.activitylist.domain.usecase.ObserveActivityListUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ObserveTrackImportUseCase
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 
 internal class ActivityListViewModel(
     private val context: Context,
-    observeActivities: ObserveActivitiesUseCase,
+    observeActivityList: ObserveActivityListUseCase,
     private val importTracks: ImportTracksUseCase,
     private val getRoutePreview: GetRoutePreviewUseCase,
     observeTrackImport: ObserveTrackImportUseCase,
@@ -49,7 +49,7 @@ internal class ActivityListViewModel(
     private val requestedPreviews = mutableSetOf<Long>()
 
     private val searchQuery = MutableStateFlow("")
-    private val filterType = MutableStateFlow<ActivityType?>(null)
+    private val filterKind = MutableStateFlow<SegmentKind?>(null)
     private val filterPeriod = MutableStateFlow(ActivityPeriod.ALL)
     private val local = MutableStateFlow(LocalUi())
 
@@ -57,33 +57,30 @@ internal class ActivityListViewModel(
     private var requestedFileCount = 0
 
     val state: StateFlow<ActivityListState> = combine(
-        observeActivities(),
+        observeActivityList(),
         searchQuery,
-        combine(filterType, filterPeriod, ::Pair),
+        combine(filterKind, filterPeriod, ::Pair),
         local,
         preferencesRepository.observePreferences(),
-    ) { result, query, filters, localUi, preferences ->
-        val (type, period) = filters
-        val activities = (result as? Result.Success)?.data.orEmpty()
-        val filtered = activities
-            .filter { type == null || it.activityType == type }
-            .filter { period == ActivityPeriod.ALL || it.isWithin(period) }
-            .filter { query.isBlank() || (it.title ?: "").contains(query, ignoreCase = true) }
-        val statsActivities = filtered.filter { it.activityType != ActivityType.OTHER }
+    ) { snapshot, query, filters, localUi, preferences ->
+        val (kind, period) = filters
+        val selection = snapshot.select(kind) { activity ->
+            (period == ActivityPeriod.ALL || activity.isWithin(period)) &&
+                (query.isBlank() || (activity.title ?: "").contains(query, ignoreCase = true))
+        }
         ActivityListState(
             isLoading = false,
             searchQuery = query,
-            filterType = type,
+            filterKind = kind,
             filterPeriod = period,
-            availableTypes = ACTIVITY_LIST_TYPES.filter { candidate -> activities.any { it.activityType == candidate } },
-            items = filtered.map { it.toUi(preferences.measurementSystem) },
+            availableKinds = snapshot.chipKinds,
+            items = selection.activities.map { it.toUi(preferences.measurementSystem) },
             statsDistanceText = context.formatDistance(
-                statsActivities.sumOf { it.distanceMeters },
+                selection.distanceMeters,
                 preferences.measurementSystem,
                 1,
             ).text,
-            statsTimeText = context.formatDuration(statsActivities.sumOf { it.movingTimeMillis }),
-            excludedFromStatsCount = filtered.size - statsActivities.size,
+            statsTimeText = context.formatDuration(selection.movingTimeMillis),
             routePreviews = localUi.routePreviews,
             isImporting = localUi.isImporting,
             snackbarMessage = localUi.snackbarMessage,
@@ -103,7 +100,7 @@ internal class ActivityListViewModel(
     fun onAction(action: ActivityListAction) {
         when (action) {
             is ActivityListAction.SetSearchQuery -> searchQuery.update { action.query }
-            is ActivityListAction.SetFilterType -> filterType.update { action.type }
+            is ActivityListAction.SetFilterKind -> filterKind.update { action.kind }
             is ActivityListAction.SetFilterPeriod -> filterPeriod.update { action.period }
             is ActivityListAction.RowShown -> loadRoutePreview(action.activityId)
             is ActivityListAction.ImportFilesChosen -> {

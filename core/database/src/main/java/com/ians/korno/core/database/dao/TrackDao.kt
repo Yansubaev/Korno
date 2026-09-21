@@ -67,10 +67,18 @@ interface TrackDao {
     )
     suspend fun segments(activityId: Long): List<ActivitySegmentEntity>
 
+    /**
+     * Сегменты всей базы: списку активностей нужны виды движения сразу по всем записям,
+     * и подписка на одну таблицу дешевле запроса на каждую строку списка.
+     */
+    @Query("SELECT * FROM activity_segments ORDER BY activity_id ASC, start_ts ASC, id ASC")
+    fun observeAllSegments(): Flow<List<ActivitySegmentEntity>>
+
     /** Открытый сегмент у записи один; адресуется по активности, а не по id. */
     @Query(
         "UPDATE activity_segments SET kind = :kind, start_ts = :startTs, end_ts = :endTs, steps = :steps, " +
-            "distance_meters = :distanceMeters, is_manually_edited = :isManuallyEdited " +
+            "distance_meters = :distanceMeters, moving_time_millis = :movingTimeMillis, " +
+            "is_manually_edited = :isManuallyEdited " +
             "WHERE activity_id = :activityId AND end_ts IS NULL",
     )
     suspend fun updateOpenSegment(
@@ -80,6 +88,7 @@ interface TrackDao {
         endTs: Long?,
         steps: Int?,
         distanceMeters: Double,
+        movingTimeMillis: Long?,
         isManuallyEdited: Boolean,
     ): Int
 
@@ -93,6 +102,7 @@ interface TrackDao {
             endTs = current.endTimeEpochMillis,
             steps = current.steps,
             distanceMeters = current.distanceMeters,
+            movingTimeMillis = current.movingTimeMillis,
             isManuallyEdited = current.isManuallyEdited,
         )
         if (next != null) insertSegments(listOf(next.copy(id = 0L)))
