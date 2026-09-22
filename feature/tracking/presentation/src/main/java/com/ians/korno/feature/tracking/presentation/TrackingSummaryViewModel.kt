@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.ActivitySegment
+import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.dominantKind
 import com.ians.korno.core.domain.model.MeasurementSystem
@@ -13,6 +16,7 @@ import com.ians.korno.core.logging.LogManager
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatSpeed
+import com.ians.korno.core.trackprocessing.ChangeActivitySegmentKindUseCase
 import com.ians.korno.feature.tracking.domain.usecase.DiscardActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveActivitySegmentsUseCase
@@ -34,6 +38,7 @@ internal class TrackingSummaryViewModel(
     observeSegments: ObserveActivitySegmentsUseCase,
     observeTrackPoints: ObserveTrackPointsUseCase,
     private val saveActivitySummary: SaveActivitySummaryUseCase,
+    private val changeSegmentKind: ChangeActivitySegmentKindUseCase,
     private val discardActivity: DiscardActivityUseCase,
     private val logManager: LogManager,
     preferencesRepository: UserPreferencesRepository,
@@ -43,6 +48,8 @@ internal class TrackingSummaryViewModel(
     val state: StateFlow<TrackingSummaryState> = _state.asStateFlow()
 
     private var loadedActivity: Activity? = null
+    private var loadedSegments: List<ActivitySegment> = emptyList()
+    private var loadedPoints: List<GeoPoint> = emptyList()
 
     /** Пока пользователь не тронул название, оно следует за доминирующим видом записи. */
     private var titleEditedByUser = false
@@ -54,14 +61,23 @@ internal class TrackingSummaryViewModel(
                 observeSegments(activityId),
                 preferencesRepository.observePreferences(),
             ) { result, segments, preferences ->
-                Triple(result, segments.dominantKind() ?: SegmentKind.UNKNOWN, preferences.measurementSystem)
+                Triple(result, segments, preferences.measurementSystem)
             }
-                .collect { (result, kind, measurementSystem) ->
+                .collect { (result, segments, measurementSystem) ->
                 if (result is Result.Success) {
                     loadedActivity = result.data
+                    loadedSegments = segments
+                    val kind = segments.dominantKind() ?: SegmentKind.UNKNOWN
+                    // Ряд чипов — только у фиксированной записи: участок там один, и правка
+                    // однозначна. У авто-записи виды уже размечены детектором и правятся на
+                    // экране активности, где видно, какой участок правишь (`docs/adr/0004`).
+                    val editableKind = segments.singleOrNull()
+                        ?.takeIf { result.data.recordingMode == RecordingMode.FIXED }
+                        ?.kind
                     _state.update {
                         it.copy(
                             isLoading = false,
+                            editableKind = editableKind,
                             title = if (titleEditedByUser) {
                                 it.title
                             } else {
@@ -74,6 +90,7 @@ internal class TrackingSummaryViewModel(
         }
         viewModelScope.launch {
             observeTrackPoints(activityId).collect { points ->
+                loadedPoints = points
                 val route = points.map { MapPoint(it.latitude, it.longitude) }
                 _state.update { it.copy(routePoints = route) }
             }
@@ -82,6 +99,13 @@ internal class TrackingSummaryViewModel(
 
     fun onAction(action: TrackingSummaryAction) {
         when (action) {
+            // Правка пишется сразу, а не при сохранении: трек пересчитывается порогами
+            // нового вида, и итоги на экране должны показать уже пересчитанное.
+            is TrackingSummaryAction.SelectSegmentKind -> viewModelScope.launch {
+                val activity = loadedActivity ?: return@launch
+                if (action.kind == _state.value.editableKind) return@launch
+                changeSegmentKind(activity, loadedPoints, loadedSegments, segmentIndex = 0, kind = action.kind)
+            }
             is TrackingSummaryAction.SetTitle -> {
                 titleEditedByUser = true
                 _state.update { it.copy(title = action.title) }

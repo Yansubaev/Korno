@@ -2,7 +2,7 @@ package com.ians.korno.feature.activitydetail.presentation.di
 
 import com.ians.korno.core.trackanalytics.AnalyzeTrackUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
-import com.ians.korno.feature.activitydetail.domain.usecase.ChangeActivitySegmentKindUseCase
+import com.ians.korno.core.trackprocessing.ChangeActivitySegmentKindUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.DeleteActivityUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ExportActivityUseCase

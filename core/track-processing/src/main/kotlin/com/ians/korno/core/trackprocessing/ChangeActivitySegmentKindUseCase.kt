@@ -1,4 +1,4 @@
-package com.ians.korno.feature.activitydetail.domain.usecase
+package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
@@ -7,11 +7,13 @@ import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.TrackRepository
-import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 
 /**
- * Смена вида сегмента на экране активности. Трек пересчитывается заново по сегментам —
- * порогами нового вида, — и вместе с ним дистанции сегментов, статистика и шаги.
+ * Смена вида сегмента. Трек пересчитывается заново по сегментам — порогами нового вида, —
+ * и вместе с ним дистанции сегментов, статистика и шаги.
+ *
+ * Живёт рядом с [FinalizeTrackUseCase], потому что входов у правки два: экран активности
+ * (любой участок) и экран сохранения фиксированной записи, где участок один (`docs/adr/0004`).
  */
 class ChangeActivitySegmentKindUseCase(
     private val trackRepository: TrackRepository,

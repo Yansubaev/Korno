@@ -1,5 +1,6 @@
 package com.ians.korno.feature.tracking.data.di
 
+import com.ians.korno.core.trackprocessing.ChangeActivitySegmentKindUseCase
 import com.ians.korno.feature.tracking.data.controller.DefaultTrackingController
 import com.ians.korno.feature.tracking.data.notification.DefaultPendingSummaryNotifier
 import com.ians.korno.feature.tracking.data.session.TrackingSessionCoordinator
@@ -47,5 +48,6 @@ val trackingDataModule = module {
     factoryOf(::ObserveTrackPointsUseCase)
     factoryOf(::ObserveSessionTrackUseCase)
     factoryOf(::SaveActivitySummaryUseCase)
+    factoryOf(::ChangeActivitySegmentKindUseCase)
     factoryOf(::DiscardActivityUseCase)
 }

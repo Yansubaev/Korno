@@ -21,7 +21,9 @@ import com.ians.korno.data.gpxexport.model.TrackDocumentPoint
 import com.ians.korno.data.gpxexport.model.TrackDocumentSummary
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.MethodSource
 
 class TrackFileCodecTest {
 
@@ -59,14 +61,19 @@ class TrackFileCodecTest {
     }
 
     @ParameterizedTest
-    @EnumSource(TrackFileFormat::class)
-    fun `round trip keeps activity types the format cannot express natively`(format: TrackFileFormat) {
-        // TCX знает только Running, Biking и Other, поэтому прогулка проверяется отдельно.
-        val document = sampleDocument().copy(kind = SegmentKind.ON_FOOT)
+    @MethodSource("kindsAndFormats")
+    fun `round trip keeps every kind the format cannot express natively`(
+        kind: SegmentKind,
+        format: TrackFileFormat,
+    ) {
+        // TCX Sport знает только Running, Biking и Other, поэтому точный вид переживает
+        // круг лишь через расширение `korno:SegmentKind`: иначе хайкинг вернулся бы из
+        // собственного же файла неопознанным (`docs/adr/0004`).
+        val document = sampleDocument().copy(kind = kind)
 
         val parsed = codec.parse(codec.write(document, format)).requireSuccess()
 
-        assertThat(parsed.kind).isEqualTo(SegmentKind.ON_FOOT)
+        assertThat(parsed.kind).isEqualTo(kind)
     }
 
     @ParameterizedTest
@@ -365,8 +372,15 @@ class TrackFileCodecTest {
         ),
     )
 
-    private companion object {
-        const val COORDINATE_TOLERANCE = 1e-7
+    companion object {
+        private const val COORDINATE_TOLERANCE = 1e-7
+
+        /** Виды движения — `PAUSE` не экспортируется: это участок без движения. */
+        @JvmStatic
+        fun kindsAndFormats(): List<Arguments> =
+            SegmentKind.entries
+                .filter { it != SegmentKind.PAUSE }
+                .flatMap { kind -> TrackFileFormat.entries.map { Arguments.of(kind, it) } }
     }
 }
 

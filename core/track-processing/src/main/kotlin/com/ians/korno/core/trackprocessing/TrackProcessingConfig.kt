@@ -193,9 +193,14 @@ data class TrackProcessingConfig(
          * Наземный транспорт: автобус, трамвай, машина, попутка — один профиль на всех
          * (`docs/adr/0006`).
          *
-         * Потолок скорости — тридцать метров в секунду (108 км/ч): он нужен не чтобы
-         * ограничить транспорт, а чтобы грубая проверка перемещения вообще что-то ловила.
-         * При семидесяти она разрешала прыжок в четыреста метров за шаг опроса.
+         * Ворота правдоподобия покрывают самый быстрый случай вида, а не типичный:
+         * шестьдесят метров в секунду — это 216 км/ч, и поездка по трассе перестаёт
+         * терять точки как неправдоподобные. Прежний довод против семидесяти («прыжок
+         * в четыреста метров за шаг опроса») считался для шага в пять секунд; в
+         * транспорте он теперь две, и шестьдесят дают сто двадцать метров.
+         *
+         * В начальную дисперсию скорости фильтра это значение не идёт — там оно зажато
+         * (см. [TrackKalmanFilter], `docs/adr/0006`).
          *
          * ponytail: `processNoiseAccelerationMetersPerSecondSquared` подобран на глаз от
          * велосипедного, перебором по записям не проверен — шаг опроса в транспорте
@@ -204,8 +209,8 @@ data class TrackProcessingConfig(
          * по новой поездке.
          */
         private val TRANSIT = TrackProcessingConfig(
-            maximumSpeedMetersPerSecond = 30.0,
-            maximumAccuracyMeters = 60.0,
+            maximumSpeedMetersPerSecond = 60.0,
+            maximumAccuracyMeters = 80.0,
             processNoiseAccelerationMetersPerSecondSquared = 0.8,
             stopSpeedMetersPerSecond = 0.8,
             resumeSpeedMetersPerSecond = 2.0,

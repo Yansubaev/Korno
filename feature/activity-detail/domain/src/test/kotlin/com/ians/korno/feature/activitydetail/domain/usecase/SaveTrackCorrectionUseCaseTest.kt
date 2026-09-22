@@ -18,6 +18,7 @@ import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.model.toSingleSegment
+import com.ians.korno.core.trackprocessing.ChangeActivitySegmentKindUseCase
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf

@@ -32,7 +32,7 @@ import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.core.trackanalytics.TrackAnalysis
 import com.ians.korno.feature.activitydetail.domain.usecase.AnalyzeActivityUseCase
-import com.ians.korno.feature.activitydetail.domain.usecase.ChangeActivitySegmentKindUseCase
+import com.ians.korno.core.trackprocessing.ChangeActivitySegmentKindUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.RedecodeActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.ObserveActivitySegmentsUseCase
 import com.ians.korno.feature.activitydetail.domain.usecase.SegmentKindSummary

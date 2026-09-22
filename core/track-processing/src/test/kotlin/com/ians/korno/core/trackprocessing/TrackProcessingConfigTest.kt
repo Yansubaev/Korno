@@ -29,6 +29,20 @@ class TrackProcessingConfigTest {
     }
 
     @Test
+    fun `the vehicle gate covers a motorway, not just city traffic`() {
+        // Один профиль на автобус и на трассу (`docs/adr/0006`): ворота правдоподобия
+        // обязаны покрывать самый быстрый случай вида, иначе поездка по шоссе начнёт
+        // терять точки. Пороги автопаузы при этом остаются транзитными — они откатаны
+        // по настоящим записям.
+        val vehicle = TrackProcessingConfig.forSegmentKind(SegmentKind.VEHICLE)
+
+        assertThat(vehicle.maximumSpeedMetersPerSecond).isEqualTo(60.0)
+        assertThat(vehicle.maximumAccuracyMeters).isEqualTo(80.0)
+        assertThat(vehicle.stopSpeedMetersPerSecond).isEqualTo(0.8)
+        assertThat(vehicle.resumeSpeedMetersPerSecond).isEqualTo(2.0)
+    }
+
+    @Test
     fun `hiking keeps a wider stop window than walking at every sensitivity`() {
         val walking = TrackProcessingConfig.forSegmentKind(SegmentKind.ON_FOOT)
         val hiking = TrackProcessingConfig.forSegmentKind(SegmentKind.HIKING)

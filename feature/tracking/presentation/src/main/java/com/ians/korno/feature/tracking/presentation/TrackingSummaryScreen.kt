@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +38,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.animation.disintegrateOnExit
 import com.ians.korno.core.designsystem.animation.rememberDisintegrationState
 import com.ians.korno.core.designsystem.theme.KornoTheme
+import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.TrackMap
+import com.ians.korno.core.presentation.SELECTABLE_SEGMENT_KINDS
+import com.ians.korno.core.presentation.icon
+import com.ians.korno.core.presentation.labelRes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -74,7 +80,7 @@ internal fun TrackingSummaryScreen(
 }
 
 @Composable
-private fun TrackingSummaryContent(
+internal fun TrackingSummaryContent(
     state: TrackingSummaryState,
     onAction: (TrackingSummaryAction) -> Unit,
     modifier: Modifier = Modifier,
@@ -135,6 +141,35 @@ private fun TrackingSummaryContent(
                 }
             }
 
+            // Ряд чипов есть только у фиксированной записи (`docs/adr/0004`).
+            state.editableKind?.let { selected ->
+                Column {
+                    Text(
+                        text = stringResource(R.string.tracking_setup_segment_kind),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SELECTABLE_SEGMENT_KINDS.forEach { kind ->
+                            FilterChip(
+                                selected = kind == selected,
+                                onClick = { onAction(TrackingSummaryAction.SelectSegmentKind(kind)) },
+                                leadingIcon = {
+                                    Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(18.dp))
+                                },
+                                label = { Text(stringResource(kind.labelRes())) },
+                            )
+                        }
+                    }
+                }
+            }
+
             OutlinedTextField(
                 value = state.title,
                 onValueChange = { onAction(TrackingSummaryAction.SetTitle(it)) },
@@ -191,6 +226,7 @@ private fun TrackingSummaryContentPreview() {
         TrackingSummaryContent(
             state = TrackingSummaryState(
                 isLoading = false,
+                editableKind = SegmentKind.RUNNING,
                 distanceText = "5.18 km",
                 durationText = "29:40",
                 paceText = "10.4 km/h",

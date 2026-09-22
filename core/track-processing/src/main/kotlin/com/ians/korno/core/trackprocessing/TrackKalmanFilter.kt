@@ -5,6 +5,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -29,6 +30,12 @@ private const val METERS_PER_DEGREE_LATITUDE = 6_371_000.0 * Math.PI / 180.0
  * маловероятен, но деление на ноль превратило бы координаты в NaN на весь остаток участка.
  */
 private const val MINIMUM_LONGITUDE_SCALE = 1e-6
+
+/**
+ * Потолок стартового разброса скорости, когда у первой точки нет доплера. Тридцать метров
+ * в секунду — прежнее значение ворот транспорта, на котором фильтр вёл себя разумно.
+ */
+private const val INITIAL_SPEED_SIGMA_CAP = 30.0
 
 /**
  * Скорость, ниже которой у вектора скорости нет осмысленного направления: делить на неё
@@ -125,9 +132,16 @@ internal class TrackKalmanFilter(origin: GeoPoint, config: TrackProcessingConfig
         }
         covariance[index(POSITION_OFFSET, POSITION_OFFSET)] = accuracy * accuracy
         covariance[index(POSITION_OFFSET + 1, POSITION_OFFSET + 1)] = accuracy * accuracy
+        // Без доплера скорость неизвестна, и её дисперсия берётся от потолка скорости вида.
+        // Но потолок — это ворота правдоподобия, они покрывают самый быстрый случай (у
+        // транспорта 60 м/с), а здесь нужен разброс типичного старта: 3600 против 900 —
+        // это фильтр, который почти безоговорочно верит первым фиксам сегмента. Зажим —
+        // на месте использования, чтобы ворота и стартовая дисперсия расходились явно
+        // (`docs/adr/0006`).
         val velocityVariance = velocity
             ?.let { max(it.covariance[0], it.covariance[3]) }
-            ?: (config.maximumSpeedMetersPerSecond * config.maximumSpeedMetersPerSecond)
+            ?: min(config.maximumSpeedMetersPerSecond, INITIAL_SPEED_SIGMA_CAP)
+                .let { it * it }
         covariance[index(VELOCITY_OFFSET, VELOCITY_OFFSET)] = velocityVariance
         covariance[index(VELOCITY_OFFSET + 1, VELOCITY_OFFSET + 1)] = velocityVariance
     }

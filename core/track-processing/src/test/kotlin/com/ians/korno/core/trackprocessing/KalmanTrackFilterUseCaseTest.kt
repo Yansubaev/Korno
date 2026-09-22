@@ -194,6 +194,21 @@ class KalmanTrackFilterUseCaseTest {
         assertThat(filtered[2].isOutlier).isFalse()
     }
 
+    @Test
+    fun `raising the plausibility gate does not loosen the filter start`() {
+        // maximumSpeedMetersPerSecond — ворота правдоподобия в OutlierFilterUseCase, а не
+        // потолок скорости. Здесь оно читается один раз — начальной дисперсией скорости,
+        // когда у первой точки нет доплера, — и там зажато тридцатью (`docs/adr/0006`).
+        // Поднятые до 60 ворота транспорта не должны менять старт фильтра ни на метр.
+        val walk = steadyWalk(accuracy = 12f)
+
+        val atThirty = filter(walk, config.copy(maximumSpeedMetersPerSecond = 30.0)).points
+        val atSixty = filter(walk, config.copy(maximumSpeedMetersPerSecond = 60.0)).points
+
+        assertThat(atSixty.map(GeoPoint::latitude)).isEqualTo(atThirty.map(GeoPoint::latitude))
+        assertThat(atSixty.map(GeoPoint::longitude)).isEqualTo(atThirty.map(GeoPoint::longitude))
+    }
+
     /** Ровный ход пешехода: шесть секундных шагов по 1.4 м на север. */
     private fun steadyWalk(accuracy: Float = 5f) = (0..5).map { index ->
         point(id = index.toLong(), north = index * 1.4, timestamp = index * 1_000L, accuracy = accuracy)

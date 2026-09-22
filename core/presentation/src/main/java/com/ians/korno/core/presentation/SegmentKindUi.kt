@@ -35,6 +35,8 @@ fun SegmentKind.icon(): ImageVector = when (this) {
 /** Виды, которые пользователь может выбрать сам: `UNKNOWN` — не выбор, а отсутствие ответа. */
 val SELECTABLE_SEGMENT_KINDS = listOf(
     SegmentKind.ON_FOOT,
+    // Хайкинг датчики не выдают вовсе — выбрать его можно только здесь (`docs/adr/0005`).
+    SegmentKind.HIKING,
     SegmentKind.RUNNING,
     SegmentKind.CYCLING,
     SegmentKind.VEHICLE,
