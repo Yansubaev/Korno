@@ -11,7 +11,7 @@
 
 Внутри находятся:
 
-- `diagnostics.json` — версия приложения, модель устройства, версия Android, ID сессии и настройки логгера;
+- `diagnostics.json` — версия приложения, модель устройства, версия Android, ID сессии и настройки логгера. Настройки — **на момент выгрузки архива**, а не записи: `loggingLevel: VERBOSE` и `locationSamplesIncluded: true` у архива, выгруженного после переключения настроек, не значат, что в логе есть `VERBOSE`-записи и координаты. Проверять по самим записям — например, есть ли `Location sample coordinates`;
 - `logs/*.jsonl` — непосредственно логи. Каждая строка такого файла является отдельным JSON-объектом.
 
 ## Логи одной активности
@@ -197,6 +197,8 @@ rg '"level":"(WARN|ERROR)"|Unhandled exception' logs
 - `Activity recognized` — что о происходящем думает система: `detectedActivity` (`WALKING`, `RUNNING`, `ON_FOOT`, `ON_BICYCLE`, `IN_VEHICLE`, `STILL`, `TILTING`, `UNKNOWN`), `confidencePercent` и `alternatives` с прочими вариантами. Записывается только смена вердикта. Расхождение с выбранным типом активности объясняет и «слишком быстрый» трек, и остановки, которых пользователь не делал. Требует разрешения на распознавание активности; без него сигналов просто не будет.
 
   `ON_FOOT` — не отдельный вариант, а зонтик над `WALKING` и `RUNNING`, и Play Services почти всегда ставит его первым. В вердикт он попадает только тогда, когда конкретного варианта рядом нет; в остальных случаях его видно в `alternatives`.
+- `Activity recognition subscription` — чем кончилась подписка на распознавание, одна запись в начале: `status` = `SUBSCRIBED` (Play Services принял) или `NO_PERMISSION` (подписываться не стали). Отказ Play Services пишется как `ERROR` `Activity recognition stream failed` с `throwable`. Если `SUBSCRIBED` есть, а `Activity recognized` нет ни одного — подписка принята, но ответы до приложения не доходят. В логах, записанных до появления этой строки, её нет вовсе.
+- `Stale activity recognition subscription removed` — только в общем логе, при старте процесса: от прошлого процесса, убитого посреди записи, осталась подписка на распознавание, и она снята. Нет строки — снимать было нечего.
 - `Device idle mode changed` — `deviceIdleMode` и `ignoringBatteryOptimizations`. Doze — единственное состояние, которое одновременно режет и геолокацию, и распознавание активности: если оба источника замолчали разом, смотреть надо сюда. Приложение из белого списка переносит Doze заметно мягче.
 - `Background restriction changed` — `backgroundRestricted` и `standbyBucket` (`ACTIVE`, `WORKING_SET`, `FREQUENT`, `RARE`, `RESTRICTED`). Снимок пишется при старте записи и объясняет, почему сервис получает точки реже, чем просит, ещё до всякого Doze.
 - `Location providers changed` — `gpsEnabled` и `networkEnabled`. Самая частая причина дыры в треке: геолокацию выключили посреди записи.

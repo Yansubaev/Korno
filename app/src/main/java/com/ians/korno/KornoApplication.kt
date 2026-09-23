@@ -13,6 +13,7 @@ import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import com.ians.korno.core.trackprocessing.PrivacyZoneUseCase
 import com.ians.korno.core.trackprocessing.StatisticsCalculatorUseCase
 import com.ians.korno.core.trackprocessing.TrackProcessor
+import com.ians.korno.data.locationtracking.diagnostics.ActivityRecognitionSignalSource
 import com.ians.korno.data.locationtracking.di.locationTrackingModule
 import com.ians.korno.data.trackio.di.trackIoModule
 import com.ians.korno.feature.activitydetail.presentation.di.activityDetailPresentationModule
@@ -53,6 +54,7 @@ class KornoApplication : Application() {
     private val mapCacheRepository: MapCacheRepository by inject()
     private val pendingSummaryNotifier: PendingSummaryNotifier by inject()
     private val logger: AppLogger by inject()
+    private val activityRecognition: ActivityRecognitionSignalSource by inject()
 
     override fun onCreate() {
         super.onCreate()
@@ -80,6 +82,12 @@ class KornoApplication : Application() {
 
         logger.info(LogCategory.APP, TAG) {
             "Application started"
+        }
+
+        // Подписка на распознавание, оставшаяся от убитого процесса. Только здесь: в свежем
+        // процессе записи ещё нет, а позже вызов снял бы живую подписку.
+        if (activityRecognition.removeStaleUpdates()) {
+            logger.info(LogCategory.SYSTEM, TAG) { "Stale activity recognition subscription removed" }
         }
 
         // Восстановление незавершённой записи — в KornoAppViewModel: процесс стартует и в фоне

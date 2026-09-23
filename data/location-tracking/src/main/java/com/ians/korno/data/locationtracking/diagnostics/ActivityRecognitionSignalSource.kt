@@ -18,7 +18,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Подписка на распознавание активности. У Play Services нет колбэка: результат приходит
@@ -46,7 +46,9 @@ class ActivityRecognitionSignalSource(
     // собственный интерфейс и требует либо аннотации, либо подавления на месте вызова.
     @SuppressLint("MissingPermission")
     override fun observeSignals(): Flow<TrackingSignal> {
-        if (!permissionChecker.hasActivityRecognitionPermission()) return emptyFlow()
+        if (!permissionChecker.hasActivityRecognitionPermission()) {
+            return flowOf(TrackingSignal.ActivityRecognitionSubscription(STATUS_NO_PERMISSION))
+        }
         return callbackFlow {
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
@@ -69,14 +71,19 @@ class ActivityRecognitionSignalSource(
                 pendingIntentFlags(),
             )
             val client = ActivityRecognition.getClient(context)
-            // Запрос может отвалиться на устройстве без Play Services — тогда поток просто
-            // не отдаст ни одного сигнала, и запись трека от этого не пострадает.
+            // Отказ Play Services закрывает поток ошибкой: сервис пишет её в лог, запись трека
+            // идёт дальше. Отказ приходит двумя путями — исключением сразу и упавшим Task
+            // позже; второй раньше не слушался, и подписка умирала без следа.
             val request = runCatching {
                 client.requestActivityUpdates(UPDATE_INTERVAL_MILLIS, pendingIntent)
+                    .addOnSuccessListener {
+                        trySend(TrackingSignal.ActivityRecognitionSubscription(STATUS_SUBSCRIBED))
+                    }
+                    .addOnFailureListener { error -> close(error) }
             }
-            if (request.isFailure) {
+            request.exceptionOrNull()?.let { error ->
                 runCatching { context.unregisterReceiver(receiver) }
-                close()
+                close(error)
                 return@callbackFlow
             }
 
@@ -94,18 +101,23 @@ class ActivityRecognitionSignalSource(
      * Подписка живёт в Play Services, а не в процессе: если процесс убили посреди записи,
      * `awaitClose` не выполнился, и распознавание продолжает жечь батарею до перезагрузки.
      * `FLAG_NO_CREATE` находит PendingIntent, только если его всё ещё кто-то держит.
-     * Вызывать, только когда записи нет — иначе снимется и живая подписка.
+     *
+     * Зависшая подписка переживает только смерть процесса, поэтому вызывать — один раз при
+     * старте процесса, до любой записи. PendingIntent не отменяется: когда вызов делался при
+     * каждом открытии экрана с `cancel()`, все следующие подписки процесса молчали (записи 4
+     * и 5 — ни одного вердикта, запись 2 в том же процессе до вызова работала). Механизм в
+     * Play Services не доказан, но это единственное отличие от прежних рабочих серий.
      */
     @SuppressLint("MissingPermission")
-    fun removeStaleUpdates() {
+    fun removeStaleUpdates(): Boolean {
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             REQUEST_CODE,
             Intent(ACTION_ACTIVITY_UPDATE).setPackage(context.packageName),
             pendingIntentFlags() or PendingIntent.FLAG_NO_CREATE,
-        ) ?: return
+        ) ?: return false
         runCatching { ActivityRecognition.getClient(context).removeActivityUpdates(pendingIntent) }
-        pendingIntent.cancel()
+        return true
     }
 
     /**
@@ -159,6 +171,8 @@ class ActivityRecognitionSignalSource(
         const val REQUEST_CODE = 4201
         const val UPDATE_INTERVAL_MILLIS = 15_000L
         const val MAX_ALTERNATIVES = 3
+        const val STATUS_SUBSCRIBED = "SUBSCRIBED"
+        const val STATUS_NO_PERMISSION = "NO_PERMISSION"
 
         /** Варианты, ради которых стоит отодвинуть зонтичный `ON_FOOT`. */
         val SPECIFIC_ON_FOOT_TYPES = setOf(DetectedActivity.WALKING, DetectedActivity.RUNNING)

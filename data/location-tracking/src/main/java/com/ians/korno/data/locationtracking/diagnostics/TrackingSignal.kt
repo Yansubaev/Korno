@@ -46,6 +46,17 @@ sealed interface TrackingSignal {
         )
     }
 
+    /**
+     * Чем кончилась подписка на распознавание: `SUBSCRIBED` — Play Services её принял,
+     * `NO_PERMISSION` — подписываться не стали. Без этой строки «распознавание молчит» не
+     * отличить от «подписки нет»: в записях 4 и 5 не было ни одного вердикта и ни одной
+     * ошибки. Отказ самих Play Services приходит ошибкой потока.
+     */
+    data class ActivityRecognitionSubscription(val status: String) : TrackingSignal {
+        override val name = "Activity recognition subscription"
+        override val fields = mapOf("status" to status)
+    }
+
     /** Пользователь выключил геолокацию посреди записи — самая частая причина дыры в треке. */
     data class LocationProvidersChanged(
         val gpsEnabled: Boolean,
