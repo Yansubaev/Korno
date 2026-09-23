@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Свёрнутое уведомление записи: время · дистанция · темп и кнопки. Высота ограничена
+     системой (~48dp), поэтому кнопки меньше, чем в развёрнутом. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <Chronometer
+        android:id="@+id/recording_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Title" />
+
+    <TextView
+        android:id="@+id/recording_summary"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textAppearance="@style/TextAppearance.Compat.Notification" />
+
+    <ImageButton
+        android:id="@+id/recording_pause"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/notification_button_background"
+        android:contentDescription="@string/tracking_notification_pause"
+        android:padding="8dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_notification_pause" />
+
+    <ImageButton
+        android:id="@+id/recording_stop"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/notification_button_background"
+        android:contentDescription="@string/tracking_notification_stop"
+        android:padding="8dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_notification_stop" />
+</LinearLayout>

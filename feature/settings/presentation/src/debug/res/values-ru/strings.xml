@@ -21,4 +21,8 @@
     <string name="settings_clear_logs_title">Очистить диагностические логи</string>
     <string name="settings_clear_logs_subtitle">Удалить все файлы логов на устройстве</string>
     <string name="settings_clear_logs_running">Очистка…</string>
+    <string name="settings_notification_style">Уведомление записи</string>
+    <string name="settings_notification_style_auto">Авто</string>
+    <string name="settings_notification_style_live_update">Live Update</string>
+    <string name="settings_notification_style_custom">Свой</string>
 </resources>

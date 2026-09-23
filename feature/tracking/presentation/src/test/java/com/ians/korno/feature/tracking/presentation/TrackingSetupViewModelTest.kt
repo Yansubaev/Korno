@@ -9,6 +9,7 @@ import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.PrivacyZone
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.UserPreferences
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
@@ -149,6 +150,7 @@ class TrackingSetupViewModelTest {
             state.value = state.value.copy(lastRecordingAutoMode = value)
             return success()
         }
+        override suspend fun setRecordingNotificationStyle(value: RecordingNotificationStyle): EmptyResult<DataError.Local> = success()
 
         private fun success(): EmptyResult<DataError.Local> = Result.Success(Unit)
     }

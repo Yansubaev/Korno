@@ -15,6 +15,7 @@ import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.error.TrackFileError
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.PrivacyZone
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.domain.model.SharedTrackFile
 import com.ians.korno.core.domain.model.TrackFileFormat
 import com.ians.korno.core.domain.model.TrackFileOperation
@@ -375,6 +376,8 @@ class SettingsViewModelTest {
         override suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local> = success()
 
         override suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local> = success()
+
+        override suspend fun setRecordingNotificationStyle(value: RecordingNotificationStyle): EmptyResult<DataError.Local> = success()
 
         override suspend fun setPrivacyZone(value: PrivacyZone): EmptyResult<DataError.Local> {
             preferences.value = preferences.value.copy(privacyZone = value)

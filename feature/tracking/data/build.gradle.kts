@@ -9,6 +9,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:domain"))
     implementation(project(":core:logging"))
+    implementation(project(":core:presentation"))
     implementation(project(":core:track-processing"))
     implementation(project(":data:location-tracking"))
 }

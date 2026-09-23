@@ -4,6 +4,7 @@ import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.PrivacyZone
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.logging.LogSettings
 import com.ians.korno.core.logging.LogStorageInfo
 
@@ -14,6 +15,7 @@ internal data class SettingsState(
     val stopSensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
     val dynamicColor: Boolean = true,
     val privacyZone: PrivacyZone = PrivacyZone.OFF,
+    val recordingNotificationStyle: RecordingNotificationStyle = RecordingNotificationStyle.AUTO,
     /** Занятый кэшем карт объём; `null` — ещё не измерен или недоступен. */
     val mapCacheSizeBytes: Long? = null,
     val isClearingMapCache: Boolean = false,

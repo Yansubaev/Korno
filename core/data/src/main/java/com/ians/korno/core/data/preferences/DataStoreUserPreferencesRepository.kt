@@ -14,6 +14,7 @@ import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.PrivacyZone
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.domain.model.UserPreferences
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import kotlinx.coroutines.flow.Flow
@@ -76,6 +77,9 @@ class DataStoreUserPreferencesRepository(
     override suspend fun setLastRecordingAutoMode(value: Boolean) =
         update(Keys.LAST_RECORDING_AUTO_MODE, value)
 
+    override suspend fun setRecordingNotificationStyle(value: RecordingNotificationStyle) =
+        update(Keys.RECORDING_NOTIFICATION_STYLE, value.name)
+
     private suspend fun <T> update(
         key: Preferences.Key<T>,
         value: T,
@@ -108,6 +112,9 @@ class DataStoreUserPreferencesRepository(
             ?.let { runCatching { SegmentKind.valueOf(it) }.getOrNull() }
             ?: SegmentKind.RUNNING,
         lastRecordingAutoMode = preferences[Keys.LAST_RECORDING_AUTO_MODE] ?: true,
+        recordingNotificationStyle = preferences[Keys.RECORDING_NOTIFICATION_STYLE]
+            ?.let { runCatching { RecordingNotificationStyle.valueOf(it) }.getOrNull() }
+            ?: RecordingNotificationStyle.AUTO,
     )
 
     private fun defaultMeasurementSystem(): MeasurementSystem {
@@ -126,6 +133,7 @@ class DataStoreUserPreferencesRepository(
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val LAST_SEGMENT_KIND = stringPreferencesKey("last_segment_kind")
         val LAST_RECORDING_AUTO_MODE = booleanPreferencesKey("last_recording_auto_mode")
+        val RECORDING_NOTIFICATION_STYLE = stringPreferencesKey("recording_notification_style")
     }
 
 }

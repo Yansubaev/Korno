@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Кнопки своего уведомления: полупрозрачный тон поверх фона уведомления, а не цвет
+         приложения — так они не спорят с цифрами и совпадают по виду с Live Update. -->
+    <color name="notification_button">#14000000</color>
+    <color name="notification_button_content">#DE000000</color>
+    <color name="notification_button_ripple">#1F000000</color>
+</resources>

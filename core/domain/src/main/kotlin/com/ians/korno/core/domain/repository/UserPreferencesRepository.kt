@@ -7,6 +7,7 @@ import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.PrivacyZone
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.domain.model.UserPreferences
 import kotlinx.coroutines.flow.Flow
 
@@ -32,4 +33,6 @@ interface UserPreferencesRepository {
     suspend fun setLastSegmentKind(value: SegmentKind): EmptyResult<DataError.Local>
 
     suspend fun setLastRecordingAutoMode(value: Boolean): EmptyResult<DataError.Local>
+
+    suspend fun setRecordingNotificationStyle(value: RecordingNotificationStyle): EmptyResult<DataError.Local>
 }

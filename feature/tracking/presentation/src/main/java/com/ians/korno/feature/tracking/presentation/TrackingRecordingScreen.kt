@@ -89,11 +89,20 @@ import org.koin.androidx.compose.koinViewModel
 
 @Composable
 internal fun TrackingRecordingScreen(
+    finishRequested: Boolean,
+    onFinishRequestHandled: () -> Unit,
     onFinished: (activityId: Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: TrackingRecordingViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(finishRequested) {
+        if (finishRequested) {
+            viewModel.onAction(TrackingRecordingAction.RequestFinish)
+            onFinishRequestHandled()
+        }
+    }
 
     LaunchedEffect(viewModel) {
         snapshotFlow { state.finishedActivityId }.collectLatest { id ->

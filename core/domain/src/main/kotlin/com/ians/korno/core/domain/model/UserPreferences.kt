@@ -16,7 +16,22 @@ data class UserPreferences(
     // Последний выбор режима записи на старте: авто или фиксированный вид. Новые
     // пользователи начинают с авто.
     val lastRecordingAutoMode: Boolean = true,
+    // Отладочный выбор вида уведомления записи. В release переключателя нет — там всегда AUTO.
+    val recordingNotificationStyle: RecordingNotificationStyle = RecordingNotificationStyle.AUTO,
 )
+
+/**
+ * Вид уведомления идущей записи.
+ *
+ * [LIVE_UPDATE] — стандартный шаблон, который Android 16+ продвигает наверх экрана блокировки
+ * и в чип статус-бара. [CUSTOM] — своя разметка с круглыми кнопками: продвинуть её система
+ * не даст. [AUTO] берёт первый, когда система разрешает продвижение, иначе второй.
+ */
+enum class RecordingNotificationStyle {
+    AUTO,
+    LIVE_UPDATE,
+    CUSTOM,
+}
 
 /**
  * Радиус, который вырезается из начала и конца трека при экспорте и отправке файла.

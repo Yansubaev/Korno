@@ -19,4 +19,8 @@
     <string name="settings_clear_logs_title">Clear diagnostic logs</string>
     <string name="settings_clear_logs_subtitle">Delete all log files stored on this device</string>
     <string name="settings_clear_logs_running">Clearing…</string>
+    <string name="settings_notification_style">Recording notification</string>
+    <string name="settings_notification_style_auto">Auto</string>
+    <string name="settings_notification_style_live_update">Live Update</string>
+    <string name="settings_notification_style_custom">Custom</string>
 </resources>

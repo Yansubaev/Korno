@@ -11,4 +11,13 @@ package com.ians.korno.feature.tracking.domain.navigation
 object TrackingDeepLinks {
     /** Экран текущей записи; открывается тапом по уведомлению foreground-сервиса. */
     const val RECORDING = "korno://tracking/recording"
+
+    /**
+     * Флаг «сразу спросить о завершении»: `RECORDING?finish=true`. Его ставит кнопка «Стоп»
+     * своего уведомления — остановить запись без подтверждения с экрана блокировки слишком легко.
+     * Имя совпадает с полем маршрута экрана записи.
+     */
+    const val FINISH_PARAM = "finish"
+
+    const val RECORDING_FINISH = "$RECORDING?$FINISH_PARAM=true"
 }

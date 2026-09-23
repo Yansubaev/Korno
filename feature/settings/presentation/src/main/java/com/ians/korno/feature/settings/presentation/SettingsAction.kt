@@ -4,6 +4,7 @@ import com.ians.korno.core.domain.model.AutoPauseSensitivity
 import com.ians.korno.core.domain.model.GpsAccuracy
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.PrivacyZone
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.logging.LogLevel
 
 internal sealed interface SettingsAction {
@@ -33,6 +34,8 @@ internal sealed interface SettingsAction {
     data object ShareLogsClicked : SettingsAction
 
     data object ClearLogsClicked : SettingsAction
+
+    data class SetRecordingNotificationStyle(val style: RecordingNotificationStyle) : SettingsAction
 
     data object DismissSnackbar : SettingsAction
 }

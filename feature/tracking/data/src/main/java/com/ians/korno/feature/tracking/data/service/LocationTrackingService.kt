@@ -3,20 +3,15 @@ package com.ians.korno.feature.tracking.data.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Bundle
 import android.os.IBinder
-import androidx.annotation.DrawableRes
-import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
-import androidx.core.net.toUri
 import com.ians.korno.core.domain.model.MeasurementSystem
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.domain.model.RecordingStatus
-import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.countsSteps
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.AppLogger
@@ -32,9 +27,6 @@ import com.ians.korno.data.locationtracking.location.LocationUpdatePolicy
 import com.ians.korno.data.locationtracking.steps.StepCounterClient
 import com.ians.korno.feature.tracking.data.R
 import com.ians.korno.feature.tracking.data.session.TrackingSessionCoordinator
-import com.ians.korno.feature.tracking.domain.model.RecordingSession
-import com.ians.korno.feature.tracking.domain.navigation.TrackingDeepLinks
-import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -57,7 +49,7 @@ import org.koin.android.ext.android.inject
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val NOTIFICATION_ID = 4200
-private const val NOTIFICATION_CHANNEL_ID = "tracking_channel"
+private const val LEGACY_NOTIFICATION_CHANNEL_ID = "tracking_channel"
 private const val PREPARATION_TIMEOUT_MILLIS = 120_000L
 
 /**
@@ -93,6 +85,8 @@ internal class LocationTrackingService : Service() {
     private var preparationTimeoutJob: Job? = null
     private var isPreparing = false
     private var measurementSystem = MeasurementSystem.METRIC
+    private var notificationStyle = RecordingNotificationStyle.AUTO
+    private val notificationBuilder by lazy { RecordingNotificationBuilder(this) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -142,7 +136,7 @@ internal class LocationTrackingService : Service() {
     private fun prepareGps() {
         if (coordinator.session.value.activityId != null) return
         isPreparing = true
-        startForegroundCompat(buildPreparingNotification())
+        startForegroundCompat(notificationBuilder.buildPreparing(notificationStyle))
         startLocationUpdates()
         preparationTimeoutJob?.cancel()
         preparationTimeoutJob = serviceScope.launch {
@@ -176,7 +170,7 @@ internal class LocationTrackingService : Service() {
         isPreparing = false
         preparationTimeoutJob?.cancel()
         preparationTimeoutJob = null
-        startForegroundCompat(buildNotification(coordinator.session.value))
+        startForegroundCompat(buildNotification())
         startLocationUpdates()
         startStepCollection()
         startSignalCollection()
@@ -320,6 +314,12 @@ internal class LocationTrackingService : Service() {
                 coordinator.autoPauseMovementHint,
             ) { preferences, (status, settled), segmentKind, movementHint ->
                 measurementSystem = preferences.measurementSystem
+                // Вид уведомления переключают в debug-настройках прямо во время записи —
+                // перестраиваем сразу, не дожидаясь следующей точки.
+                if (preferences.recordingNotificationStyle != notificationStyle) {
+                    notificationStyle = preferences.recordingNotificationStyle
+                    if (!isPreparing) refreshNotification()
+                }
                 LocationUpdatePolicy.configFor(
                     accuracy = preferences.gpsAccuracy,
                     status = status,
@@ -397,155 +397,32 @@ internal class LocationTrackingService : Service() {
 
     private fun refreshNotification() {
         getSystemService<NotificationManager>()
-            ?.notify(NOTIFICATION_ID, buildNotification(coordinator.session.value))
+            ?.notify(NOTIFICATION_ID, buildNotification())
     }
 
-    private fun buildNotification(session: RecordingSession): Notification {
-        // До первой точки паузе нечего останавливать: остаётся только «Стоп».
-        if (session.status == RecordingStatus.WAITING_FOR_GPS) {
-            return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-                .setContentTitle(getString(R.string.tracking_notification_title))
-                .setContentText(getString(R.string.tracking_notification_status_waiting_gps))
-                .setSmallIcon(session.notificationIconRes())
-                .addExtras(Bundle().apply {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
-                        putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true)
-                    }
-                })
-                .setContentIntent(recordingScreenPendingIntent())
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .addAction(
-                    NotificationCompat.Action(
-                        android.R.drawable.ic_menu_close_clear_cancel,
-                        getString(R.string.tracking_notification_stop),
-                        servicePendingIntent(ACTION_STOP_FROM_NOTIFICATION),
-                    ),
-                )
-                .build()
-        }
-
-        val isManuallyPaused = session.status == RecordingStatus.MANUAL_PAUSE
-        val pauseResumeAction = if (isManuallyPaused) {
-            NotificationCompat.Action(
-                android.R.drawable.ic_media_play,
-                getString(R.string.tracking_notification_resume),
-                servicePendingIntent(ACTION_RESUME),
-            )
-        } else {
-            NotificationCompat.Action(
-                android.R.drawable.ic_media_pause,
-                getString(R.string.tracking_notification_pause),
-                servicePendingIntent(ACTION_PAUSE),
-            )
-        }
-        val stopAction = NotificationCompat.Action(
-            android.R.drawable.ic_menu_close_clear_cancel,
-            getString(R.string.tracking_notification_stop),
-            servicePendingIntent(ACTION_STOP_FROM_NOTIFICATION),
-        )
-
-        val distance = when (measurementSystem) {
-            MeasurementSystem.METRIC -> session.distanceMeters / 1_000.0
-            MeasurementSystem.IMPERIAL -> session.distanceMeters / 1_609.344
-        }
-        val distanceUnit = getString(
-            if (measurementSystem == MeasurementSystem.METRIC) {
-                R.string.tracking_notification_unit_km
-            } else {
-                R.string.tracking_notification_unit_mi
-            },
-        )
-        val statusText = getString(
-            when (session.status) {
-                RecordingStatus.MANUAL_PAUSE -> R.string.tracking_notification_status_paused
-                RecordingStatus.AUTO_PAUSE -> R.string.tracking_notification_status_auto_paused
-                else -> R.string.tracking_notification_status_recording
-            },
-            String.format(Locale.getDefault(), "%.2f", distance),
-            distanceUnit,
-        )
-
-        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.tracking_notification_title))
-            .setContentText(statusText)
-            .setSmallIcon(session.notificationIconRes())
-            // Начиная с Android 17 (API 37) в теле уведомления по умолчанию рисуется иконка
-            // лаунчера, а small icon остаётся только в статус-баре. Здесь тип активности важнее
-            // узнаваемости приложения — уведомление и так одно и всегда наше.
-            .addExtras(Bundle().apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
-                    putBoolean(Notification.EXTRA_PREFER_SMALL_ICON, true)
-                }
-            })
-            .setContentIntent(recordingScreenPendingIntent())
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .addAction(pauseResumeAction)
-            .addAction(stopAction)
-            .build()
-    }
-
-    private fun buildPreparingNotification(): Notification =
-        NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.tracking_notification_title))
-            .setContentText(getString(R.string.tracking_notification_preparing))
-            .setSmallIcon(R.drawable.ic_activity_running)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .build()
+    private fun buildNotification(): Notification =
+        notificationBuilder.build(coordinator.session.value, measurementSystem, notificationStyle)
 
     /**
-     * Маппинг повторяет иконки видов движения на экранах записи и списка,
-     * чтобы уведомление читалось как продолжение того же экрана.
+     * Канал с `IMPORTANCE_DEFAULT`, но без звука: беззвучные (`LOW`) уведомления Pixel по
+     * умолчанию прячет с экрана блокировки, а запись должна быть видна там. Важность канала
+     * после создания не меняется, поэтому канал новый, а прежний `tracking_channel` удаляется.
      */
-    @DrawableRes
-    private fun RecordingSession.notificationIconRes(): Int = when (segmentKind) {
-        SegmentKind.RUNNING -> R.drawable.ic_activity_running
-        SegmentKind.CYCLING -> R.drawable.ic_activity_cycling
-        SegmentKind.VEHICLE -> R.drawable.ic_activity_driving
-        SegmentKind.ON_FOOT, SegmentKind.HIKING -> R.drawable.ic_activity_walking
-        // Вид ещё не определён (авторежим до первого вердикта) или его нет — компас.
-        SegmentKind.UNKNOWN, SegmentKind.PAUSE -> R.drawable.ic_activity_auto
-    }
-
-    /**
-     * Тап по телу уведомления возвращает пользователя на экран текущей записи.
-     *
-     * Интент неявный (сервис не знает про Activity из `:app`), но ограничен своим пакетом,
-     * поэтому уйти на сторону он не может. `CLEAR_TOP` вместе с `singleTop` у `MainActivity`
-     * означает «поднять уже запущенную задачу и отдать ей интент», а не «создать вторую копию».
-     */
-    private fun recordingScreenPendingIntent(): PendingIntent {
-        val intent = Intent(Intent.ACTION_VIEW, TrackingDeepLinks.RECORDING.toUri())
-            .setPackage(packageName)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        return PendingIntent.getActivity(
-            this,
-            TrackingDeepLinks.RECORDING.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    private fun servicePendingIntent(action: String): PendingIntent {
-        val intent = Intent(this, LocationTrackingService::class.java).setAction(action)
-        return PendingIntent.getService(
-            this,
-            action.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
+            RECORDING_NOTIFICATION_CHANNEL_ID,
             getString(R.string.tracking_notification_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
-        )
-        getSystemService<NotificationManager>()?.createNotificationChannel(channel)
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            setSound(null, null)
+            enableVibration(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        getSystemService<NotificationManager>()?.run {
+            deleteNotificationChannel(LEGACY_NOTIFICATION_CHANNEL_ID)
+            createNotificationChannel(channel)
+        }
     }
 
     companion object {

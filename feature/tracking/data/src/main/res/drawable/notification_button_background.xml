@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Кнопка своего уведомления записи — нейтральный тон поверх фона, как у кнопок Live Update.
+     Скругление больше половины высоты: у чипа выходят полукруглые края, у квадратной
+     иконки — круг. Разметку раздувает system UI, темы приложения там нет, поэтому цвета —
+     ресурсы, а не атрибуты темы. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/notification_button_ripple">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="999dp" />
+            <solid android:color="@color/notification_button" />
+        </shape>
+    </item>
+</ripple>

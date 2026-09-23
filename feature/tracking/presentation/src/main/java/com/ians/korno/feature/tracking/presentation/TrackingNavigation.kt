@@ -1,6 +1,8 @@
 package com.ians.korno.feature.tracking.presentation
 
 import androidx.compose.animation.ExitTransition
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
@@ -14,8 +16,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class TrackingSetupRoute(val initialSegmentKind: SegmentKind = SegmentKind.RUNNING)
 
+/** [finish] — открыть экран сразу с диалогом завершения, см. [TrackingDeepLinks.FINISH_PARAM]. */
 @Serializable
-data object TrackingRecordingRoute
+data class TrackingRecordingRoute(val finish: Boolean = false)
 
 @Serializable
 data class TrackingSummaryRoute(val activityId: Long)
@@ -33,7 +36,7 @@ fun NavGraphBuilder.trackingGraph(
                 // Настройка отработала — возвращаться к ней уже некуда, а экран записи
                 // должен лежать сразу над Home: тем же местом, куда приводит диплинк
                 // из уведомления, где экрана настройки в стеке нет вовсе.
-                navController.navigate(TrackingRecordingRoute) {
+                navController.navigate(TrackingRecordingRoute()) {
                     popUpTo<TrackingSetupRoute> { inclusive = true }
                 }
             },
@@ -44,8 +47,16 @@ fun NavGraphBuilder.trackingGraph(
         // Тап по уведомлению записи ведёт сюда. URI объявлен в `:domain`, потому что его же
         // подставляет в PendingIntent сервис, который про этот граф ничего не знает.
         deepLinks = listOf(navDeepLink<TrackingRecordingRoute>(basePath = TrackingDeepLinks.RECORDING)),
-    ) {
+    ) { backStackEntry ->
+        // Аргумент маршрута лежит в savedStateHandle: оттуда его и гасим после показа диалога,
+        // чтобы он не открылся снова после поворота. Туда же флаг кладёт KornoApp, если
+        // «Стоп» нажат, когда экран записи уже открыт.
+        val handle = backStackEntry.savedStateHandle
+        val finishRequested by handle.getStateFlow(TrackingDeepLinks.FINISH_PARAM, false)
+            .collectAsStateWithLifecycle()
         TrackingRecordingScreen(
+            finishRequested = finishRequested,
+            onFinishRequestHandled = { handle[TrackingDeepLinks.FINISH_PARAM] = false },
             onFinished = { activityId ->
                 navController.navigate(TrackingSummaryRoute(activityId)) {
                     popUpTo<TrackingRecordingRoute> { inclusive = true }

@@ -46,6 +46,7 @@ internal class SettingsViewModel(
                         stopSensitivity = preferences.autoPauseSensitivity,
                         dynamicColor = preferences.dynamicColorEnabled,
                         privacyZone = preferences.privacyZone,
+                        recordingNotificationStyle = preferences.recordingNotificationStyle,
                     )
                 }
             }
@@ -116,6 +117,9 @@ internal class SettingsViewModel(
             }
             SettingsAction.ShareLogsClicked -> shareLogs()
             SettingsAction.ClearLogsClicked -> clearLogs()
+            is SettingsAction.SetRecordingNotificationStyle -> viewModelScope.launch {
+                preferencesRepository.setRecordingNotificationStyle(action.style)
+            }
             SettingsAction.DismissSnackbar -> _state.update { it.copy(snackbarMessage = null) }
         }
     }

@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.logging.LogLevel
 
 @Composable
@@ -132,7 +133,35 @@ internal fun DebugLoggingSection(
             enabled = !state.isClearingLogs && storage.fileCount > 0,
             onClick = { onAction(SettingsAction.ClearLogsClicked) },
         )
+        HorizontalDivider()
+
+        Text(
+            stringResource(R.string.settings_notification_style),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            RecordingNotificationStyle.entries.forEach { style ->
+                FilterChip(
+                    selected = state.recordingNotificationStyle == style,
+                    onClick = { onAction(SettingsAction.SetRecordingNotificationStyle(style)) },
+                    label = { Text(stringResource(style.labelResource())) },
+                )
+            }
+        }
     }
+}
+
+private fun RecordingNotificationStyle.labelResource(): Int = when (this) {
+    RecordingNotificationStyle.AUTO -> R.string.settings_notification_style_auto
+    RecordingNotificationStyle.LIVE_UPDATE -> R.string.settings_notification_style_live_update
+    RecordingNotificationStyle.CUSTOM -> R.string.settings_notification_style_custom
 }
 
 private fun LogLevel.labelResource(): Int = when (this) {

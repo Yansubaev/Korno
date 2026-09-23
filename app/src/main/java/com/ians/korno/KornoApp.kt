@@ -120,7 +120,7 @@ fun KornoApp(
                 is KornoAppEvent.OpenTrackingSetup -> {
                     navController.navigate(TrackingSetupRoute(event.kind))
                 }
-                KornoAppEvent.OpenRecording -> navController.navigate(TrackingRecordingRoute) {
+                KornoAppEvent.OpenRecording -> navController.navigate(TrackingRecordingRoute()) {
                     launchSingleTop = true
                 }
             }
@@ -132,11 +132,16 @@ fun KornoApp(
     DisposableEffect(activity, navController) {
         if (activity == null) return@DisposableEffect onDispose { }
         val listener = Consumer<Intent> { intent ->
-            // Пользователь уже на экране записи — обрабатывать нечего, а handleDeepLink
-            // пересобрал бы стек и выбросил состояние экрана.
-            val alreadyThere = intent.data?.toString() == TrackingDeepLinks.RECORDING &&
+            // Пользователь уже на экране записи — handleDeepLink пересобрал бы стек и выбросил
+            // состояние экрана. Флаг завершения тогда отдаём открытому экрану напрямую.
+            val uri = intent.data
+            val alreadyThere = uri?.buildUpon()?.clearQuery()?.toString() == TrackingDeepLinks.RECORDING &&
                 navController.currentDestination?.hasRoute<TrackingRecordingRoute>() == true
-            if (!alreadyThere) navController.handleDeepLink(intent)
+            if (!alreadyThere) {
+                navController.handleDeepLink(intent)
+            } else if (uri.getBooleanQueryParameter(TrackingDeepLinks.FINISH_PARAM, false)) {
+                navController.currentBackStackEntry?.savedStateHandle?.set(TrackingDeepLinks.FINISH_PARAM, true)
+            }
         }
         activity.addOnNewIntentListener(listener)
         onDispose { activity.removeOnNewIntentListener(listener) }
@@ -177,7 +182,7 @@ fun KornoApp(
 
     // Поверх текущей вкладки: системный «назад» с экрана записи возвращает на неё.
     val openRecording: () -> Unit = {
-        navController.navigate(TrackingRecordingRoute) { launchSingleTop = true }
+        navController.navigate(TrackingRecordingRoute()) { launchSingleTop = true }
     }
 
     Scaffold(
