@@ -38,4 +38,18 @@ data class RecordingSession(
             status == RecordingStatus.RECORDING ||
             status == RecordingStatus.MANUAL_PAUSE ||
             status == RecordingStatus.AUTO_PAUSE
+
+    /** Время записи на момент [now]: без ожидания GPS и без пауз, в том числе идущей. */
+    fun elapsedMillisAt(now: Long): Long {
+        // Ожидание сигнала не идёт в зачёт: секундомер тронется с нуля вместе с записью.
+        if (
+            status == RecordingStatus.IDLE ||
+            status == RecordingStatus.STOPPED ||
+            status == RecordingStatus.WAITING_FOR_GPS
+        ) {
+            return 0L
+        }
+        val ongoingPauseMillis = currentPauseStartMillis?.let { now - it } ?: 0L
+        return (now - startTimeEpochMillis - pausedAccumulatedMillis - ongoingPauseMillis).coerceAtLeast(0L)
+    }
 }

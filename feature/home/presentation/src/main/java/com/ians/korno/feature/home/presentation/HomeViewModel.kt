@@ -13,7 +13,10 @@ import com.ians.korno.core.presentation.formatDuration
 import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.feature.home.domain.model.HomeSummary
+import com.ians.korno.core.presentation.OngoingRecordingUi
+import com.ians.korno.core.presentation.formatTimerDuration
 import com.ians.korno.feature.home.domain.usecase.ObserveHomeSummaryUseCase
+import com.ians.korno.feature.tracking.domain.usecase.ObserveOngoingRecordingUseCase
 import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,14 +27,25 @@ import kotlinx.coroutines.flow.stateIn
 internal class HomeViewModel(
     private val context: Context,
     observeHomeSummary: ObserveHomeSummaryUseCase,
+    observeOngoingRecording: ObserveOngoingRecordingUseCase,
     private val preferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
     val state: StateFlow<HomeState> = combine(
         observeHomeSummary(),
         preferencesRepository.observePreferences(),
-    ) { result, preferences ->
-        result.toUiState(preferences.lastSegmentKind, preferences.measurementSystem)
+        observeOngoingRecording(),
+    ) { result, preferences, ongoing ->
+        result.toUiState(preferences.measurementSystem).copy(
+            ongoing = ongoing?.let {
+                OngoingRecordingUi(
+                    kind = it.segmentKind,
+                    status = it.status,
+                    timeText = formatTimerDuration(it.elapsedMillis),
+                    distanceText = context.formatDistance(it.distanceMeters, preferences.measurementSystem, 1).text,
+                )
+            },
+        )
     }
         .stateIn(
             scope = viewModelScope,
@@ -45,10 +59,7 @@ internal class HomeViewModel(
         }
     }
 
-    private fun Result<HomeSummary, *>.toUiState(
-        kind: SegmentKind,
-        measurementSystem: MeasurementSystem,
-    ): HomeState =
+    private fun Result<HomeSummary, *>.toUiState(measurementSystem: MeasurementSystem): HomeState =
         when (this) {
             is Result.Success -> HomeState(
                 isLoading = false,
@@ -58,9 +69,8 @@ internal class HomeViewModel(
                     it.toUi(data.dominantKinds[it.id] ?: SegmentKind.UNKNOWN, measurementSystem)
                 },
                 hasMoreActivities = data.hasMoreActivitiesThisWeek,
-                selectedKind = kind,
             )
-            is Result.Error -> HomeState(isLoading = false, selectedKind = kind)
+            is Result.Error -> HomeState(isLoading = false)
         }
 
     private fun Activity.toUi(kind: SegmentKind, measurementSystem: MeasurementSystem): RecentActivityUi =

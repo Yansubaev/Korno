@@ -50,14 +50,19 @@ import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.core.map.TrackThumbnail
+import com.ians.korno.core.presentation.OngoingRecordingCard
 import com.ians.korno.core.presentation.R as CoreR
 import com.ians.korno.core.presentation.icon
 import com.ians.korno.core.presentation.labelRes
 import org.koin.androidx.compose.koinViewModel
 
+// Под последней строкой стоит кнопка записи: без запаса она перекрыла бы дистанцию.
+private val LIST_BOTTOM_PADDING = 96.dp
+
 @Composable
 internal fun ActivityListScreen(
     onOpenActivity: (Long) -> Unit,
+    onOpenRecording: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ActivityListViewModel = koinViewModel(),
 ) {
@@ -99,6 +104,7 @@ internal fun ActivityListScreen(
             state = state,
             onAction = viewModel::onAction,
             onOpenActivity = onOpenActivity,
+            onOpenRecording = onOpenRecording,
             onImportClick = { importLauncher.launch(arrayOf("*/*")) },
             modifier = Modifier.padding(padding),
         )
@@ -117,6 +123,7 @@ internal fun ActivityListContent(
     state: ActivityListState,
     onAction: (ActivityListAction) -> Unit,
     onOpenActivity: (Long) -> Unit,
+    onOpenRecording: () -> Unit,
     onImportClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -197,40 +204,46 @@ internal fun ActivityListContent(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(20.dp, 4.dp, 20.dp, 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        // Суммы и идущая запись — первые элементы списка: прокручиваются вместе со строками,
+        // чтобы под строки оставалось место. Карточка от чипов, периода и поиска не зависит.
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp, 4.dp, 20.dp, LIST_BOTTOM_PADDING),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            StatCard(stringResource(R.string.activity_list_stats_distance), state.statsDistanceText, Modifier.weight(1f))
-            StatCard(stringResource(R.string.activity_list_stats_time), state.statsTimeText, Modifier.weight(1f))
-        }
-
-        if (state.items.isEmpty() && !state.isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = stringResource(R.string.activity_list_empty),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp, 4.dp, 20.dp, 20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(items = state.items, key = { it.id }) { item ->
-                    // Маршрут запрашивается ровно для тех строк, которые LazyColumn
-                    // действительно собрал: за списком в сотню активностей иначе
-                    // тянулись бы все треки разом.
-                    LaunchedEffect(item.id) { onAction(ActivityListAction.RowShown(item.id)) }
-                    ActivityRow(
-                        item = item,
-                        routePreview = state.routePreviews[item.id].orEmpty(),
-                        onClick = { onOpenActivity(item.id) },
-                    )
+            item(key = "stats") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatCard(stringResource(R.string.activity_list_stats_distance), state.statsDistanceText, Modifier.weight(1f))
+                    StatCard(stringResource(R.string.activity_list_stats_time), state.statsTimeText, Modifier.weight(1f))
                 }
+            }
+            state.ongoing?.let { ongoing ->
+                item(key = "ongoing") {
+                    OngoingRecordingCard(ongoing = ongoing, onClick = onOpenRecording)
+                }
+            }
+            if (state.items.isEmpty() && !state.isLoading) {
+                item(key = "empty") {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.activity_list_empty),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            items(items = state.items, key = { it.id }) { item ->
+                // Маршрут запрашивается ровно для тех строк, которые LazyColumn
+                // действительно собрал: за списком в сотню активностей иначе
+                // тянулись бы все треки разом.
+                LaunchedEffect(item.id) { onAction(ActivityListAction.RowShown(item.id)) }
+                ActivityRow(
+                    item = item,
+                    routePreview = state.routePreviews[item.id].orEmpty(),
+                    onClick = { onOpenActivity(item.id) },
+                )
             }
         }
     }
@@ -313,6 +326,7 @@ private fun ActivityListContentPreview() {
             ),
             onAction = {},
             onOpenActivity = {},
+            onOpenRecording = {},
             onImportClick = {},
         )
     }

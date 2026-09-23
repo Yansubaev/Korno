@@ -25,7 +25,11 @@ class ObserveHomeSummaryUseCase(
                 is Result.Error -> Result.Error(result.error)
                 is Result.Success -> {
                     val weekStart = startOfCalendarPeriodMillis(CalendarPeriodUnit.WEEK)
-                    val thisWeek = result.data.filter { it.startTimeEpochMillis >= weekStart }
+                    // Идущая запись — не история: её частичные цифры в суммы не идут, карточкой
+                    // её показывает экран.
+                    val thisWeek = result.data.filter {
+                        it.endTimeEpochMillis != null && it.startTimeEpochMillis >= weekStart
+                    }
                     val recent = thisWeek.take(RECENT_ACTIVITIES_CAP)
                     val byActivity = (segmentsResult as? Result.Success)?.data.orEmpty()
                         .groupBy(ActivitySegment::activityId)

@@ -71,6 +71,18 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `begin session while a session is active creates nothing`() = runTest {
+        coordinator.beginSession(SegmentKind.RUNNING)
+        repository.nextActivityId = 2L
+
+        val second = coordinator.beginSession(SegmentKind.CYCLING)
+
+        assertThat(second).isNull()
+        assertThat(repository.createdActivities).hasSize(1)
+        assertThat(coordinator.session.value.activityId).isEqualTo(1L)
+    }
+
+    @Test
     fun `a rough sample does not count as a fix but a precise one starts the recording`() = runTest {
         coordinator.beginSession(SegmentKind.RUNNING)
 

@@ -206,8 +206,15 @@ internal class TrackingSessionCoordinator(
     /**
      * @param autoMode вид движения определяет детектор: [kind] не учитывается,
      *   запись начинается с сегмента `UNKNOWN` и самого терпимого профиля порогов.
+     * @return id новой активности; `null` — не создалась или запись уже идёт.
      */
     suspend fun beginSession(kind: SegmentKind, autoMode: Boolean = false): Long? {
+        // Идущая запись бывает одна: вторая активность с end_time = NULL осталась бы
+        // незакрытой навсегда, а после перезапуска процесса восстановилась бы любая из двух.
+        if (_session.value.isActive) {
+            logger.warn(LogCategory.TRACKING, TAG) { "Ignored start: a session is already active" }
+            return null
+        }
         val startTime = nowMillis()
         val sessionKind = if (autoMode) SegmentKind.UNKNOWN else kind
         loadRecordingPreferences(TrackProcessingConfig.forSegmentKind(sessionKind))

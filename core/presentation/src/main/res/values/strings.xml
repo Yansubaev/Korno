@@ -30,4 +30,8 @@
     <string name="segment_kind_detecting">Detecting…</string>
     <string name="segment_kind_pause">Paused</string>
 
+    <string name="recording_fab_start">Start recording</string>
+    <string name="ongoing_recording_recording">Recording</string>
+    <string name="ongoing_recording_paused">Paused</string>
+    <string name="ongoing_recording_waiting_gps">Waiting for GPS</string>
 </resources>

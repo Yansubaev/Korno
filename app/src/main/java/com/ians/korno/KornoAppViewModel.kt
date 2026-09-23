@@ -6,14 +6,18 @@ import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.feature.onboarding.domain.model.PermissionType
 import com.ians.korno.feature.onboarding.domain.repository.PermissionRepository
+import com.ians.korno.feature.tracking.domain.usecase.ObserveOngoingRecordingUseCase
+import com.ians.korno.feature.tracking.domain.usecase.OngoingRecording
 import com.ians.korno.feature.tracking.domain.usecase.PrepareTrackingUseCase
 import com.ians.korno.feature.tracking.domain.usecase.RecoverActiveSessionUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -29,6 +33,7 @@ sealed interface KornoAppEvent {
     data object RequestForegroundLocation : KornoAppEvent
     data object LocationPermissionDenied : KornoAppEvent
     data class OpenTrackingSetup(val kind: SegmentKind) : KornoAppEvent
+    data object OpenRecording : KornoAppEvent
 }
 
 class KornoAppViewModel(
@@ -36,6 +41,7 @@ class KornoAppViewModel(
     private val permissionRepository: PermissionRepository,
     private val prepareTracking: PrepareTrackingUseCase,
     private val recoverActiveSession: RecoverActiveSessionUseCase,
+    observeOngoingRecording: ObserveOngoingRecordingUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(KornoAppState())
@@ -43,6 +49,11 @@ class KornoAppViewModel(
     private val eventChannel = Channel<KornoAppEvent>()
     val events = eventChannel.receiveAsFlow()
     private var pendingSegmentKind: SegmentKind? = null
+    private var lastSegmentKind = SegmentKind.RUNNING
+
+    /** Идущая запись — для кнопки, которая общая у главной и списка. */
+    val ongoing: StateFlow<OngoingRecording?> = observeOngoingRecording()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), null)
 
     init {
         // Если процесс был убит во время записи — незавершённая Activity (end_time IS NULL)
@@ -52,6 +63,7 @@ class KornoAppViewModel(
         viewModelScope.launch {
             preferencesRepository.initialize()
             preferencesRepository.observePreferences().collect { preferences ->
+                lastSegmentKind = preferences.lastSegmentKind
                 _state.update { current ->
                     current.copy(
                         isReady = true,
@@ -70,7 +82,16 @@ class KornoAppViewModel(
         }
     }
 
-    fun onStartActivityRequested(kind: SegmentKind) {
+    /** Во время записи новая не начинается: кнопка возвращает на экран записи. */
+    fun onRecordingFabClicked() {
+        if (ongoing.value != null) {
+            viewModelScope.launch { eventChannel.send(KornoAppEvent.OpenRecording) }
+        } else {
+            onStartActivityRequested(lastSegmentKind)
+        }
+    }
+
+    private fun onStartActivityRequested(kind: SegmentKind) {
         if (permissionRepository.isGranted(PermissionType.FOREGROUND_LOCATION)) {
             openTrackingSetup(kind)
         } else {

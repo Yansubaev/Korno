@@ -14,6 +14,8 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.WindowInsets
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -59,6 +62,9 @@ import com.ians.korno.core.designsystem.animation.DISINTEGRATING_ENTRY_KEY
 import com.ians.korno.core.designsystem.animation.LocalSharedTransitionScope
 import com.ians.korno.core.designsystem.animation.StartRecordingTransition
 import com.ians.korno.core.designsystem.layout.LocalBottomBarPadding
+import com.ians.korno.core.domain.model.RecordingStatus
+import com.ians.korno.core.presentation.RecordingFab
+import com.ians.korno.core.presentation.formatTimerDuration
 import com.ians.korno.feature.activitydetail.presentation.ActivityDetailRoute
 import com.ians.korno.feature.activitydetail.presentation.activityDetailGraph
 import com.ians.korno.feature.activitylist.presentation.ActivityListRoute
@@ -114,6 +120,9 @@ fun KornoApp(
                 is KornoAppEvent.OpenTrackingSetup -> {
                     navController.navigate(TrackingSetupRoute(event.kind))
                 }
+                KornoAppEvent.OpenRecording -> navController.navigate(TrackingRecordingRoute) {
+                    launchSingleTop = true
+                }
             }
         }
     }
@@ -166,6 +175,11 @@ fun KornoApp(
     val bottomBarPadding = (bottomBarHeight - WindowInsets.systemBars.asPaddingValues().calculateBottomPadding())
         .coerceAtLeast(0.dp)
 
+    // Поверх текущей вкладки: системный «назад» с экрана записи возвращает на неё.
+    val openRecording: () -> Unit = {
+        navController.navigate(TrackingRecordingRoute) { launchSingleTop = true }
+    }
+
     Scaffold(
         modifier = modifier,
         // Панель не в слоте bottomBar, поэтому snackbar над ней поднимаем сами.
@@ -210,9 +224,9 @@ fun KornoApp(
                             },
                         )
                         homeGraph(
-                            onStartSetup = viewModel::onStartActivityRequested,
                             onSeeAllActivities = { navController.navigate(ActivityListRoute) },
                             onOpenActivity = { activityId -> navController.navigate(ActivityDetailRoute(activityId)) },
+                            onOpenRecording = openRecording,
                             onOpenSettings = { navController.navigate(SettingsRoute) },
                         )
                         trackingGraph(
@@ -230,6 +244,7 @@ fun KornoApp(
                         )
                         activityListGraph(
                             onOpenActivity = { activityId -> navController.navigate(ActivityDetailRoute(activityId)) },
+                            onOpenRecording = openRecording,
                         )
                         activityDetailGraph(navController = navController)
                         settingsGraph(
@@ -238,6 +253,14 @@ fun KornoApp(
                         )
                     }
                 }
+                // Кнопка живёт над NavHost, а не внутри экранов: при переходе между главной
+                // и списком она стоит на месте, уходит только с остальных экранов.
+                RecordingFabHost(
+                    visible = showBottomBar && currentTab != SETTINGS_TAB,
+                    onClick = viewModel::onRecordingFabClicked,
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(padding).padding(bottom = bottomBarPadding),
+                )
                 AnimatedVisibility(
                     visible = showBottomBar,
                     modifier = Modifier.align(Alignment.BottomCenter),
@@ -263,6 +286,31 @@ fun KornoApp(
                 }
             }
         }
+    }
+}
+
+private const val SETTINGS_TAB = 2
+
+/** Отдельно от [KornoApp]: секундомер обновляется раз в секунду, и перерисовываться должна только кнопка. */
+@Composable
+private fun BoxScope.RecordingFabHost(
+    visible: Boolean,
+    onClick: () -> Unit,
+    viewModel: KornoAppViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val ongoing by viewModel.ongoing.collectAsStateWithLifecycle()
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier.align(Alignment.BottomEnd).padding(16.dp),
+        enter = scaleIn() + fadeIn(),
+        exit = scaleOut() + fadeOut(),
+    ) {
+        RecordingFab(
+            timeText = ongoing?.let { formatTimerDuration(it.elapsedMillis) },
+            isPulsing = ongoing?.status == RecordingStatus.RECORDING,
+            onClick = onClick,
+        )
     }
 }
 

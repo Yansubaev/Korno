@@ -12,6 +12,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:logging"))
     implementation(project(":core:map"))
+    implementation(project(":core:presentation"))
     implementation(project(":core:track-processing"))
 
     implementation(project(":data:gpx-export"))

@@ -3,11 +3,13 @@ package com.ians.korno.feature.tracking.domain.usecase
 import app.cash.turbine.test
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isNull
 import assertk.assertions.isTrue
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
+import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
@@ -75,6 +77,28 @@ class TrackingUseCasesTest {
     }
 
     @Test
+    fun `ongoing recording is null without a session and live while one is active`() = runTest {
+        ObserveOngoingRecordingUseCase(controller)().test {
+            assertThat(awaitItem()).isNull()
+
+            controller.sessionFlow.value = RecordingSession(
+                status = RecordingStatus.MANUAL_PAUSE,
+                activityId = 1L,
+                segmentKind = SegmentKind.CYCLING,
+                distanceMeters = 1_500.0,
+            )
+            val ongoing = awaitItem()
+            assertThat(ongoing?.segmentKind).isEqualTo(SegmentKind.CYCLING)
+            assertThat(ongoing?.status).isEqualTo(RecordingStatus.MANUAL_PAUSE)
+            assertThat(ongoing?.distanceMeters).isEqualTo(1_500.0)
+
+            controller.sessionFlow.value = RecordingSession(status = RecordingStatus.STOPPED)
+            assertThat(awaitItem()).isNull()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `the summary screen saves the title, the note and the confirmation`() = runTest {
         val saved = mutableListOf<Activity>()
         val repository = object : TrackRepository by unusedTrackRepository() {
@@ -105,7 +129,7 @@ class TrackingUseCasesTest {
         var recoverCalled = false
         var prepareCalled = false
         var cancelPreparationCalled = false
-        private val sessionFlow = MutableStateFlow(RecordingSession())
+        val sessionFlow = MutableStateFlow(RecordingSession())
 
         override fun observeSession(): Flow<RecordingSession> = sessionFlow
 

@@ -2,6 +2,7 @@ package com.ians.korno.feature.activitylist.presentation
 
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
+import com.ians.korno.core.presentation.OngoingRecordingUi
 
 internal enum class ActivityPeriod { ALL, WEEK, MONTH, YEAR }
 
@@ -22,6 +23,8 @@ internal data class ActivityListState(
     /** Чипы: виды движения, которые вообще встречаются в базе. */
     val availableKinds: List<SegmentKind> = emptyList(),
     val items: List<ActivityListItemUi> = emptyList(),
+    /** Идущая запись: не строка списка, фильтрам и суммам не подчиняется. */
+    val ongoing: OngoingRecordingUi? = null,
     val statsDistanceText: String = "",
     val statsTimeText: String = "",
     /** Маршруты для миниатюр; заполняются по мере появления строк на экране. */

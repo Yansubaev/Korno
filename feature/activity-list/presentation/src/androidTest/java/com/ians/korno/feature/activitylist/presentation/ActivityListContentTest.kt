@@ -108,6 +108,7 @@ class ActivityListContentTest {
                     state = state,
                     onAction = actions::add,
                     onOpenActivity = onOpenActivity,
+                    onOpenRecording = {},
                     onImportClick = onImportClick,
                 )
             }

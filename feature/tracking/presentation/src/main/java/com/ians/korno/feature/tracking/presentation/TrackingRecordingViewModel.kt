@@ -151,20 +151,6 @@ internal class TrackingRecordingViewModel(
 
     private fun RecordingSession.averageSpeedMetersPerSecond(): Double =
         if (movingTimeMillis > 0) distanceMeters / (movingTimeMillis / 1000.0) else 0.0
-
-    private fun RecordingSession.elapsedMillisAt(now: Long): Long {
-        // Ожидание сигнала не идёт в зачёт: секундомер тронется с нуля вместе с записью.
-        if (
-            status == RecordingStatus.IDLE ||
-            status == RecordingStatus.STOPPED ||
-            status == RecordingStatus.WAITING_FOR_GPS
-        ) {
-            return 0L
-        }
-        val ongoingPauseMillis = currentPauseStartMillis?.let { now - it } ?: 0L
-        return (now - startTimeEpochMillis - pausedAccumulatedMillis - ongoingPauseMillis).coerceAtLeast(0L)
-    }
-
 }
 
 private val RecordingStatus.isPause: Boolean

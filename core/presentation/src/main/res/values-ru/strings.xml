@@ -26,4 +26,8 @@
     <string name="segment_kind_detecting">Определяем…</string>
     <string name="segment_kind_pause">Пауза</string>
 
+    <string name="recording_fab_start">Начать запись</string>
+    <string name="ongoing_recording_recording">Идёт запись</string>
+    <string name="ongoing_recording_paused">На паузе</string>
+    <string name="ongoing_recording_waiting_gps">Ждём GPS</string>
 </resources>

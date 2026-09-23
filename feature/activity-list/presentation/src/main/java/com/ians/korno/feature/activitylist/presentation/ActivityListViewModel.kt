@@ -12,13 +12,16 @@ import com.ians.korno.core.domain.model.TrackFileOperation
 import com.ians.korno.core.domain.model.startOfCalendarPeriodMillis
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.map.MapPoint
+import com.ians.korno.core.presentation.OngoingRecordingUi
 import com.ians.korno.core.presentation.formatDistance
 import com.ians.korno.core.presentation.formatDuration
+import com.ians.korno.core.presentation.formatTimerDuration
 import com.ians.korno.core.presentation.labelRes
 import com.ians.korno.feature.activitylist.domain.usecase.GetRoutePreviewUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ImportTracksUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ObserveActivityListUseCase
 import com.ians.korno.feature.activitylist.domain.usecase.ObserveTrackImportUseCase
+import com.ians.korno.feature.tracking.domain.usecase.ObserveOngoingRecordingUseCase
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +34,7 @@ import kotlinx.coroutines.launch
 internal class ActivityListViewModel(
     private val context: Context,
     observeActivityList: ObserveActivityListUseCase,
+    observeOngoingRecording: ObserveOngoingRecordingUseCase,
     private val importTracks: ImportTracksUseCase,
     private val getRoutePreview: GetRoutePreviewUseCase,
     observeTrackImport: ObserveTrackImportUseCase,
@@ -62,9 +66,10 @@ internal class ActivityListViewModel(
         searchQuery,
         combine(filterKind, filterPeriod, ::Pair),
         local,
-        preferencesRepository.observePreferences(),
-    ) { snapshot, query, filters, localUi, preferences ->
+        combine(preferencesRepository.observePreferences(), observeOngoingRecording(), ::Pair),
+    ) { snapshot, query, filters, localUi, preferencesAndOngoing ->
         val (kind, period) = filters
+        val (preferences, ongoing) = preferencesAndOngoing
         val selection = snapshot.select(kind) { activity ->
             (period == ActivityPeriod.ALL || activity.isWithin(period)) &&
                 (query.isBlank() || (activity.title ?: "").contains(query, ignoreCase = true))
@@ -75,6 +80,14 @@ internal class ActivityListViewModel(
             filterKind = kind,
             filterPeriod = period,
             availableKinds = snapshot.chipKinds,
+            ongoing = ongoing?.let {
+                OngoingRecordingUi(
+                    kind = it.segmentKind,
+                    status = it.status,
+                    timeText = formatTimerDuration(it.elapsedMillis),
+                    distanceText = context.formatDistance(it.distanceMeters, preferences.measurementSystem, 1).text,
+                )
+            },
             items = selection.activities.map {
                 it.toUi(snapshot.dominantKindOf(it), preferences.measurementSystem)
             },

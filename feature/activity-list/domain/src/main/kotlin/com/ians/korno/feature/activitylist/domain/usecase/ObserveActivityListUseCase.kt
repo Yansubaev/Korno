@@ -88,7 +88,10 @@ class ObserveActivityListUseCase(
         trackRepository.observeAllSegments(),
     ) { activities, segments ->
         ActivityListSnapshot(
-            activities = (activities as? Result.Success)?.data.orEmpty(),
+            // Идущая запись (end_time = NULL) списку не принадлежит: она ещё не история,
+            // ни в строках, ни в суммах, ни в чипах.
+            activities = (activities as? Result.Success)?.data.orEmpty()
+                .filter { it.endTimeEpochMillis != null },
             segments = (segments as? Result.Success)?.data.orEmpty(),
         )
     }

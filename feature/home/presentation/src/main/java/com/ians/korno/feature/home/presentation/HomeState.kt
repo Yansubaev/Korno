@@ -1,6 +1,7 @@
 package com.ians.korno.feature.home.presentation
 
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.presentation.OngoingRecordingUi
 
 internal data class RecentActivityUi(
     val id: Long,
@@ -18,5 +19,6 @@ internal data class HomeState(
     val weekTimeText: String = "",
     val recentActivities: List<RecentActivityUi> = emptyList(),
     val hasMoreActivities: Boolean = false,
-    val selectedKind: SegmentKind = SegmentKind.RUNNING,
+    /** Идущая запись; в `recentActivities` и в недельных суммах её нет. */
+    val ongoing: OngoingRecordingUi? = null,
 )

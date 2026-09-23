@@ -17,9 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.presentation.OngoingRecordingCard
 import com.ians.korno.core.presentation.icon
 import org.koin.androidx.compose.koinViewModel
 
@@ -43,9 +42,9 @@ private val RECENT_LIST_BOTTOM_PADDING = 96.dp
 
 @Composable
 internal fun HomeScreen(
-    onStartSetup: (SegmentKind) -> Unit,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (Long) -> Unit,
+    onOpenRecording: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = koinViewModel(),
@@ -55,9 +54,9 @@ internal fun HomeScreen(
     HomeContent(
         state = state,
         onAction = viewModel::onAction,
-        onStartSetup = { onStartSetup(state.selectedKind) },
         onSeeAllActivities = onSeeAllActivities,
         onOpenActivity = onOpenActivity,
+        onOpenRecording = onOpenRecording,
         onOpenSettings = onOpenSettings,
         modifier = modifier,
     )
@@ -67,23 +66,15 @@ internal fun HomeScreen(
 private fun HomeContent(
     state: HomeState,
     onAction: (HomeAction) -> Unit,
-    onStartSetup: () -> Unit,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (Long) -> Unit,
+    onOpenRecording: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButton = {
-            FloatingActionButton(onClick = onStartSetup) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = stringResource(R.string.home_start_recording_button),
-                )
-            }
-        },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
@@ -136,6 +127,7 @@ private fun HomeContent(
                             Text(stringResource(R.string.home_see_all))
                         }
                     }
+                    state.ongoing?.let { OngoingRecordingCard(ongoing = it, onClick = onOpenRecording) }
                     state.recentActivities.forEach { activity ->
                         RecentActivityRow(activity = activity, onClick = { onOpenActivity(activity.id) })
                     }
@@ -240,9 +232,9 @@ private fun HomeContentPreview() {
                 hasMoreActivities = true,
             ),
             onAction = {},
-            onStartSetup = {},
             onSeeAllActivities = {},
             onOpenActivity = {},
+            onOpenRecording = {},
             onOpenSettings = {},
         )
     }

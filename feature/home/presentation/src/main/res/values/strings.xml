@@ -1,6 +1,5 @@
 <resources>
     <string name="home_title">Korno</string>
-    <string name="home_start_recording_button">Start recording</string>
     <string name="home_this_week">This week</string>
     <string name="home_distance_label">Distance</string>
     <string name="home_time_label">Time</string>

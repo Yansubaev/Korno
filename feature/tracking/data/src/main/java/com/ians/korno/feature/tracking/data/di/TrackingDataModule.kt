@@ -15,6 +15,7 @@ import com.ians.korno.feature.tracking.domain.usecase.ObserveActivityUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObservePendingSummaryActivitiesUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveSessionTrackUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackPointsUseCase
+import com.ians.korno.feature.tracking.domain.usecase.ObserveOngoingRecordingUseCase
 import com.ians.korno.feature.tracking.domain.usecase.ObserveTrackingSessionUseCase
 import com.ians.korno.feature.tracking.domain.usecase.PauseTrackingUseCase
 import com.ians.korno.feature.tracking.domain.usecase.PrepareTrackingUseCase
@@ -33,6 +34,7 @@ val trackingDataModule = module {
     single { DefaultPendingSummaryNotifier(get(), get()) } bind PendingSummaryNotifier::class
 
     factoryOf(::ObserveTrackingSessionUseCase)
+    factoryOf(::ObserveOngoingRecordingUseCase)
     factoryOf(::StartTrackingUseCase)
     factoryOf(::IsAutoModeAvailableUseCase)
     factoryOf(::ChangeSegmentKindUseCase)

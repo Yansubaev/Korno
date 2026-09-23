@@ -12,10 +12,12 @@ data object ActivityListRoute
 
 fun NavGraphBuilder.activityListGraph(
     onOpenActivity: (activityId: Long) -> Unit,
+    onOpenRecording: () -> Unit,
 ) {
     composable<ActivityListRoute> {
         ActivityListScreen(
             onOpenActivity = onOpenActivity,
+            onOpenRecording = onOpenRecording,
             modifier = Modifier.padding(bottom = LocalBottomBarPadding.current),
         )
     }
