@@ -115,6 +115,9 @@ internal class SettingsViewModel(
             is SettingsAction.SetLocationSampleLogging -> viewModelScope.launch {
                 logManager.setIncludeLocationSamples(action.enabled)
             }
+            is SettingsAction.SetIgnoreActivityRecognition -> viewModelScope.launch {
+                logManager.setIgnoreActivityRecognition(action.enabled)
+            }
             SettingsAction.ShareLogsClicked -> shareLogs()
             SettingsAction.ClearLogsClicked -> clearLogs()
             is SettingsAction.SetRecordingNotificationStyle -> viewModelScope.launch {

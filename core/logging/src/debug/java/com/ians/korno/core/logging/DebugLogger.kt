@@ -160,6 +160,9 @@ internal class DebugLogger(
     override suspend fun setIncludeLocationSamples(enabled: Boolean) =
         settingsDataSource.setIncludeLocationSamples(enabled)
 
+    override suspend fun setIgnoreActivityRecognition(enabled: Boolean) =
+        settingsDataSource.setIgnoreActivityRecognition(enabled)
+
     override suspend fun getStorageInfo(): LogStorageInfo {
         awaitPendingWrites()
         return fileStore.storageInfo()

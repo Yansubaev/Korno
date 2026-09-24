@@ -39,6 +39,9 @@ internal class DataStoreDebugLogSettingsDataSource(
         }
     }
 
+    suspend fun setIgnoreActivityRecognition(enabled: Boolean) =
+        update(Keys.IGNORE_ACTIVITY_RECOGNITION, enabled)
+
     private suspend fun <T> update(key: Preferences.Key<T>, value: T) {
         context.debugLogSettingsDataStore.edit { preferences -> preferences[key] = value }
     }
@@ -49,11 +52,13 @@ internal class DataStoreDebugLogSettingsDataSource(
             ?.let { stored -> runCatching { LogLevel.valueOf(stored) }.getOrNull() }
             ?: LogLevel.DEBUG,
         includeLocationSamples = preferences[Keys.INCLUDE_LOCATION_SAMPLES] ?: false,
+        ignoreActivityRecognition = preferences[Keys.IGNORE_ACTIVITY_RECOGNITION] ?: false,
     )
 
     private object Keys {
         val ENABLED = booleanPreferencesKey("enabled")
         val MINIMUM_LEVEL = stringPreferencesKey("minimum_level")
         val INCLUDE_LOCATION_SAMPLES = booleanPreferencesKey("include_location_samples")
+        val IGNORE_ACTIVITY_RECOGNITION = booleanPreferencesKey("ignore_activity_recognition")
     }
 }

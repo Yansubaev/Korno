@@ -29,9 +29,14 @@ import com.ians.korno.core.domain.model.RecordingNotificationStyle
 import com.ians.korno.core.domain.model.UserPreferences
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
+import com.ians.korno.core.logging.ActivityLogInfo
 import com.ians.korno.core.logging.AppLogger
+import com.ians.korno.core.logging.LogArchiveResult
 import com.ians.korno.core.logging.LogCategory
 import com.ians.korno.core.logging.LogLevel
+import com.ians.korno.core.logging.LogManager
+import com.ians.korno.core.logging.LogSettings
+import com.ians.korno.core.logging.LogStorageInfo
 import com.ians.korno.core.logging.NoOpActivityLogScope
 import com.ians.korno.core.trackprocessing.SegmentDetector
 import com.ians.korno.core.trackprocessing.SegmentDetectorConfig
@@ -850,6 +855,59 @@ class TrackingSessionCoordinatorTest {
         // Пересесть в машину и обратно без остановки нельзя — при сохранении это велосипед.
         assertThat(repository.replacedSegments!!.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING))
         assertThat(repository.recognitionSamples.size).isEqualTo(36)
+    }
+
+    @Test
+    fun `with recognition ignored the decoder gets none of it, though it is still stored`() = runTest {
+        val decoded = mutableListOf<Map<String, String>>()
+        val logger = object : AppLogger {
+            override fun log(
+                level: LogLevel,
+                category: LogCategory,
+                tag: String,
+                throwable: Throwable?,
+                fields: Map<String, String>,
+                containsSensitiveLocation: Boolean,
+                message: () -> String,
+            ) {
+                if (message() == "Activity mode decoded") decoded += fields
+            }
+        }
+        val ignoringCoordinator = TrackingSessionCoordinator(
+            trackRepository = repository,
+            trackProcessor = TrackProcessor(),
+            preferencesRepository = preferencesRepository,
+            logger = logger,
+            logManager = IgnoringRecognitionLogManager,
+            nowMillis = { clockMillis },
+        )
+        ignoringCoordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
+        ignoringCoordinator.beginSession(SegmentKind.RUNNING, autoMode = true)
+        repeat(3) {
+            ignoringCoordinator.applyActivityRecognition(recognized("IN_VEHICLE", confidence = 90))
+            clockMillis += 20_000L
+        }
+
+        ignoringCoordinator.endSession()
+
+        assertThat(repository.recognitionSamples.size).isEqualTo(3)
+        assertThat(decoded.single()["recognitionIgnored"]).isEqualTo("true")
+        assertThat(decoded.single()["recognitionCount"]).isEqualTo("0")
+    }
+
+    private object IgnoringRecognitionLogManager : LogManager {
+        override fun observeSettings(): Flow<LogSettings> =
+            flowOf(LogSettings(enabled = false, ignoreActivityRecognition = true))
+        override suspend fun setEnabled(enabled: Boolean) = Unit
+        override suspend fun setMinimumLevel(level: LogLevel) = Unit
+        override suspend fun setIncludeLocationSamples(enabled: Boolean) = Unit
+        override suspend fun setIgnoreActivityRecognition(enabled: Boolean) = Unit
+        override suspend fun getStorageInfo() = LogStorageInfo()
+        override suspend fun clearLogs() = true
+        override suspend fun createArchive(): LogArchiveResult = LogArchiveResult.NoLogs
+        override suspend fun getActivityLogInfo(activityId: Long) = ActivityLogInfo(activityId)
+        override suspend fun createActivityArchive(activityId: Long): LogArchiveResult = LogArchiveResult.NoLogs
+        override suspend fun deleteActivityLogs(activityId: Long) = true
     }
 
     @Test

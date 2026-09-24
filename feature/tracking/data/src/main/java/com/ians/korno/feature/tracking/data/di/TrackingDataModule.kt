@@ -29,7 +29,7 @@ import org.koin.dsl.bind
 import org.koin.dsl.module
 
 val trackingDataModule = module {
-    single { TrackingSessionCoordinator(get(), get(), get(), get(), get()) }
+    single { TrackingSessionCoordinator(get(), get(), get(), get(), get(), get()) }
     single { DefaultTrackingController(get(), get(), get()) } bind TrackingController::class
     single { DefaultPendingSummaryNotifier(get(), get()) } bind PendingSummaryNotifier::class
 

@@ -20,6 +20,7 @@ import com.ians.korno.core.domain.repository.UserPreferencesRepository
 import com.ians.korno.core.logging.ActivityLogScope
 import com.ians.korno.core.logging.AppLogger
 import com.ians.korno.core.logging.LogCategory
+import com.ians.korno.core.logging.LogManager
 import com.ians.korno.core.logging.NoOpActivityLogScope
 import com.ians.korno.core.logging.NoOpAppLogger
 import com.ians.korno.core.logging.debug
@@ -128,6 +129,8 @@ internal class TrackingSessionCoordinator(
     private val preferencesRepository: UserPreferencesRepository,
     private val logger: AppLogger = NoOpAppLogger,
     private val activityLogScope: ActivityLogScope = NoOpActivityLogScope,
+    /** Только ради дебажного «игнорировать Activity Recognition»; `null` — не игнорировать. */
+    private val logManager: LogManager? = null,
     private val segmentDetector: SegmentDetector = SegmentDetector(),
     private val modeDecoder: ActivityModeDecoder = ActivityModeDecoder(),
     private val finalizeTrack: FinalizeTrackUseCase = FinalizeTrackUseCase(trackProcessor, segmentDetector),
@@ -1274,8 +1277,11 @@ internal class TrackingSessionCoordinator(
     /**
      * Итоговые сегменты авторежима. Вид по всей записи определяет декодер: живой детектор
      * решал, не зная будущего, и принимал, например, минуту «машины» посреди велопоездки.
-     * Ручные поправки пользователя декодер не оспаривает. Если распознавание так и не
-     * сказало ничего о движении, остаются живые сегменты.
+     * Ручные поправки пользователя декодер не оспаривает. Если декодеру не по чему судить,
+     * остаются живые сегменты.
+     *
+     * С дебажным «игнорировать Activity Recognition» ответы распознавания до декодера не
+     * доходят, хотя записаны в `recognition_samples`: так проверяется разметка без AR.
      */
     private suspend fun decodedSessionSegments(
         session: RecordingSession,
@@ -1283,7 +1289,12 @@ internal class TrackingSessionCoordinator(
         endTime: Long,
     ): List<ActivitySegment> {
         val live = closedSessionSegments(session, endTime)
-        val recognitions = (trackRepository.getRecognitionSamples(activityId) as? Result.Success)?.data.orEmpty()
+        val recognitionIgnored = logManager?.observeSettings()?.first()?.ignoreActivityRecognition == true
+        val recognitions = if (recognitionIgnored) {
+            emptyList()
+        } else {
+            (trackRepository.getRecognitionSamples(activityId) as? Result.Success)?.data.orEmpty()
+        }
         val steps = synchronized(segmentLock) {
             stepTimeline.map { (time, total) -> DetectorSignal.StepCounter(time, total.toLong()) }
         }
@@ -1302,6 +1313,7 @@ internal class TrackingSessionCoordinator(
             tag = TAG,
             fields = mapOf(
                 "recognitionCount" to recognitions.size.toString(),
+                "recognitionIgnored" to recognitionIgnored.toString(),
                 "liveSegments" to live.describe(session.startTimeEpochMillis),
                 "decodedSegments" to decoded.describe(session.startTimeEpochMillis),
             ),

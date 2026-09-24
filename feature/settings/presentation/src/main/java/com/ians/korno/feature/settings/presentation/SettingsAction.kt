@@ -31,6 +31,8 @@ internal sealed interface SettingsAction {
 
     data class SetLocationSampleLogging(val enabled: Boolean) : SettingsAction
 
+    data class SetIgnoreActivityRecognition(val enabled: Boolean) : SettingsAction
+
     data object ShareLogsClicked : SettingsAction
 
     data object ClearLogsClicked : SettingsAction

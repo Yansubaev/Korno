@@ -102,6 +102,29 @@ internal fun DebugLoggingSection(
             )
         }
 
+        // Не зависит от включённого лога: это настройка декодера, а не записи в файл.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(
+                    stringResource(R.string.settings_ignore_activity_recognition_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    stringResource(R.string.settings_ignore_activity_recognition_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = state.logSettings.ignoreActivityRecognition,
+                onCheckedChange = { onAction(SettingsAction.SetIgnoreActivityRecognition(it)) },
+            )
+        }
+
         val storage = state.logStorageInfo
         val formattedSize = Formatter.formatShortFileSize(LocalContext.current, storage.sizeBytes)
         SettingsRow(

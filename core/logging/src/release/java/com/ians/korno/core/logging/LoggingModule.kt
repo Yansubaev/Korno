@@ -12,6 +12,7 @@ private object NoOpLogManager : LogManager {
     override suspend fun setEnabled(enabled: Boolean) = Unit
     override suspend fun setMinimumLevel(level: LogLevel) = Unit
     override suspend fun setIncludeLocationSamples(enabled: Boolean) = Unit
+    override suspend fun setIgnoreActivityRecognition(enabled: Boolean) = Unit
     override suspend fun getStorageInfo() = LogStorageInfo()
     override suspend fun clearLogs() = true
     override suspend fun createArchive(): LogArchiveResult = LogArchiveResult.NoLogs

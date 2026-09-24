@@ -229,6 +229,22 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `ignoring activity recognition persists it`() = runTest(testDispatcher) {
+        val logs = FakeLogManager()
+        val viewModel = settingsViewModel(
+            preferences = FakeUserPreferencesRepository(dynamicColorEnabled = true),
+            logs = logs,
+        )
+        runCurrent()
+
+        viewModel.onAction(SettingsAction.SetIgnoreActivityRecognition(enabled = true))
+        runCurrent()
+
+        assertThat(logs.settings.value.ignoreActivityRecognition).isEqualTo(true)
+        assertThat(viewModel.state.value.logSettings.ignoreActivityRecognition).isEqualTo(true)
+    }
+
+    @Test
     fun `prepared diagnostic archive is emitted as a share event`() = runTest(testDispatcher) {
         val logs = FakeLogManager(
             archiveResult = LogArchiveResult.Success(
@@ -287,6 +303,10 @@ class SettingsViewModelTest {
 
         override suspend fun setIncludeLocationSamples(enabled: Boolean) {
             settings.value = settings.value.copy(includeLocationSamples = enabled)
+        }
+
+        override suspend fun setIgnoreActivityRecognition(enabled: Boolean) {
+            settings.value = settings.value.copy(ignoreActivityRecognition = enabled)
         }
 
         override suspend fun getStorageInfo() = LogStorageInfo(

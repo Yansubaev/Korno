@@ -2,6 +2,7 @@ package com.ians.korno.feature.activitydetail.domain.usecase
 
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isNotNull
 import assertk.assertions.isNull
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
@@ -90,17 +91,40 @@ class RedecodeActivitySegmentsUseCaseTest {
     }
 
     @Test
-    fun `a recording without movement verdicts keeps the segments it has`() = runTest {
+    fun `a recording without any evidence keeps the segments it has`() = runTest {
+        // Стоит на месте, шагов нет, распознавание — только «неподвижно»: судить не по чему.
         val repository = FakeTrackRepository()
         repository.recognitionSamples = listOf(
             RecognitionSample(ACTIVITY_ID, 0L, mapOf(RecognizedActivity.STILL to 100)),
         )
         val stored = listOf(segment(SegmentKind.CYCLING, start = 0L, end = DURATION_MILLIS, steps = 600))
 
-        val result = useCase(repository)(activity(), points(speed = 12f), stored)
+        val result = useCase(repository)(activity(), points(speed = 0f), stored)
 
-        assertThat(result).isEqualTo(Result.Error(RedecodeActivitySegmentsUseCase.Skipped.NO_RECOGNITION))
+        assertThat(result).isEqualTo(Result.Error(RedecodeActivitySegmentsUseCase.Skipped.NO_EVIDENCE))
         assertThat(repository.replacedSegments).isNull()
+    }
+
+    @Test
+    fun `ignored recognition does not reach the decoder`() = runTest {
+        // Единственная улика записи — уверенное «в транспорте»: без неё судить не по чему,
+        // и так при любом наборе улик из скорости и шагов — точки стоят, шагов нет.
+        fun repository() = FakeTrackRepository().apply {
+            recognitionSamples = (0 until DURATION_MILLIS step 20_000L).map { at ->
+                RecognitionSample(ACTIVITY_ID, at, mapOf(RecognizedActivity.IN_VEHICLE to 90))
+            }
+        }
+        val stored = listOf(segment(SegmentKind.CYCLING, start = 0L, end = DURATION_MILLIS, steps = 600))
+
+        val ignoring = repository()
+        val ignored = useCase(ignoring)(activity(), points(speed = 0f), stored, ignoreRecognition = true)
+        val seeing = repository()
+        val seen = useCase(seeing)(activity(), points(speed = 0f), stored)
+
+        assertThat(ignored).isEqualTo(Result.Error(RedecodeActivitySegmentsUseCase.Skipped.NO_EVIDENCE))
+        assertThat(ignoring.replacedSegments).isNull()
+        assertThat(seen).isEqualTo(Result.Success(Unit))
+        assertThat(seeing.replacedSegments).isNotNull()
     }
 
     @Test

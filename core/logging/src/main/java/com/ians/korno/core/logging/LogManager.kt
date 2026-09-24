@@ -7,6 +7,12 @@ data class LogSettings(
     val enabled: Boolean = true,
     val minimumLevel: LogLevel = LogLevel.DEBUG,
     val includeLocationSamples: Boolean = false,
+    /**
+     * Декодер вида движения не видит ответов Activity Recognition, хотя подписка и
+     * `recognition_samples` продолжаются: так одну поездку можно разобрать и с
+     * распознаванием, и без (ADR 0007). От [enabled] не зависит — это не про лог.
+     */
+    val ignoreActivityRecognition: Boolean = false,
 )
 
 data class LogStorageInfo(
@@ -52,6 +58,8 @@ interface LogManager {
     suspend fun setMinimumLevel(level: LogLevel)
 
     suspend fun setIncludeLocationSamples(enabled: Boolean)
+
+    suspend fun setIgnoreActivityRecognition(enabled: Boolean)
 
     suspend fun getStorageInfo(): LogStorageInfo
 

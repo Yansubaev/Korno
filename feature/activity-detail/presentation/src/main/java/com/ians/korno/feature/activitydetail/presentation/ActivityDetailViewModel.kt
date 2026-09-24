@@ -262,7 +262,10 @@ internal class ActivityDetailViewModel(
             val outcome = if (activity == null || points == null) {
                 null
             } else {
-                withContext(Dispatchers.Default) { redecodeSegments(activity, points, segments) }
+                val ignoreRecognition = logManager.observeSettings().first().ignoreActivityRecognition
+                withContext(Dispatchers.Default) {
+                    redecodeSegments(activity, points, segments, ignoreRecognition)
+                }
             }
             local.update {
                 it.copy(
@@ -270,8 +273,8 @@ internal class ActivityDetailViewModel(
                     snackbarMessageRes = when ((outcome as? Result.Error)?.error) {
                         RedecodeActivitySegmentsUseCase.Skipped.NOT_AUTO_MODE ->
                             R.string.activity_detail_redecode_not_auto
-                        RedecodeActivitySegmentsUseCase.Skipped.NO_RECOGNITION ->
-                            R.string.activity_detail_redecode_no_recognition
+                        RedecodeActivitySegmentsUseCase.Skipped.NO_EVIDENCE ->
+                            R.string.activity_detail_redecode_no_evidence
                         null -> if (outcome == null) R.string.activity_detail_redecode_failed else null
                     },
                 )

@@ -10,6 +10,8 @@
     <string name="settings_log_level_error">Errors</string>
     <string name="settings_location_samples_title">Include GPS samples</string>
     <string name="settings_location_samples_subtitle">Contains exact coordinates; needed to replay a track. Use only while reproducing a problem</string>
+    <string name="settings_ignore_activity_recognition_title">Ignore Activity Recognition</string>
+    <string name="settings_ignore_activity_recognition_subtitle">Recognition is still recorded, but the mode decoder doesn\'t see it — for testing detection without AR</string>
     <string name="settings_share_logs_title">Share diagnostics</string>
     <plurals name="settings_share_logs_subtitle">
         <item quantity="one">%1$s in %2$d file · session %3$s</item>

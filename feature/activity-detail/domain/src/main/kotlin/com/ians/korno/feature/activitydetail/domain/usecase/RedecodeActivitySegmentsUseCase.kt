@@ -31,21 +31,28 @@ class RedecodeActivitySegmentsUseCase(
     private val modeDecoder: ActivityModeDecoder = ActivityModeDecoder(),
 ) {
     /** Почему пересчёт ничего не дал: экрану нужно объяснить бездействие, а не промолчать. */
-    enum class Skipped : Error { NOT_AUTO_MODE, NO_RECOGNITION }
+    enum class Skipped : Error { NOT_AUTO_MODE, NO_EVIDENCE }
 
+    /**
+     * [ignoreRecognition] — дебажное «игнорировать Activity Recognition»: ответы
+     * распознавания лежат в `recognition_samples`, но декодер их не видит (ADR 0007).
+     */
     suspend operator fun invoke(
         activity: Activity,
         points: List<GeoPoint>,
         segments: List<ActivitySegment>,
+        ignoreRecognition: Boolean = false,
     ): Result<Unit, Skipped> {
         val endMillis = activity.endTimeEpochMillis
         if (activity.recordingMode != RecordingMode.AUTO || endMillis == null) {
             return Result.Error(Skipped.NOT_AUTO_MODE)
         }
 
-        val recognitions = (trackRepository.getRecognitionSamples(activity.id) as? Result.Success)
-            ?.data
-            .orEmpty()
+        val recognitions = if (ignoreRecognition) {
+            emptyList()
+        } else {
+            (trackRepository.getRecognitionSamples(activity.id) as? Result.Success)?.data.orEmpty()
+        }
         val steps = (trackRepository.getStepSamples(activity.id) as? Result.Success)?.data.orEmpty()
         val decoded = modeDecoder.decode(
             ModeDecoderInput(
@@ -57,10 +64,10 @@ class RedecodeActivitySegmentsUseCase(
                 manualSegments = segments.filter(ActivitySegment::isManuallyEdited),
             ),
         )
-        // Пусто — судить не по чему: у записи нет ни одного ответа о движении (их не было
-        // вовсе или распознавание всю дорогу отвечало «не знаю»). Прежняя разметка лучше
-        // пустой, поэтому не трогаем её.
-        if (decoded.isEmpty()) return Result.Error(Skipped.NO_RECOGNITION)
+        // Пусто — у записи нет ни одной улики вида: ни движения по скорости, ни шагов, ни
+        // ответа распознавания о движении, ни ручного сегмента (ADR 0007). Прежняя разметка
+        // лучше пустой, поэтому не трогаем её.
+        if (decoded.isEmpty()) return Result.Error(Skipped.NO_EVIDENCE)
 
         val withSteps = decoded.map { segment ->
             val start = segment.startTimeEpochMillis
