@@ -4,6 +4,7 @@ import assertk.assertThat
 import assertk.assertions.containsExactly
 import assertk.assertions.isBetween
 import assertk.assertions.isEmpty
+import assertk.assertions.isEqualTo
 import assertk.assertions.isIn
 import assertk.assertions.isNotEmpty
 import assertk.assertions.isTrue
@@ -196,6 +197,67 @@ class ActivityModeDecoderTest {
         silent.forEach { assertThat(it).isIn(SegmentKind.CYCLING, SegmentKind.VEHICLE) }
     }
 
+    @Test
+    fun `the live verdict is the kind of the last epoch with evidence, a stop at the tail does not change it`() {
+        // Стоянка без шагов и ответов — эпохи без улик. Ничья в них отдала бы вид ON_FOOT.
+        val track = Track().stepSensor()
+            .move(seconds = 300, speed = 1.3, RecognizedActivity.WALKING to 90, RecognizedActivity.ON_FOOT to 90, cadence = 100)
+            .move(seconds = 120, speed = 0.0)
+            .move(seconds = 600, speed = 13.0)
+            .move(seconds = 180, speed = 0.0)
+
+        val verdict = track.liveVerdict()
+
+        assertThat(verdict?.kind).isEqualTo(SegmentKind.VEHICLE)
+        // Граница — где путь сменил вид: на посадке, а не на последней эпохе.
+        assertThat(verdict!!.sinceMillis).isBetween(300_000L, 420_000L)
+    }
+
+    @Test
+    fun `there is no live verdict before the first evidence`() {
+        val track = Track().stepSensor().move(seconds = 120, speed = 0.0)
+
+        assertThat(track.liveVerdict()).isEqualTo(null)
+    }
+
+    @Test
+    fun `a manual correction outlasts a traffic light`() {
+        // Велосипед в городе без шагов похож на транспорт; человек поправил на велосипед.
+        val track = Track()
+            .move(seconds = 300, speed = 13.0, RecognizedActivity.IN_VEHICLE to 90)
+            .move(seconds = 40, speed = 0.0)
+            .move(seconds = 300, speed = 13.0, RecognizedActivity.IN_VEHICLE to 90)
+
+        assertThat(track.liveVerdict(manualSegments = listOf(correction(SegmentKind.CYCLING)))?.kind)
+            .isEqualTo(SegmentKind.CYCLING)
+    }
+
+    @Test
+    fun `a two minute stop ends a manual correction`() {
+        val track = Track()
+            .move(seconds = 300, speed = 13.0, RecognizedActivity.IN_VEHICLE to 90)
+            .move(seconds = 150, speed = 0.0)
+            .move(seconds = 300, speed = 13.0, RecognizedActivity.IN_VEHICLE to 90)
+
+        assertThat(track.liveVerdict(manualSegments = listOf(correction(SegmentKind.CYCLING)))?.kind)
+            .isEqualTo(SegmentKind.VEHICLE)
+    }
+
+    @Test
+    fun `a manual pause ends a manual correction`() {
+        val track = Track()
+            .move(seconds = 300, speed = 13.0, RecognizedActivity.IN_VEHICLE to 90)
+            .move(seconds = 20, speed = 0.0, status = RecordingStatus.MANUAL_PAUSE)
+            .move(seconds = 300, speed = 13.0, RecognizedActivity.IN_VEHICLE to 90)
+
+        assertThat(track.liveVerdict(manualSegments = listOf(correction(SegmentKind.CYCLING)))?.kind)
+            .isEqualTo(SegmentKind.VEHICLE)
+    }
+
+    /** Ручная поправка, идущая сейчас: сегмент ещё открыт. */
+    private fun correction(kind: SegmentKind) =
+        ActivitySegment(kind = kind, startTimeEpochMillis = 0L, isManuallyEdited = true)
+
     private fun List<ActivitySegment>.kinds() = map(ActivitySegment::kind)
 
     private companion object {
@@ -225,6 +287,7 @@ class ActivityModeDecoderTest {
             cadence: Int? = null,
             /** За каждым вердиктом в ту же секунду приходит `STILL` — как на остановке. */
             shadowedByStop: Boolean = false,
+            status: RecordingStatus = RecordingStatus.RECORDING,
         ): Track {
             val end = now + seconds * 1_000L
             var nextRecognition = now
@@ -245,7 +308,7 @@ class ActivityModeDecoderTest {
                     longitude = 37.0,
                     timestampEpochMillis = now,
                     speedMetersPerSecond = speed.toFloat(),
-                    recordingStatus = RecordingStatus.RECORDING,
+                    recordingStatus = status,
                 )
                 if (cadence != null) {
                     steps += DetectorSignal.StepCounter(now, stepCount.toLong())
@@ -269,15 +332,18 @@ class ActivityModeDecoderTest {
             return this
         }
 
-        fun decode(manualSegments: List<ActivitySegment> = emptyList()) = decoder.decode(
-            ModeDecoderInput(
-                startMillis = 0L,
-                endMillis = now,
-                points = points,
-                recognitions = recognitions,
-                steps = steps,
-                manualSegments = manualSegments,
-            ),
+        fun decode(manualSegments: List<ActivitySegment> = emptyList()) = decoder.decode(input(manualSegments))
+
+        fun liveVerdict(manualSegments: List<ActivitySegment> = emptyList()) =
+            decoder.liveVerdict(input(manualSegments))
+
+        private fun input(manualSegments: List<ActivitySegment>) = ModeDecoderInput(
+            startMillis = 0L,
+            endMillis = now,
+            points = points,
+            recognitions = recognitions,
+            steps = steps,
+            manualSegments = manualSegments,
         )
     }
 }

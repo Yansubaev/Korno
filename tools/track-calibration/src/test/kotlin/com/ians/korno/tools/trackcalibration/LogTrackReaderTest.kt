@@ -151,7 +151,7 @@ class LogTrackReaderTest {
     }
 
     @Test
-    fun `detector signals are read from recognition, step and pause records`() {
+    fun `detector signals are read from step and pause records, recognition goes to the decoder`() {
         val activity = readSingleActivity(
             sessionStarted(),
             """{"timestampUtc":"2025-09-05T06:00:10.000Z","message":"Activity recognized","activityId":"7",""" +
@@ -162,8 +162,8 @@ class LogTrackReaderTest {
             """{"timestampUtc":"2025-09-05T06:00:13.000Z","message":"Tracking resumed manually","activityId":"7"}""",
         )
 
+        assertThat(activity.recognitions.single().confidences).isEqualTo(mapOf(RecognizedActivity.ON_BICYCLE to 72))
         assertThat(activity.detectorSignals).containsExactly(
-            DetectorSignal.Recognized(1_757_052_010_000L, RecognizedActivity.ON_BICYCLE, 72),
             DetectorSignal.StepCounter(1_757_052_011_000L, 4_200L),
             DetectorSignal.Paused(1_757_052_012_000L),
             DetectorSignal.Resumed(1_757_052_013_000L),

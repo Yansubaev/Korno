@@ -4,6 +4,7 @@ import assertk.assertThat
 import assertk.assertions.contains
 import assertk.assertions.isBetween
 import assertk.assertions.hasSize
+import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isLessThan
@@ -684,60 +685,50 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
-    fun `auto mode names the first segment, then cuts at the first sign and splits the steps`() = runTest {
-        // Слияние коротких выключено: точек в тесте нет, и оба сегмента иначе были бы «короткими».
+    fun `auto mode names the first segment, then cuts where the decoder switched and splits the steps`() = runTest {
         val coordinator = autoCoordinator(SegmentDetectorConfig(minSegmentDurationMillis = 0L, minSegmentDistanceMeters = 0.0))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.beginSession(SegmentKind.RUNNING, autoMode = true)
         val startedAt = clockMillis
 
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE"))
-        coordinator.applyStepCounter(1_000L)
-        clockMillis += 40_000L
-        coordinator.applyStepCounter(1_010L)
+        // На велосипеде шагомер тоже насчитывает — немного.
+        coordinator.move(seconds = 240, speed = 5.5f, activity = "ON_BICYCLE", cadence = 20)
         // Первое подтверждение не режет запись: весь открытый сегмент оказывается велосипедом.
-        assertThat(repository.savedOpenSegments.single()).isEqualTo(
+        assertThat(repository.savedOpenSegments.first()).isEqualTo(
             ActivitySegment(activityId = 1L, kind = SegmentKind.CYCLING, startTimeEpochMillis = startedAt) to null,
         )
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
 
-        clockMillis += 20_000L
-        coordinator.applyStepCounter(1_030L)
-        clockMillis += 10_000L
         val walkingSince = clockMillis
-        coordinator.applyActivityRecognition(recognized("WALKING"))
-        clockMillis += 10_000L
-        coordinator.applyStepCounter(1_050L)
-        clockMillis += 30_000L
-        coordinator.applyStepCounter(1_090L)
+        val stepsBeforeWalk = coordinator.session.value.stepCount!!
+        coordinator.move(seconds = 240, speed = 1.4f, activity = "WALKING", cadence = 110)
 
+        // Граница — где путь декодера сменил вид, а не где смену подтвердили.
         val (closed, opened) = repository.savedOpenSegments.last()
         assertThat(closed.kind).isEqualTo(SegmentKind.CYCLING)
-        assertThat(closed.endTimeEpochMillis).isEqualTo(walkingSince)
-        assertThat(closed.stepCount).isEqualTo(30)
+        assertThat(closed.endTimeEpochMillis!!).isBetween(walkingSince - 10_000L, walkingSince + 10_000L)
+        assertThat(closed.stepCount!!).isBetween(stepsBeforeWalk - 5, stepsBeforeWalk + 10)
         assertThat(opened?.kind).isEqualTo(SegmentKind.ON_FOOT)
-        assertThat(opened?.startTimeEpochMillis).isEqualTo(walkingSince)
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.ON_FOOT)
 
-        // Пешком ещё минуту: одного вердикта на полминуты декодеру мало, чтобы сменить вид.
-        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 90))
-        clockMillis += 30_000L
-        coordinator.applyStepCounter(1_120L)
-        coordinator.applyActivityRecognition(recognized("WALKING"))
-        clockMillis += 30_000L
-        coordinator.applyStepCounter(1_150L)
         coordinator.endSession()
 
         val segments = repository.replacedSegments!!
         assertThat(segments.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING, SegmentKind.ON_FOOT))
-        // Велосипедный вердикт старше минуты уже ничего не говорит: граница — где-то в этом зазоре.
-        assertThat(segments.last().startTimeEpochMillis).isBetween(walkingSince - 10_000L, walkingSince)
-        assertThat(segments.last().endTimeEpochMillis).isEqualTo(clockMillis)
-        assertThat(segments.last().stepCount).isEqualTo(120)
-        val activity = repository.updatedActivities.single()
-        assertThat(activity.recordingMode).isEqualTo(RecordingMode.AUTO)
         // В сводку — только шаги на ногах.
-        assertThat(activity.stepCount).isEqualTo(120)
+        assertThat(repository.updatedActivities.single().stepCount).isEqualTo(segments.last().stepCount)
+    }
+
+    @Test
+    fun `without recognition the live kind still changes`() = runTest {
+        beginWarmedSession(autoMode = true)
+        // Шагомер у записи есть, но в транспорте молчит.
+        coordinator.applyStepCounter(1_000L)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.UNKNOWN)
+
+        coordinator.move(seconds = 180, speed = 9.7f)
+
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.VEHICLE)
     }
 
     @Test
@@ -745,114 +736,82 @@ class TrackingSessionCoordinatorTest {
         val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.beginSession(SegmentKind.CYCLING, autoMode = true)
-
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
+        coordinator.move(seconds = 120, speed = 5.5f, activity = "ON_BICYCLE")
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
 
-        var sampleTimestamp = clockMillis
-        repeat(3) {
-            coordinator.applySample(
-                sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
-            )
-            sampleTimestamp += 5_000L
-        }
+        coordinator.move(seconds = 20, speed = 0f)
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
         assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
 
-        clockMillis += 15_000L
-        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        // Стоит, а распознавание уже говорит «пешком»: декодеру нужно несколько эпох, чтобы
+        // перевесить штраф смены вида, и ещё окно — чтобы детектор её подтвердил.
+        var waitedSeconds = 0
+        while (!coordinator.autoPauseMovementHint.value && waitedSeconds < 120) {
+            coordinator.move(seconds = 4, speed = 0f, activity = "WALKING")
+            waitedSeconds += 4
+        }
         assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+
         // 1.2 м/с недостаточно для велосипедного порога 1.5, но это уверенное движение
         // для пешего кандидата с порогом 0.9. Ждать подтверждения вида сорок секунд нельзя.
-        coordinator.applySample(
-            sample(
-                latitude = 0.000_01,
-                longitude = 0.0,
-                timestamp = sampleTimestamp,
-                speedMetersPerSecond = 1.2f,
-                speedAccuracyMetersPerSecond = 0.1f,
-                accuracyMeters = 5f,
-            ),
-        )
+        coordinator.move(seconds = 4, speed = 1.2f)
 
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
         assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
 
-        coordinator.applySample(
-            sample(
-                latitude = 0.000_02,
-                longitude = 0.0,
-                timestamp = sampleTimestamp + 5_000L,
-                speedMetersPerSecond = 1.2f,
-                speedAccuracyMetersPerSecond = 0.1f,
-                accuracyMeters = 5f,
-            ),
-        )
+        coordinator.move(seconds = 4, speed = 1.2f)
 
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.RECORDING)
     }
 
     @Test
-    fun `a confirmed movement hint returns to battery saving after a stationary sample`() = runTest {
+    fun `a movement candidate confirmed while standing returns to battery saving`() = runTest {
         val coordinator = autoCoordinator(SegmentDetectorConfig(confirmWindowMillis = 40_000L))
         coordinator.applySample(sample(latitude = 0.0, longitude = 0.0, timestamp = 0L, accuracyMeters = 5f))
         coordinator.beginSession(SegmentKind.CYCLING, autoMode = true)
+        coordinator.move(seconds = 120, speed = 5.5f, activity = "ON_BICYCLE")
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
 
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 100))
-
-        var sampleTimestamp = clockMillis
-        repeat(3) {
-            coordinator.applySample(
-                sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
-            )
-            sampleTimestamp += 5_000L
-        }
+        coordinator.move(seconds = 20, speed = 0f)
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
+        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
 
-        clockMillis += 15_000L
-        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
+        // Стоит, а распознавание уже говорит «пешком»: декодеру нужно несколько эпох, чтобы
+        // перевесить штраф смены вида, и ещё окно — чтобы детектор её подтвердил.
+        var waitedSeconds = 0
+        while (!coordinator.autoPauseMovementHint.value && waitedSeconds < 120) {
+            coordinator.move(seconds = 4, speed = 0f, activity = "WALKING")
+            waitedSeconds += 4
+        }
         assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 96))
-        assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(true)
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
 
-        coordinator.applySample(
-            sample(latitude = 0.0, longitude = 0.0, timestamp = sampleTimestamp, accuracyMeters = 5f),
-        )
+        var confirmWaitSeconds = 0
+        while (coordinator.session.value.segmentKind != SegmentKind.ON_FOOT && confirmWaitSeconds < 120) {
+            coordinator.move(seconds = 4, speed = 0f, activity = "WALKING")
+            confirmWaitSeconds += 4
+        }
 
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.ON_FOOT)
         assertThat(coordinator.session.value.status).isEqualTo(RecordingStatus.AUTO_PAUSE)
         assertThat(coordinator.autoPauseMovementHint.value).isEqualTo(false)
     }
 
     @Test
-    fun `on save a vehicle verdict amid a ride without stops is decoded back into cycling`() = runTest {
+    fun `a vehicle verdict amid a ride without stops is cycling both live and on save`() = runTest {
         beginWarmedSession(autoMode = true)
-        var latitude = 0.0
-        suspend fun ride(seconds: Int, activity: String) {
-            repeat(seconds / 4) { index ->
-                if (index % 5 == 0) coordinator.applyActivityRecognition(recognized(activity, confidence = 90))
-                coordinator.applySample(
-                    sample(latitude, 0.0, timestamp = clockMillis, speedMetersPerSecond = 4.5f, accuracyMeters = 5f),
-                )
-                latitude += 4.5 * 4 / 111_000.0
-                clockMillis += 4_000L
-            }
-        }
 
-        ride(seconds = 300, activity = "ON_BICYCLE")
-        ride(seconds = 120, activity = "IN_VEHICLE")
-        ride(seconds = 300, activity = "ON_BICYCLE")
-        // Живой детектор ошибку распознавания принял: сегмент «машины» записан.
-        assertThat(repository.savedOpenSegments.mapNotNull { it.second?.kind }).contains(SegmentKind.VEHICLE)
+        coordinator.move(seconds = 300, speed = 4.5f, activity = "ON_BICYCLE")
+        coordinator.move(seconds = 120, speed = 4.5f, activity = "IN_VEHICLE")
+        coordinator.move(seconds = 300, speed = 4.5f, activity = "ON_BICYCLE")
+        // Пересесть в машину и обратно без остановки нельзя. Живой вид решает тот же
+        // декодер, поэтому ошибку распознавания не принимает и он.
+        assertThat(repository.savedOpenSegments.mapNotNull { it.second?.kind }).isEmpty()
 
         coordinator.endSession()
 
-        // Пересесть в машину и обратно без остановки нельзя — при сохранении это велосипед.
         assertThat(repository.replacedSegments!!.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING))
         assertThat(repository.recognitionSamples.size).isEqualTo(36)
     }
@@ -910,24 +869,6 @@ class TrackingSessionCoordinatorTest {
         override suspend fun deleteActivityLogs(activityId: Long) = true
     }
 
-    @Test
-    fun `short segments are merged on save and the type comes from the dominant kind`() = runTest {
-        beginWarmedSession(autoMode = true)
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE"))
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("ON_BICYCLE", confidence = 90))
-        clockMillis += 60_000L
-        coordinator.applyActivityRecognition(recognized("WALKING"))
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 90))
-        assertThat(repository.savedOpenSegments.last().second?.kind).isEqualTo(SegmentKind.ON_FOOT)
-
-        // Пешком — 40 секунд без единого метра: сегмент поглощается велосипедом.
-        coordinator.endSession()
-
-        assertThat(repository.replacedSegments!!.map { it.kind }).isEqualTo(listOf(SegmentKind.CYCLING))
-    }
-
     private fun autoCoordinator(config: SegmentDetectorConfig) = TrackingSessionCoordinator(
         trackRepository = repository,
         trackProcessor = TrackProcessor(),
@@ -937,19 +878,34 @@ class TrackingSessionCoordinatorTest {
     )
 
     @Test
-    fun `a manual kind names the segment right away and holds off the detector`() = runTest {
+    fun `a manual kind names the segment right away`() = runTest {
         beginWarmedSession(autoMode = true)
 
         coordinator.changeSegmentKind(SegmentKind.CYCLING)
-        coordinator.applyActivityRecognition(recognized("WALKING"))
-        clockMillis += 60_000L
-        coordinator.applyActivityRecognition(recognized("WALKING", confidence = 90))
 
         val (named, next) = repository.savedOpenSegments.single()
         assertThat(named.kind).isEqualTo(SegmentKind.CYCLING)
         assertThat(named.isManuallyEdited).isEqualTo(true)
         assertThat(next).isNull()
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+    }
+
+    @Test
+    fun `a manual kind holds against the decoder until a logical pause`() = runTest {
+        beginWarmedSession(autoMode = true)
+        coordinator.move(seconds = 60, speed = 13.0f, activity = "IN_VEHICLE")
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.VEHICLE)
+
+        // Велосипед в городе без шагов похож на транспорт; человек поправил вид на ходу.
+        coordinator.changeSegmentKind(SegmentKind.CYCLING)
+        coordinator.move(seconds = 180, speed = 13.0f, activity = "IN_VEHICLE")
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.CYCLING)
+
+        // Остановка дольше двух минут — логическая пауза: дальше декодер решает сам.
+        coordinator.move(seconds = 150, speed = 0f)
+        coordinator.move(seconds = 180, speed = 13.0f, activity = "IN_VEHICLE")
+
+        assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.VEHICLE)
     }
 
     @Test
@@ -987,13 +943,10 @@ class TrackingSessionCoordinatorTest {
         coordinator.recoverActiveSessionIfNeeded()
         assertThat(coordinator.session.value.stepCount).isEqualTo(300)
 
-        // Граница ставится задним числом, и шаги до неё берутся из восстановленной дорожки.
-        coordinator.applyActivityRecognition(recognized("IN_VEHICLE"))
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("IN_VEHICLE", confidence = 90))
+        coordinator.endSession()
 
-        val (closed, _) = repository.savedOpenSegments.single()
-        assertThat(closed.stepCount).isEqualTo(300)
+        // Шаги сегмента считаются по дорожке шагомера: без неё было бы ноль.
+        assertThat(repository.replacedSegments!!.sumOf { it.stepCount ?: 0 }).isEqualTo(300)
     }
 
     @Test
@@ -1012,13 +965,45 @@ class TrackingSessionCoordinatorTest {
         assertThat(coordinator.session.value.isAutoMode).isEqualTo(true)
         assertThat(coordinator.session.value.segmentKind).isEqualTo(SegmentKind.ON_FOOT)
 
-        coordinator.applyActivityRecognition(recognized("IN_VEHICLE"))
-        clockMillis += 40_000L
-        coordinator.applyActivityRecognition(recognized("IN_VEHICLE", confidence = 90))
+        coordinator.move(seconds = 120, speed = 13.0f, activity = "IN_VEHICLE")
 
         val (closed, opened) = repository.savedOpenSegments.single()
         assertThat(closed.kind).isEqualTo(SegmentKind.ON_FOOT)
         assertThat(opened?.kind).isEqualTo(SegmentKind.VEHICLE)
+    }
+
+    private var latitude = 0.0
+    private var stepCounter = 1_000L
+
+    /**
+     * Движение шагами по 4 с: точка с доплером, ответ распознавания в начале и раз в 20 с,
+     * показание шагомера с каденсом [cadence]. Живой вид пересчитывается с приходом точки.
+     */
+    private suspend fun TrackingSessionCoordinator.move(
+        seconds: Int,
+        speed: Float,
+        activity: String? = null,
+        cadence: Int? = null,
+    ) {
+        repeat(seconds / 4) { index ->
+            if (activity != null && index % 5 == 0) applyActivityRecognition(recognized(activity, confidence = 90))
+            if (cadence != null) {
+                applyStepCounter(stepCounter)
+                stepCounter += cadence * 4L / 60
+            }
+            applySample(
+                sample(
+                    latitude = latitude,
+                    longitude = 0.0,
+                    timestamp = clockMillis,
+                    speedMetersPerSecond = speed,
+                    speedAccuracyMetersPerSecond = 0.3f,
+                    accuracyMeters = 5f,
+                ),
+            )
+            latitude += speed * 4 / 111_000.0
+            clockMillis += 4_000L
+        }
     }
 
     private fun recognized(activity: String, confidence: Int = 80) =

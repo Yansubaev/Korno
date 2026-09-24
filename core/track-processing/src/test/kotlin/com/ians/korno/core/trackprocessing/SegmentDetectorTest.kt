@@ -6,7 +6,6 @@ import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isNull
 import com.ians.korno.core.domain.model.ActivitySegment
-import com.ians.korno.core.domain.model.RecognizedActivity
 import com.ians.korno.core.domain.model.SegmentKind
 import org.junit.jupiter.api.Test
 
@@ -15,23 +14,35 @@ class SegmentDetectorTest {
     private val detector = SegmentDetector(config)
 
     @Test
-    fun `a verdict is confirmed only after holding the window, with the boundary at its first sign`() {
+    fun `a verdict is confirmed only after holding the window, with the boundary from the decoder`() {
         val run = Run()
-        run.feed(recognized(10_000L, RecognizedActivity.ON_BICYCLE))
-        run.feed(speed(35_000L, 5.0))
+        run.feed(verdict(10_000L, SegmentKind.CYCLING, since = 0L))
+        run.feed(verdict(35_000L, SegmentKind.CYCLING, since = 0L))
         assertThat(run.state.currentKind).isNull()
 
-        run.feed(speed(40_000L, 5.0))
+        run.feed(verdict(40_000L, SegmentKind.CYCLING, since = 0L))
 
-        assertThat(run.confirmations()).containsExactly(confirmed(null, SegmentKind.CYCLING, boundary = 10_000L))
+        assertThat(run.confirmations()).containsExactly(
+            DetectorEvent.SegmentConfirmed(40_000L, null, SegmentKind.CYCLING, boundaryMillis = 0L, isManual = false),
+        )
+    }
+
+    @Test
+    fun `the boundary follows the latest verdict of the candidate`() {
+        // Декодер видит всю запись и с новыми эпохами может передвинуть границу.
+        val run = Run(SegmentDetectorState(currentKind = SegmentKind.ON_FOOT))
+        run.feed(verdict(0L, SegmentKind.VEHICLE, since = -5_000L))
+        run.feed(verdict(30_000L, SegmentKind.VEHICLE, since = -20_000L))
+
+        assertThat(run.confirmations().single().boundaryMillis).isEqualTo(-20_000L)
     }
 
     @Test
     fun `a verdict that flips back before the window does not break the segment`() {
         val run = Run(SegmentDetectorState(currentKind = SegmentKind.CYCLING))
-        run.feed(recognized(0L, RecognizedActivity.WALKING))
-        run.feed(recognized(20_000L, RecognizedActivity.ON_BICYCLE))
-        run.feed(speed(60_000L, 5.0))
+        run.feed(verdict(0L, SegmentKind.ON_FOOT, since = 0L))
+        run.feed(verdict(20_000L, SegmentKind.CYCLING, since = -60_000L))
+        run.feed(verdict(60_000L, SegmentKind.CYCLING, since = -60_000L))
 
         assertThat(run.confirmations()).isEmpty()
         assertThat(run.events.filterIsInstance<DetectorEvent.CandidateDropped>().single().kind)
@@ -39,86 +50,29 @@ class SegmentDetectorTest {
     }
 
     @Test
-    fun `still neither breaks the segment nor resets the window`() {
-        val run = Run(SegmentDetectorState(currentKind = SegmentKind.ON_FOOT))
-        run.feed(recognized(0L, RecognizedActivity.IN_VEHICLE))
-        run.feed(recognized(10_000L, RecognizedActivity.STILL))
-        run.feed(speed(30_000L, 0.0))
-
-        assertThat(run.confirmations())
-            .containsExactly(confirmed(SegmentKind.ON_FOOT, SegmentKind.VEHICLE, boundary = 0L))
-    }
-
-    @Test
-    fun `a low confidence verdict is rejected`() {
-        val run = Run()
-        run.feed(recognized(0L, RecognizedActivity.ON_BICYCLE, confidence = 20))
-        run.feed(speed(60_000L, 5.0))
-
-        assertThat(run.confirmations()).isEmpty()
-        assertThat(run.rejections()).containsExactly(RejectionReason.LOW_CONFIDENCE)
-    }
-
-    @Test
-    fun `an on foot verdict at vehicle speed is rejected`() {
-        val run = Run(SegmentDetectorState(currentKind = SegmentKind.VEHICLE))
-        run.feed(speed(0L, 15.0))
-        run.feed(recognized(1_000L, RecognizedActivity.WALKING))
-        run.feed(speed(60_000L, 15.0))
-
-        assertThat(run.confirmations()).isEmpty()
-        assertThat(run.rejections()).containsExactly(RejectionReason.SPEED)
-    }
-
-    @Test
-    fun `step cadence tells running from walking under the on foot umbrella`() {
-        val run = Run()
-        run.feed(steps(0L, 1_000L))
-        run.feed(steps(10_000L, 1_027L))
-        run.feed(recognized(10_000L, RecognizedActivity.ON_FOOT))
-        run.feed(steps(20_000L, 1_055L))
-        run.feed(steps(40_000L, 1_110L))
-
-        // 165 шагов в минуту — бег, хотя распознавание сказало только «пешком».
-        assertThat(run.confirmations().single().to).isEqualTo(SegmentKind.RUNNING)
-    }
-
-    @Test
     fun `manual pause restarts the window and verdicts during it are ignored`() {
         val run = Run(SegmentDetectorState(currentKind = SegmentKind.ON_FOOT))
-        run.feed(recognized(0L, RecognizedActivity.ON_BICYCLE))
+        run.feed(verdict(0L, SegmentKind.CYCLING, since = 0L))
         run.feed(DetectorSignal.Paused(20_000L))
-        run.feed(recognized(25_000L, RecognizedActivity.IN_VEHICLE))
+        run.feed(verdict(60_000L, SegmentKind.CYCLING, since = 0L))
         run.feed(DetectorSignal.Resumed(100_000L))
-        run.feed(speed(110_000L, 5.0))
+        run.feed(verdict(110_000L, SegmentKind.CYCLING, since = 0L))
         assertThat(run.confirmations()).isEmpty()
-        assertThat(run.rejections()).containsExactly(RejectionReason.PAUSED)
 
-        run.feed(recognized(120_000L, RecognizedActivity.ON_BICYCLE))
-        run.feed(speed(150_000L, 5.0))
+        run.feed(verdict(150_000L, SegmentKind.CYCLING, since = 0L))
 
-        assertThat(run.confirmations())
-            .containsExactly(confirmed(SegmentKind.ON_FOOT, SegmentKind.CYCLING, boundary = 120_000L))
+        assertThat(run.confirmations().single().to).isEqualTo(SegmentKind.CYCLING)
     }
 
     @Test
-    fun `a manual correction sets the boundary now and holds off contradicting verdicts`() {
+    fun `a manual correction sets the boundary now`() {
         val run = Run(SegmentDetectorState(currentKind = SegmentKind.ON_FOOT))
-        run.feed(DetectorSignal.ManualKind(0L, SegmentKind.CYCLING))
-        run.feed(recognized(1_000L, RecognizedActivity.WALKING))
-        run.feed(speed(100_000L, 1.0))
-        assertThat(run.state.currentKind).isEqualTo(SegmentKind.CYCLING)
-        assertThat(run.rejections()).containsExactly(RejectionReason.MANUAL_HOLD)
+        run.feed(verdict(0L, SegmentKind.VEHICLE, since = 0L))
+        run.feed(DetectorSignal.ManualKind(10_000L, SegmentKind.CYCLING))
 
-        // Удержание кончилось: вердикт снова в силе, но окно отсчитывается заново.
-        run.feed(speed(125_000L, 1.0))
-        run.feed(speed(150_000L, 1.0))
-        assertThat(run.state.currentKind).isEqualTo(SegmentKind.CYCLING)
-        run.feed(speed(155_000L, 1.0))
-
+        assertThat(run.state).isEqualTo(SegmentDetectorState(currentKind = SegmentKind.CYCLING))
         assertThat(run.confirmations()).containsExactly(
-            DetectorEvent.SegmentConfirmed(0L, SegmentKind.ON_FOOT, SegmentKind.CYCLING, 0L, isManual = true),
-            confirmed(SegmentKind.CYCLING, SegmentKind.ON_FOOT, boundary = 125_000L),
+            DetectorEvent.SegmentConfirmed(10_000L, SegmentKind.ON_FOOT, SegmentKind.CYCLING, 10_000L, isManual = true),
         )
     }
 
@@ -158,20 +112,9 @@ class SegmentDetectorTest {
         }
 
         fun confirmations() = events.filterIsInstance<DetectorEvent.SegmentConfirmed>()
-
-        fun rejections() = events.filterIsInstance<DetectorEvent.VerdictRejected>().map { it.reason }
     }
 
-    private fun recognized(at: Long, activity: RecognizedActivity, confidence: Int = 80) =
-        DetectorSignal.Recognized(at, activity, confidence)
-
-    private fun speed(at: Long, metersPerSecond: Double) = DetectorSignal.Speed(at, metersPerSecond)
-
-    private fun steps(at: Long, counter: Long) = DetectorSignal.StepCounter(at, counter)
-
-    /** Время подтверждения здесь не проверяется — только что и откуда подтверждено. */
-    private fun confirmed(from: SegmentKind?, to: SegmentKind, boundary: Long) =
-        DetectorEvent.SegmentConfirmed(boundary + config.confirmWindowMillis, from, to, boundary, isManual = false)
+    private fun verdict(at: Long, kind: SegmentKind, since: Long) = DetectorSignal.Verdict(at, kind, since)
 
     private fun segment(kind: SegmentKind, start: Long, end: Long, distance: Double, steps: Int? = null) =
         ActivitySegment(

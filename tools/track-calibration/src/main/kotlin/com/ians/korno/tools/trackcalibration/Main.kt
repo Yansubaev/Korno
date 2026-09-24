@@ -326,30 +326,29 @@ private fun printSweeps(track: LoadedTrack) {
 }
 
 /**
- * Сегменты по виду движения: сводка при текущих порогах детектора и перебор порогов.
- * Решения детектора выводятся целиком — именно по ним видно, почему граница встала там.
+ * Сегменты по виду движения: живой вид (повтор онлайн-цикла приложения) и итоговая
+ * разметка декодера, затем перебор порогов. Решения детектора выводятся целиком — именно
+ * по ним видно, почему граница встала там.
  */
 private fun printSegments(track: LoadedTrack, sweep: Boolean) {
     val input = segmentInput(track.points, track.detectorSignals, track.recognitions) ?: return
     val config = SegmentDetectorConfig()
-    val run = runSegmentDetector(input, config, track.sensitivity)
+    val run = runLiveDetector(input, config, sensitivity = track.sensitivity)
 
     println()
     println("СЕГМЕНТЫ — ${track.name}".title())
     println(
         "  вердиктов распознавания: %d, показаний шагомера: %d".format(
             Locale.US,
-            input.signals.count { it is DetectorSignal.Recognized },
+            input.recognitions.size,
             input.signals.count { it is DetectorSignal.StepCounter },
         ),
     )
     println()
-    println("  решения детектора:")
-    run.events.filterNot { it is DetectorEvent.VerdictRejected }.forEach { event ->
+    println("  живой вид, решения детектора:")
+    run.events.forEach { event ->
         println("    %9s  %s".format(Locale.US, formatDuration(event.timestampMillis - input.startMillis), event.describe(input)))
     }
-    val rejections = run.events.filterIsInstance<DetectorEvent.VerdictRejected>().groupingBy { it.reason }.eachCount()
-    if (rejections.isNotEmpty()) println("    отклонено: ${rejections.entries.joinToString { "${it.key} ${it.value}" }}")
 
     println()
     println("  до слияния коротких:")
@@ -393,7 +392,7 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
         println("  ${detectorSweep.name}  (сейчас ${"%.2f".format(Locale.US, current)})")
         println("  %10s %8s %8s  %s".format(Locale.US, "значение", "сегм.", "слито", "по видам, км"))
         detectorSweep.values.forEach { value ->
-            val swept = runSegmentDetector(input, detectorSweep.apply(config, value), track.sensitivity)
+            val swept = runLiveDetector(input, detectorSweep.apply(config, value), sensitivity = track.sensitivity)
             val marker = if (kotlin.math.abs(value - current) < 1e-6) "*" else " "
             println(
                 "  %9.2f%s %8d %8d  %s".format(
@@ -411,29 +410,30 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
 
 /**
  * Доля эталонного времени, где итоговая разметка совпала с метками, — по записи и в сумме:
- * декодер как есть и декодер без Activity Recognition (`ADR 0007`) на той же записи.
- * Колонку «живой вид» добавит онлайн-этап (`docs/auto-activity-segments.md`).
+ * декодер как есть, декодер без Activity Recognition (`ADR 0007`) на той же записи и
+ * живой вид — то, что человек видел на экране записи, до слияния коротких.
  */
 private fun printGroundTruth(tracks: List<LoadedTrack>) {
     val rows = tracks.filter { it.groundTruthMarks.isNotEmpty() }.mapNotNull { track ->
         val input = segmentInput(track.points, track.detectorSignals, track.recognitions) ?: return@mapNotNull null
-        fun match(input: SegmentInput) = groundTruthMatch(
-            track.groundTruthMarks,
-            runModeDecoder(input, ModeDecoderConfig(), track.sensitivity).merged,
-            input.signals,
-            input.endMillis,
+        fun match(segments: List<ActivitySegment>) =
+            groundTruthMatch(track.groundTruthMarks, segments, input.signals, input.endMillis)
+        fun decoded(input: SegmentInput) = runModeDecoder(input, ModeDecoderConfig(), track.sensitivity).merged
+        track.name to listOf(
+            match(decoded(input)),
+            match(decoded(input.withoutRecognition())),
+            match(runLiveDetector(input, SegmentDetectorConfig(), sensitivity = track.sensitivity).detected),
         )
-        track.name to listOf(match(input), match(input.withoutRecognition()))
     }
     if (rows.isEmpty()) return
 
     println()
     println("ЭТАЛОННАЯ РАЗМЕТКА — доля времени, где вид совпал с метками".title())
-    println("  %-40s %9s %8s %8s".format(Locale.US, "запись", "эталон", "с AR", "без AR"))
+    println("  %-40s %9s %8s %8s %8s".format(Locale.US, "запись", "эталон", "с AR", "без AR", "живой"))
     val total = "в сумме" to rows.map { it.second }.reduce { sum, row -> sum.zip(row, GroundTruthMatch::plus) }
     (rows + total).forEach { (name, matches) ->
         println(
-            "  %-40s %9s %8s %8s".format(
+            "  %-40s %9s %8s %8s %8s".format(
                 Locale.US,
                 name.takeLast(40),
                 formatDuration(matches.first().referenceMillis),
@@ -472,7 +472,6 @@ private fun DetectorEvent.describe(input: SegmentInput): String = when (this) {
     is DetectorEvent.CandidateDropped -> "кандидат $kind не удержался"
     is DetectorEvent.SegmentConfirmed ->
         "подтверждено ${from ?: "—"} → $to, граница ${formatDuration(boundaryMillis - input.startMillis)}"
-    is DetectorEvent.VerdictRejected -> "отклонён $activity ($confidencePercent%): $reason"
 }
 
 private fun formatDuration(millis: Long): String {

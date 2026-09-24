@@ -2,28 +2,16 @@ package com.ians.korno.core.trackprocessing
 
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
-import com.ians.korno.core.domain.model.RecognizedActivity
 import com.ians.korno.core.domain.model.SegmentKind
 
 /**
- * Все пороги детектора сегментов в одном месте: подбираются прогоном по логам в
- * `:tools:track-calibration`, стартовые значения — оптимистичная вера документации.
+ * Пороги детектора сегментов: подбираются прогоном по логам в `:tools:track-calibration`.
+ * Вид движения решает декодер ([ActivityModeDecoder.liveVerdict]), здесь — только то,
+ * когда его вердикт режет запись.
  */
 data class SegmentDetectorConfig(
     /** Сколько новый вердикт должен продержаться, чтобы смена вида засчиталась. */
     val confirmWindowMillis: Long = 40_000L,
-    /** Сколько после ручной поправки игнорируются противоречащие ей вердикты. */
-    val manualOverrideHoldMillis: Long = 120_000L,
-    /** Вердикт распознавания с меньшей уверенностью ничего не решает. */
-    val minConfidencePercent: Int = 50,
-    /** Окно, по которому считается каденс шагов. */
-    val cadenceWindowMillis: Long = 20_000L,
-    /** Каденс, с которого пеший вердикт считается бегом. */
-    val runningCadenceStepsPerMinute: Double = 140.0,
-    /** Пеший вердикт на такой скорости — тряска в транспорте, а не ходьба. */
-    val maxOnFootSpeedMetersPerSecond: Double = 7.0,
-    /** Велосипедный вердикт на такой скорости — транспорт. */
-    val maxCyclingSpeedMetersPerSecond: Double = 18.0,
     /** Сегменты короче этого при сохранении сливаются с соседом. */
     val minSegmentDurationMillis: Long = 60_000L,
     /** Сегменты с меньшей дистанцией при сохранении сливаются с соседом. */
@@ -33,17 +21,15 @@ data class SegmentDetectorConfig(
 sealed interface DetectorSignal {
     val timestampMillis: Long
 
-    data class Recognized(
-        override val timestampMillis: Long,
-        val activity: RecognizedActivity,
-        val confidencePercent: Int,
-    ) : DetectorSignal
-
-    /** Кумулятивное показание `TYPE_STEP_COUNTER`. */
+    /** Кумулятивное показание `TYPE_STEP_COUNTER` — вход декодера, не детектора. */
     data class StepCounter(override val timestampMillis: Long, val counter: Long) : DetectorSignal
 
-    /** Скорость после фильтра Калмана. */
-    data class Speed(override val timestampMillis: Long, val metersPerSecond: Double) : DetectorSignal
+    /** Живой вердикт декодера на [timestampMillis]: вид и с какого момента путь в нём. */
+    data class Verdict(
+        override val timestampMillis: Long,
+        val kind: SegmentKind,
+        val sinceMillis: Long,
+    ) : DetectorSignal
 
     data class Paused(override val timestampMillis: Long) : DetectorSignal
 
@@ -52,8 +38,6 @@ sealed interface DetectorSignal {
     /** Пользователь сам сменил вид текущего сегмента. */
     data class ManualKind(override val timestampMillis: Long, val kind: SegmentKind) : DetectorSignal
 }
-
-enum class RejectionReason { LOW_CONFIDENCE, NOT_MOVEMENT, SPEED, MANUAL_HOLD, PAUSED }
 
 /** Решения детектора — то, что пишется в диагностический лог. */
 sealed interface DetectorEvent {
@@ -65,16 +49,9 @@ sealed interface DetectorEvent {
     /** Вердикт не продержался окно. */
     data class CandidateDropped(override val timestampMillis: Long, val kind: SegmentKind) : DetectorEvent
 
-    data class VerdictRejected(
-        override val timestampMillis: Long,
-        val activity: RecognizedActivity,
-        val confidencePercent: Int,
-        val reason: RejectionReason,
-    ) : DetectorEvent
-
     /**
-     * Смена вида подтверждена. [boundaryMillis] — момент первого признака, а не
-     * подтверждения: сегмент режется задним числом.
+     * Смена вида подтверждена. [boundaryMillis] — где путь декодера сменил вид, а не
+     * момент подтверждения: сегмент режется задним числом.
      */
     data class SegmentConfirmed(
         override val timestampMillis: Long,
@@ -85,167 +62,73 @@ sealed interface DetectorEvent {
     ) : DetectorEvent
 }
 
-data class SegmentCandidate(val kind: SegmentKind, val sinceMillis: Long)
+/** [firstSeenMillis] отсчитывает окно, [boundaryMillis] — граница из последнего вердикта. */
+data class SegmentCandidate(val kind: SegmentKind, val firstSeenMillis: Long, val boundaryMillis: Long)
 
 data class SegmentDetectorState(
     /** `null` — ни одного подтверждённого вердикта ещё не было. */
     val currentKind: SegmentKind? = null,
     val candidate: SegmentCandidate? = null,
-    /** Последний вердикт распознавания: он действует, пока не придёт следующий. */
-    val recognized: DetectorSignal.Recognized? = null,
-    val stepReadings: List<DetectorSignal.StepCounter> = emptyList(),
-    val speedMetersPerSecond: Double? = null,
     val isPaused: Boolean = false,
-    val manualHoldUntilMillis: Long? = null,
 )
 
 data class DetectorStep(val state: SegmentDetectorState, val events: List<DetectorEvent>)
 
 /**
- * Детектор вида движения: чистая функция «состояние + сигнал → состояние + решения».
+ * Машина состояний живых сегментов: чистая функция «состояние + сигнал → состояние + решения».
+ * Вид приходит из декодера — он же решает итоговую разметку, — здесь только гистерезис.
  *
  * - Смена вида засчитывается, только если вердикт держится [SegmentDetectorConfig.confirmWindowMillis];
- *   граница ставится на момент первого признака.
- * - `STILL` и неуверенные вердикты нейтральны: сегмент не рвут и окно не сбрасывают —
- *   остановки дело автопаузы.
+ *   граница — там, где путь декодера на этот вид перешёл.
  * - Ручная пауза сбрасывает окно; вердикты за паузу не учитываются.
- * - Ручная поправка ставит границу «сейчас» и на время удержания глушит противоречащие вердикты.
+ * - Ручная поправка ставит границу «сейчас». Спорить с ней декодер перестаёт сам — до
+ *   логической паузы (`ADR 0008`), таймера здесь нет.
  */
 class SegmentDetector(private val config: SegmentDetectorConfig = SegmentDetectorConfig()) {
 
     fun reduce(state: SegmentDetectorState, signal: DetectorSignal): DetectorStep {
         val events = mutableListOf<DetectorEvent>()
         val now = signal.timestampMillis
-        var next = when (signal) {
+        val verdict = when (signal) {
             is DetectorSignal.Paused -> {
                 state.candidate?.let { events += DetectorEvent.CandidateDropped(now, it.kind) }
                 return DetectorStep(state.copy(isPaused = true, candidate = null), events)
             }
-            is DetectorSignal.Resumed -> {
-                // Окно начинается заново: ни вердикт, ни каденс до паузы о настоящем не говорят.
-                return DetectorStep(
-                    state.copy(isPaused = false, candidate = null, recognized = null, stepReadings = emptyList()),
-                    events,
-                )
-            }
+            is DetectorSignal.Resumed -> return DetectorStep(state.copy(isPaused = false, candidate = null), events)
             is DetectorSignal.ManualKind -> {
                 events += DetectorEvent.SegmentConfirmed(now, state.currentKind, signal.kind, now, isManual = true)
-                return DetectorStep(
-                    state.copy(
-                        currentKind = signal.kind,
-                        candidate = null,
-                        manualHoldUntilMillis = now + config.manualOverrideHoldMillis,
-                    ),
-                    events,
-                )
+                return DetectorStep(state.copy(currentKind = signal.kind, candidate = null), events)
             }
-            is DetectorSignal.Recognized -> {
-                if (state.isPaused) {
-                    events += signal.rejected(RejectionReason.PAUSED)
-                    return DetectorStep(state, events)
-                }
-                state.copy(recognized = signal)
-            }
-            is DetectorSignal.StepCounter -> {
-                val readings = if (state.stepReadings.lastOrNull()?.let { signal.counter < it.counter } == true) {
-                    // Перезагрузка обнулила датчик: старые показания с новыми не сравнить.
-                    listOf(signal)
-                } else {
-                    state.stepReadings + signal
-                }
-                state.copy(stepReadings = readings.filter { now - it.timestampMillis <= config.cadenceWindowMillis })
-            }
-            is DetectorSignal.Speed -> state.copy(speedMetersPerSecond = signal.metersPerSecond)
-        }
-        if (next.isPaused) return DetectorStep(next, events)
-
-        val (verdict, rejection) = verdictOf(next, now)
-        // Отказы пишутся только на сам вердикт: шаги и скорость приходят каждую секунду.
-        val recognized = next.recognized
-        if (signal is DetectorSignal.Recognized && rejection != null && recognized != null) {
-            events += recognized.rejected(rejection)
+            is DetectorSignal.StepCounter -> return DetectorStep(state, events)
+            is DetectorSignal.Verdict -> if (state.isPaused) return DetectorStep(state, events) else signal
         }
 
-        val holdActive = next.manualHoldUntilMillis?.let { now < it } == true
-        val candidate = next.candidate
-        next = when {
-            verdict == null -> next
-            verdict == next.currentKind -> {
+        val candidate = state.candidate
+        var next = when {
+            verdict.kind == state.currentKind -> {
                 candidate?.let { events += DetectorEvent.CandidateDropped(now, it.kind) }
-                next.copy(candidate = null)
+                state.copy(candidate = null)
             }
-            holdActive -> {
-                if (signal is DetectorSignal.Recognized && recognized != null) {
-                    events += recognized.rejected(RejectionReason.MANUAL_HOLD)
-                }
-                next.copy(candidate = null)
-            }
-            candidate?.kind == verdict -> next
+            candidate?.kind == verdict.kind -> state.copy(candidate = candidate.copy(boundaryMillis = verdict.sinceMillis))
             else -> {
                 candidate?.let { events += DetectorEvent.CandidateDropped(now, it.kind) }
-                events += DetectorEvent.CandidateStarted(now, verdict)
-                next.copy(candidate = SegmentCandidate(verdict, now))
+                events += DetectorEvent.CandidateStarted(now, verdict.kind)
+                state.copy(candidate = SegmentCandidate(verdict.kind, now, verdict.sinceMillis))
             }
         }
 
         val pending = next.candidate
-        if (pending != null && now - pending.sinceMillis >= config.confirmWindowMillis) {
+        if (pending != null && now - pending.firstSeenMillis >= config.confirmWindowMillis) {
             events += DetectorEvent.SegmentConfirmed(
                 timestampMillis = now,
                 from = next.currentKind,
                 to = pending.kind,
-                boundaryMillis = pending.sinceMillis,
+                boundaryMillis = pending.boundaryMillis,
                 isManual = false,
             )
             next = next.copy(currentKind = pending.kind, candidate = null)
         }
         return DetectorStep(next, events)
-    }
-
-    /** Вид по текущим сигналам; `null` — судить не по чему, вторым — почему. */
-    private fun verdictOf(state: SegmentDetectorState, now: Long): Pair<SegmentKind?, RejectionReason?> {
-        val recognized = state.recognized ?: return null to null
-        if (recognized.confidencePercent < config.minConfidencePercent) {
-            return null to RejectionReason.LOW_CONFIDENCE
-        }
-        val kind = when (recognized.activity) {
-            RecognizedActivity.IN_VEHICLE -> SegmentKind.VEHICLE
-            RecognizedActivity.ON_BICYCLE -> SegmentKind.CYCLING
-            RecognizedActivity.ON_FOOT, RecognizedActivity.WALKING, RecognizedActivity.RUNNING -> {
-                // Каденс различает ходьбу и бег надёжнее самого распознавания; без шагов
-                // остаётся его слово.
-                val cadence = cadenceStepsPerMinute(state, now)
-                when {
-                    cadence != null -> if (cadence >= config.runningCadenceStepsPerMinute) {
-                        SegmentKind.RUNNING
-                    } else {
-                        SegmentKind.ON_FOOT
-                    }
-                    recognized.activity == RecognizedActivity.RUNNING -> SegmentKind.RUNNING
-                    else -> SegmentKind.ON_FOOT
-                }
-            }
-            RecognizedActivity.STILL, RecognizedActivity.TILTING, RecognizedActivity.UNKNOWN ->
-                return null to RejectionReason.NOT_MOVEMENT
-        }
-        // ponytail: вето по последней скорости, без сглаживания; окно скорости — если
-        // единичные выбросы фильтра начнут рвать сегменты.
-        val speed = state.speedMetersPerSecond
-        val tooFast = speed != null && when (kind) {
-            SegmentKind.ON_FOOT, SegmentKind.RUNNING -> speed > config.maxOnFootSpeedMetersPerSecond
-            SegmentKind.CYCLING -> speed > config.maxCyclingSpeedMetersPerSecond
-            else -> false
-        }
-        return if (tooFast) null to RejectionReason.SPEED else kind to null
-    }
-
-    private fun cadenceStepsPerMinute(state: SegmentDetectorState, now: Long): Double? {
-        val readings = state.stepReadings.filter { now - it.timestampMillis <= config.cadenceWindowMillis }
-        val first = readings.firstOrNull() ?: return null
-        val last = readings.last()
-        val spanMillis = last.timestampMillis - first.timestampMillis
-        if (spanMillis < config.cadenceWindowMillis / 2) return null
-        return (last.counter - first.counter) * 60_000.0 / spanMillis
     }
 
     /**
@@ -315,6 +198,3 @@ private fun ActivitySegment.absorb(other: ActivitySegment): ActivitySegment = co
     stepCount = if (stepCount == null && other.stepCount == null) null else (stepCount ?: 0) + (other.stepCount ?: 0),
     distanceMeters = distanceMeters + other.distanceMeters,
 )
-
-private fun DetectorSignal.Recognized.rejected(reason: RejectionReason) =
-    DetectorEvent.VerdictRejected(timestampMillis, activity, confidencePercent, reason)

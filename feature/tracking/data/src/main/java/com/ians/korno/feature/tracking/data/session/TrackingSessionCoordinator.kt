@@ -68,6 +68,9 @@ private const val STEP_LOG_INTERVAL_MILLIS = 5_000L
  */
 private val STEP_SAMPLE_EPOCH_MILLIS = ModeDecoderConfig().epochMillis
 
+/** Живой вид пересчитывается раз в эпоху декодера: чаще он всё равно не меняется. */
+private val LIVE_DECODE_INTERVAL_MILLIS = ModeDecoderConfig().epochMillis
+
 /**
  * Насколько точной должна быть точка, чтобы считать сигнал пойманным.
  * Первые сэмплы после включения приёмника обычно приходят от сети с погрешностью
@@ -217,6 +220,20 @@ internal class TrackingSessionCoordinator(
     private val distanceTimeline = mutableListOf<Pair<Long, Double>>()
 
     /**
+     * Ответы распознавания записи — вход живого декодера. Они же лежат в БД, но читать их
+     * оттуда раз в эпоху незачем. Под [segmentLock].
+     */
+    private val sessionRecognitions = mutableListOf<RecognitionSample>()
+    private var lastLiveDecodeAtMillis: Long? = null
+
+    /**
+     * Когда нажата ручная поправка открытого сегмента. Первая поправка переименовывает
+     * открытый `UNKNOWN`-сегмент целиком, и его начало — старт записи, а держится поправка
+     * от нажатия до логической паузы после него (`ADR 0008`).
+     */
+    private var manualKindAtMillis: Long? = null
+
+    /**
      * Создаёт активность и открывает сессию. Если сигнала ещё нет — сессия начинается
      * в [RecordingStatus.WAITING_FOR_GPS]: секундомер стоит на нуле, а запись включится
      * сама, как только придёт достаточно точная точка (см. [applySample]).
@@ -352,8 +369,14 @@ internal class TrackingSessionCoordinator(
                     sensitivity = activity.autoPauseSensitivity,
                 )
                 resetSegments(segments, stepCount = stepSamples.firstOrNull()?.stepCount ?: activity.stepCount)
+                val recognitions = if (isAutoMode) {
+                    (trackRepository.getRecognitionSamples(activity.id) as? Result.Success)?.data.orEmpty()
+                } else {
+                    emptyList()
+                }
                 synchronized(segmentLock) {
                     stepTimeline += stepSamples.map { it.timestampEpochMillis to it.stepCount }
+                    sessionRecognitions += recognitions
                 }
                 lastStepSampleEpoch = stepSamples.lastOrNull()?.epoch()
                 pendingStepSample = null
@@ -436,7 +459,6 @@ internal class TrackingSessionCoordinator(
         val current = _session.value
         val activityId = current.activityId ?: return
         logStepCounter(counter, readingMillis)
-        if (current.isAutoMode) feedDetector(DetectorSignal.StepCounter(nowMillis(), counter))
         // В авторежиме шаги считаются всю запись: делятся они по сегментам, а в сводку
         // попадают только пешие.
         if (!current.isAutoMode && !current.segmentKind.countsSteps) return
@@ -491,27 +513,25 @@ internal class TrackingSessionCoordinator(
     private fun StepSample.epoch(): Long = Math.floorDiv(timestampEpochMillis, STEP_SAMPLE_EPOCH_MILLIS)
 
     /**
-     * Вердикт Activity Recognition. Нужен только авторежиму: живому детектору — лучший
-     * вариант, декодеру при сохранении — ответ целиком, поэтому он сразу пишется в БД и
-     * переживает восстановление после смерти процесса.
+     * Ответ Activity Recognition. Нужен только авторежиму — декодеру, живому и итоговому,
+     * целиком, с альтернативами. Сразу пишется в БД и переживает восстановление после
+     * смерти процесса.
      */
     suspend fun applyActivityRecognition(signal: TrackingSignal.ActivityRecognized) {
         val current = _session.value
         if (!current.isAutoMode) return
         val now = nowMillis()
         val activity = signal.activityType.toRecognizedActivity() ?: RecognizedActivity.UNKNOWN
-        current.activityId?.let { activityId ->
-            trackRepository.addRecognitionSample(
-                RecognitionSample(
-                    activityId = activityId,
-                    timestampEpochMillis = now,
-                    confidences = signal.alternatives.mapNotNull { (name, confidence) ->
-                        name.toRecognizedActivity()?.let { it to confidence }
-                    }.toMap() + (activity to signal.confidencePercent),
-                ),
-            )
-        }
-        feedDetector(DetectorSignal.Recognized(now, activity, signal.confidencePercent))
+        val activityId = current.activityId ?: return
+        val sample = RecognitionSample(
+            activityId = activityId,
+            timestampEpochMillis = now,
+            confidences = signal.alternatives.mapNotNull { (name, confidence) ->
+                name.toRecognizedActivity()?.let { it to confidence }
+            }.toMap() + (activity to signal.confidencePercent),
+        )
+        trackRepository.addRecognitionSample(sample)
+        synchronized(segmentLock) { sessionRecognitions += sample }
     }
 
     private fun String.toRecognizedActivity(): RecognizedActivity? =
@@ -523,6 +543,9 @@ internal class TrackingSessionCoordinator(
         pendingSegmentWrites.clear()
         stepTimeline.clear()
         distanceTimeline.clear()
+        sessionRecognitions.clear()
+        lastLiveDecodeAtMillis = null
+        manualKindAtMillis = null
         stepTimelineBase = stepCount ?: 0
         detectorState = SegmentDetectorState(currentKind = segments.lastOrNull()?.kind?.takeIf { it != SegmentKind.UNKNOWN })
     }
@@ -554,13 +577,52 @@ internal class TrackingSessionCoordinator(
     }
 
     /**
-     * Ручная поправка вида текущего сегмента: граница — «сейчас», и детектор какое-то время
-     * не спорит с пользователем. Работает и до первого фикса — вид можно выбрать сразу.
+     * Ручная поправка вида текущего сегмента: граница — «сейчас», и декодер не спорит с
+     * пользователем до ближайшей логической паузы (`ADR 0008`). Работает и до первого
+     * фикса — вид можно выбрать сразу.
      */
     suspend fun changeSegmentKind(kind: SegmentKind) {
         val current = _session.value
         if (!current.isAutoMode || current.segmentKind == kind) return
-        feedDetector(DetectorSignal.ManualKind(nowMillis(), kind))
+        val now = nowMillis()
+        synchronized(segmentLock) { manualKindAtMillis = now }
+        feedDetector(DetectorSignal.ManualKind(now, kind))
+    }
+
+    /**
+     * Живой вид — тот же декодер, что решает итоговую разметку (`ADR 0007`), по всей записи
+     * раз в эпоху. Вердикт — вид последней эпохи с уликой; детектор решает, когда он режет
+     * запись. Зовётся только с потока точек: он же единственный меняет [sessionPoints].
+     *
+     * ponytail: пересчёт с нуля — O(N) на тик; окно на хвост записи, если на многочасовых
+     * записях появится лаг.
+     */
+    private suspend fun runLiveDecoder() {
+        val session = _session.value
+        if (session.status != RecordingStatus.RECORDING && session.status != RecordingStatus.AUTO_PAUSE) return
+        val now = nowMillis()
+        if (lastLiveDecodeAtMillis?.let { now - it < LIVE_DECODE_INTERVAL_MILLIS } == true) return
+        lastLiveDecodeAtMillis = now
+        val recognitionIgnored = logManager?.observeSettings()?.first()?.ignoreActivityRecognition == true
+        val input = synchronized(segmentLock) {
+            ModeDecoderInput(
+                startMillis = session.startTimeEpochMillis,
+                endMillis = now,
+                points = sessionPoints.toList(),
+                recognitions = if (recognitionIgnored) emptyList() else sessionRecognitions.toList(),
+                steps = stepTimeline.map { (time, total) -> DetectorSignal.StepCounter(time, total.toLong()) },
+                manualSegments = sessionSegments.filter(ActivitySegment::isManuallyEdited).map { segment ->
+                    val pressedAt = manualKindAtMillis
+                    if (segment.endTimeEpochMillis == null && pressedAt != null) {
+                        segment.copy(startTimeEpochMillis = maxOf(segment.startTimeEpochMillis, pressedAt))
+                    } else {
+                        segment
+                    }
+                },
+            )
+        }
+        val verdict = modeDecoder.liveVerdict(input) ?: return
+        feedDetector(DetectorSignal.Verdict(now, verdict.kind, verdict.sinceMillis))
     }
 
     /**
@@ -643,12 +705,6 @@ internal class TrackingSessionCoordinator(
         val fields = when (event) {
             is DetectorEvent.CandidateStarted -> mapOf("decision" to "CANDIDATE", "kind" to event.kind.name)
             is DetectorEvent.CandidateDropped -> mapOf("decision" to "DROPPED", "kind" to event.kind.name)
-            is DetectorEvent.VerdictRejected -> mapOf(
-                "decision" to "REJECTED",
-                "detectedActivity" to event.activity.name,
-                "confidencePercent" to event.confidencePercent.toString(),
-                "reason" to event.reason.name,
-            )
             is DetectorEvent.SegmentConfirmed -> mapOf(
                 "decision" to "CONFIRMED",
                 "from" to event.from.toString(),
@@ -793,9 +849,7 @@ internal class TrackingSessionCoordinator(
         }
 
         val update = liveProcessor.append(point)
-        if (current.isAutoMode) {
-            update.filterSpeed?.let { feedDetector(DetectorSignal.Speed(sample.timestampEpochMillis, it.metersPerSecond)) }
-        }
+        if (current.isAutoMode) runLiveDecoder()
         val statistics = update.statistics
         val latestValidPoint = update.lastValidPoint
         val resumeDecision = autoPauseResumeDecision(current, sample)
@@ -1406,5 +1460,4 @@ private fun DetectorEvent.changesMovementCandidate(): Boolean = when (this) {
     is DetectorEvent.CandidateDropped,
     -> true
     is DetectorEvent.SegmentConfirmed -> !isManual
-    is DetectorEvent.VerdictRejected -> false
 }

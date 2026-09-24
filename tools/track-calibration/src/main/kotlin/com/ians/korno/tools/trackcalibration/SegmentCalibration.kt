@@ -12,7 +12,6 @@ import com.ians.korno.core.trackprocessing.ActivityModeDecoder
 import com.ians.korno.core.trackprocessing.DetectorEvent
 import com.ians.korno.core.trackprocessing.DetectorSignal
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
-import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
 import com.ians.korno.core.trackprocessing.ModeDecoderConfig
 import com.ians.korno.core.trackprocessing.ModeDecoderInput
 import com.ians.korno.core.trackprocessing.SegmentDetector
@@ -23,15 +22,12 @@ import com.ians.korno.core.trackprocessing.TrackProcessor
 import com.ians.korno.core.trackprocessing.TrackSource
 import com.ians.korno.core.trackprocessing.segmentDistanceMeters
 
-/**
- * Профиль для сигналов детектора: скорость фильтра считается до того, как вид сегмента
- * известен, поэтому берётся самый терпимый — тот, с которого запись и стартует в
- * авторежиме. Дистанцию сегментов он уже не определяет, её считает [segmentDistanceMeters].
- */
+/** Профиль, по которому отбираются точки для дистанции сегментов, — стартовый профиль авторежима. */
 private val SEGMENT_TRACK_CONFIG = TrackProcessingConfig.forSegmentKind(SegmentKind.UNKNOWN)
 
-/** Всё, что детектору нужно от одной записи; скорость посчитана заранее, она от порогов детектора не зависит. */
+/** Всё, что живому виду и декодеру нужно от одной записи. */
 class SegmentInput(
+    /** Показания шагомера и ручные паузы, по времени. */
     val signals: List<DetectorSignal>,
     /** Сырые точки: декодер берёт из них доплеровскую скорость и остановки. */
     val points: List<GeoPoint>,
@@ -53,14 +49,10 @@ fun segmentInput(
     loggedSignals: List<DetectorSignal>,
     recognitions: List<RecognitionSample>,
 ): SegmentInput? {
-    if (loggedSignals.isEmpty() || points.isEmpty()) return null
-    val live = IncrementalTrackProcessor(SEGMENT_TRACK_CONFIG)
-    val speeds = points.mapNotNull { point ->
-        val update = live.append(point)
-        if (point.recordingStatus == RecordingStatus.MANUAL_PAUSE) return@mapNotNull null
-        update.filterSpeed?.let { DetectorSignal.Speed(point.timestampEpochMillis, it.metersPerSecond) }
-    }
-    val signals = (loggedSignals + speeds).sortedBy(DetectorSignal::timestampMillis)
+    if (points.isEmpty() || (loggedSignals.isEmpty() && recognitions.isEmpty())) return null
+    val signals = loggedSignals.sortedBy(DetectorSignal::timestampMillis)
+    val times = points.map(GeoPoint::timestampEpochMillis) + signals.map(DetectorSignal::timestampMillis) +
+        recognitions.map(RecognitionSample::timestampEpochMillis)
     val validPoints = TrackProcessor().process(points, SEGMENT_TRACK_CONFIG, TrackSource.RAW)
         .points.filterNot(GeoPoint::isOutlier)
     return SegmentInput(
@@ -68,8 +60,8 @@ fun segmentInput(
         points = points,
         recognitions = recognitions,
         validPoints = validPoints,
-        startMillis = minOf(points.first().timestampEpochMillis, signals.first().timestampMillis),
-        endMillis = maxOf(points.last().timestampEpochMillis, signals.last().timestampMillis),
+        startMillis = times.min(),
+        endMillis = times.max(),
     )
 }
 
@@ -77,19 +69,49 @@ fun segmentInput(
 fun SegmentInput.withoutRecognition() = SegmentInput(signals, points, emptyList(), validPoints, startMillis, endMillis)
 
 /**
- * Прогон детектора так же, как в приложении: сигналы по одному, сегмент режется на
- * подтверждении, при «сохранении» короткие сливаются. Первый подтверждённый вид тянется
- * к началу записи; без подтверждений вся запись — один `UNKNOWN`.
+ * Живой вид так же, как в приложении: раз в эпоху декодер прогоняется по записи до
+ * «сейчас», вердикт идёт в детектор, сегмент режется на подтверждении, при «сохранении»
+ * короткие сливаются. Первый подтверждённый вид тянется к началу записи; без
+ * подтверждений вся запись — один `UNKNOWN`.
+ *
+ * ponytail: O(N²) — каждый тик декодирует всю запись с начала, как и приложение; на
+ * многочасовых логах перебор порогов заметно медленный.
  */
-fun runSegmentDetector(
+fun runLiveDetector(
     input: SegmentInput,
     config: SegmentDetectorConfig,
+    decoderConfig: ModeDecoderConfig = ModeDecoderConfig(),
     sensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
 ): SegmentRun {
     val detector = SegmentDetector(config)
+    val decoder = ActivityModeDecoder(decoderConfig)
+    val readings = input.signals.filterIsInstance<DetectorSignal.StepCounter>()
+    val pauses = input.signals.filter { it is DetectorSignal.Paused || it is DetectorSignal.Resumed }
+    val points = input.points.sortedBy(GeoPoint::timestampEpochMillis)
+    val recognitions = input.recognitions.sortedBy(RecognitionSample::timestampEpochMillis)
     val events = mutableListOf<DetectorEvent>()
-    input.signals.fold(SegmentDetectorState()) { state, signal ->
-        detector.reduce(state, signal).also { events += it.events }.state
+    var state = SegmentDetectorState()
+    fun feed(signal: DetectorSignal) {
+        val step = detector.reduce(state, signal)
+        state = step.state
+        events += step.events
+    }
+
+    var pauseIndex = 0
+    var tick = input.startMillis + decoderConfig.epochMillis
+    while (tick <= input.endMillis) {
+        while (pauseIndex < pauses.size && pauses[pauseIndex].timestampMillis <= tick) feed(pauses[pauseIndex++])
+        val verdict = decoder.liveVerdict(
+            ModeDecoderInput(
+                startMillis = input.startMillis,
+                endMillis = tick,
+                points = points.takeWhile { it.timestampEpochMillis <= tick },
+                recognitions = recognitions.takeWhile { it.timestampEpochMillis <= tick },
+                steps = readings.takeWhile { it.timestampMillis <= tick },
+            ),
+        )
+        if (verdict != null) feed(DetectorSignal.Verdict(tick, verdict.kind, verdict.sinceMillis))
+        tick += decoderConfig.epochMillis
     }
 
     val confirmations = events.filterIsInstance<DetectorEvent.SegmentConfirmed>()
@@ -97,7 +119,6 @@ fun runSegmentDetector(
         (if (index == 0) input.startMillis else confirmation.boundaryMillis) to confirmation.to
     }.ifEmpty { listOf(input.startMillis to SegmentKind.UNKNOWN) }
 
-    val readings = input.signals.filterIsInstance<DetectorSignal.StepCounter>()
     val detected = starts.mapIndexed { index, (start, kind) ->
         val end = starts.getOrNull(index + 1)?.first ?: input.endMillis
         ActivitySegment(
@@ -187,24 +208,6 @@ val DETECTOR_SWEEPS: List<DetectorSweep> = listOf(
         currentValue = { it.confirmWindowMillis / 1_000.0 },
         values = listOf(15.0, 30.0, 40.0, 60.0, 90.0),
         apply = { config, value -> config.copy(confirmWindowMillis = (value * 1_000).toLong()) },
-    ),
-    DetectorSweep(
-        name = "minConfidencePercent",
-        currentValue = { it.minConfidencePercent.toDouble() },
-        values = listOf(30.0, 50.0, 70.0, 90.0),
-        apply = { config, value -> config.copy(minConfidencePercent = value.toInt()) },
-    ),
-    DetectorSweep(
-        name = "runningCadenceStepsPerMinute",
-        currentValue = { it.runningCadenceStepsPerMinute },
-        values = listOf(120.0, 140.0, 160.0),
-        apply = { config, value -> config.copy(runningCadenceStepsPerMinute = value) },
-    ),
-    DetectorSweep(
-        name = "maxOnFootSpeedMetersPerSecond",
-        currentValue = { it.maxOnFootSpeedMetersPerSecond },
-        values = listOf(4.0, 7.0, 10.0),
-        apply = { config, value -> config.copy(maxOnFootSpeedMetersPerSecond = value) },
     ),
     DetectorSweep(
         name = "minSegmentDurationSeconds",

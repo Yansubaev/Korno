@@ -52,6 +52,12 @@ data class ModeDecoderConfig(
     val crawlSpeedMetersPerSecond: Double = 2.0,
     /** Промежуток без фиксов, в котором пересадка могла пройти незамеченной. */
     val transferGapMillis: Long = 30_000L,
+    /**
+     * Остановка, после которой снимается ручная поправка (`ADR 0008`): на ней человек мог
+     * сменить вид. Длиннее [transferStopMillis]: светофор стоит 20–60 с, и с общим порогом
+     * каждый светофор снимал бы поправку.
+     */
+    val logicalPauseStopMillis: Long = 120_000L,
 
     /**
      * Физические пределы: выше них вид невозможен, а не маловероятен. Отличать ими
@@ -113,6 +119,9 @@ data class ModeDecoderConfig(
     val walkingCadenceVehicleWeightPerSecond: Double = 0.05,
 )
 
+/** Живой вид записи — см. [ActivityModeDecoder.liveVerdict]. */
+data class LiveVerdict(val kind: SegmentKind, val sinceMillis: Long)
+
 /** Всё, из чего определяется вид движения записи. */
 class ModeDecoderInput(
     val startMillis: Long,
@@ -165,13 +174,36 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
      * распознавание молчит, ручных поправок нет.
      */
     fun decode(input: ModeDecoderInput): List<ActivitySegment> {
-        if (input.endMillis <= input.startMillis) return emptyList()
+        val decoded = decodePath(input) ?: return emptyList()
+        return segments(input, decoded.path)
+    }
+
+    /**
+     * Живой вид записи на [ModeDecoderInput.endMillis]: вид последней эпохи, в которой была
+     * хоть одна улика, и момент, с которого путь декодера в этом виде. Эпохи без улик
+     * вердикта не дают (`ADR 0007`): при ничьей победил бы первый вид перечня, `ON_FOOT`, а
+     * пеший профиль ослепил бы запись в транспорте. `null` — такой эпохи ещё не было.
+     */
+    fun liveVerdict(input: ModeDecoderInput): LiveVerdict? {
+        val decoded = decodePath(input) ?: return null
+        val last = decoded.emissions.indexOfLast(::hasEvidence)
+        var first = last
+        while (first > 0 && decoded.path[first - 1] == decoded.path[last]) first--
+        return LiveVerdict(
+            kind = MODES[decoded.path[last]],
+            sinceMillis = if (first == 0) input.startMillis else epochStart(input, first),
+        )
+    }
+
+    private class DecodedPath(val emissions: Array<DoubleArray>, val path: IntArray)
+
+    /** `null` — ни в одной эпохе нет улики, судить не по чему. */
+    private fun decodePath(input: ModeDecoderInput): DecodedPath? {
+        if (input.endMillis <= input.startMillis) return null
         val epochCount = ceil((input.endMillis - input.startMillis).toDouble() / config.epochMillis).toInt()
         val emissions = emissions(input, epochCount)
-        if (emissions.none(::hasEvidence)) return emptyList()
-        val transferCosts = transferCosts(input, epochCount)
-        val path = viterbi(emissions, transferCosts)
-        return segments(input, path)
+        if (emissions.none(::hasEvidence)) return null
+        return DecodedPath(emissions, viterbi(emissions, transferCosts(input, epochCount)))
     }
 
     /**
@@ -194,6 +226,7 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             .sortedBy(GeoPoint::timestampEpochMillis)
         var pointIndex = 0
         val steps = input.steps.sortedBy(DetectorSignal.StepCounter::timestampMillis)
+        val manualHolds = manualHolds(input)
 
         for (epoch in 0 until epochCount) {
             val start = epochStart(input, epoch)
@@ -260,12 +293,11 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
                 }
             }
 
-            input.manualSegments.firstOrNull { segment ->
-                val middle = start + config.epochMillis / 2
-                middle >= segment.startTimeEpochMillis && middle < (segment.endTimeEpochMillis ?: Long.MAX_VALUE)
-            }?.let { manual ->
-                MODES.forEachIndexed { mode, kind -> if (kind != manual.kind) row[mode] = FORBIDDEN }
-            }
+            val middle = start + config.epochMillis / 2
+            manualHolds.firstOrNull { (segment, holdEnd) -> middle >= segment.startTimeEpochMillis && middle < holdEnd }
+                ?.let { (manual, _) ->
+                    MODES.forEachIndexed { mode, kind -> if (kind != manual.kind) row[mode] = FORBIDDEN }
+                }
         }
         return emissions
     }
@@ -314,14 +346,32 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             for (epoch in first..last) costs[epoch] = minOf(costs[epoch], cost)
         }
 
-        val edges = listOf(input.startMillis) + points.map(GeoPoint::timestampEpochMillis) + input.endMillis
-        edges.zipWithNext { from, to -> if (to - from > config.transferGapMillis) credit(from, to, Long.MAX_VALUE / 2) }
+        gaps(input, points).forEach { (from, to) -> credit(from, to, Long.MAX_VALUE / 2) }
+        stops(points).forEach { stop ->
+            credit(stop.startMillis, stop.endMillis, if (stop.isManualPause) Long.MAX_VALUE / 2 else stop.endMillis - stop.startMillis)
+        }
+        return costs
+    }
 
-        // Остановка — это заезд под [ModeDecoderConfig.crawlSpeedMetersPerSecond], внутри
-        // которого нашлась хоть одна точка в покое. Требовать покоя от каждой точки нельзя:
-        // доплер стоящего приёмника шумит, и настоящая остановка рассыпается на одиночки.
-        // Одна лишь тишина по шагу «ползёт» тоже не годится — так выглядит и пешая ходьба,
-        // а она не пересадка.
+    /** Промежутки без фиксов дольше [ModeDecoderConfig.transferGapMillis], включая края записи. */
+    private fun gaps(input: ModeDecoderInput, points: List<GeoPoint>): List<Pair<Long, Long>> {
+        val edges = listOf(input.startMillis) + points.map(GeoPoint::timestampEpochMillis) + input.endMillis
+        return edges.zipWithNext().filter { (from, to) -> to - from > config.transferGapMillis }
+    }
+
+    private class Stop(val startMillis: Long, val endMillis: Long, val isManualPause: Boolean)
+
+    /**
+     * Остановки и ручные паузы по отсортированным точкам.
+     *
+     * Остановка — это заезд под [ModeDecoderConfig.crawlSpeedMetersPerSecond], внутри
+     * которого нашлась хоть одна точка в покое. Требовать покоя от каждой точки нельзя:
+     * доплер стоящего приёмника шумит, и настоящая остановка рассыпается на одиночки.
+     * Одна лишь тишина по шагу «ползёт» тоже не годится — так выглядит и пешая ходьба,
+     * а она не пересадка.
+     */
+    private fun stops(points: List<GeoPoint>): List<Stop> {
+        val stops = mutableListOf<Stop>()
         var runStart: GeoPoint? = null
         var runEnd: GeoPoint? = null
         var runHalted = false
@@ -329,8 +379,11 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             val start = runStart ?: return
             val end = runEnd ?: return
             if (runHalted) {
-                val isManualPause = start.recordingStatus == RecordingStatus.MANUAL_PAUSE
-                credit(start.timestampEpochMillis, end.timestampEpochMillis, if (isManualPause) Long.MAX_VALUE / 2 else end.timestampEpochMillis - start.timestampEpochMillis)
+                stops += Stop(
+                    start.timestampEpochMillis,
+                    end.timestampEpochMillis,
+                    isManualPause = start.recordingStatus == RecordingStatus.MANUAL_PAUSE,
+                )
             }
             runStart = null
             runEnd = null
@@ -350,7 +403,29 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             }
         }
         closeRun()
-        return costs
+        return stops
+    }
+
+    /**
+     * Ручные сегменты и докуда декодер с ними не спорит. Закрытый — весь, как его закрыла
+     * запись. Открытый — ручная поправка, идущая сейчас, — до первой логической паузы после
+     * неё (`ADR 0008`): остановки не короче [ModeDecoderConfig.logicalPauseStopMillis],
+     * пропуска GPS или ручной паузы. Пауза, начатая до поправки, не в счёт: вид «транспорт»
+     * выбирают и стоя на остановке.
+     */
+    private fun manualHolds(input: ModeDecoderInput): List<Pair<ActivitySegment, Long>> {
+        if (input.manualSegments.isEmpty()) return emptyList()
+        val points = input.points.sortedBy(GeoPoint::timestampEpochMillis)
+        val pauseStarts = stops(points)
+            .filter { it.isManualPause || it.endMillis - it.startMillis >= config.logicalPauseStopMillis }
+            .map(Stop::startMillis) + gaps(input, points).map { it.first }
+        return input.manualSegments.map { segment ->
+            segment to (
+                segment.endTimeEpochMillis
+                    ?: pauseStarts.filter { it >= segment.startTimeEpochMillis }.minOrNull()
+                    ?: Long.MAX_VALUE
+                )
+        }
     }
 
     private fun viterbi(emissions: Array<DoubleArray>, transferCosts: DoubleArray): IntArray {
@@ -385,6 +460,7 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
     }
 
     private fun segments(input: ModeDecoderInput, path: IntArray): List<ActivitySegment> {
+        val manualHolds = manualHolds(input)
         val validPoints = input.points.filterNot(GeoPoint::isOutlier).sortedBy(GeoPoint::timestampEpochMillis)
         val result = mutableListOf<ActivitySegment>()
         var runStart = 0
@@ -398,9 +474,8 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
                 startTimeEpochMillis = start,
                 endTimeEpochMillis = end,
                 distanceMeters = segmentDistanceMeters(validPoints, start, end),
-                isManuallyEdited = input.manualSegments.any { manual ->
-                    manual.kind == kind && manual.startTimeEpochMillis < end &&
-                        (manual.endTimeEpochMillis ?: Long.MAX_VALUE) > start
+                isManuallyEdited = manualHolds.any { (manual, holdEnd) ->
+                    manual.kind == kind && manual.startTimeEpochMillis < end && holdEnd > start
                 },
             )
             runStart = epoch

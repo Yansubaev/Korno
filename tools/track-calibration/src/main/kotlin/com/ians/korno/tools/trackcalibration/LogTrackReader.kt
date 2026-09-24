@@ -50,10 +50,7 @@ class LoggedActivity(
      * а в том, что запись GPS-сэмплов была выключена.
      */
     val sawCoordinateRecords: Boolean,
-    /**
-     * Сигналы детектора вида движения, кроме скорости: её калибровка считает сама по
-     * точкам, тем же фильтром, что и приложение. По времени не отсортированы.
-     */
+    /** Показания шагомера и ручные паузы — вход живого вида вместе с точками. По времени не отсортированы. */
     val detectorSignals: List<DetectorSignal> = emptyList(),
     /** Ответы распознавания целиком, с альтернативами, — вход декодера вида движения. */
     val recognitions: List<RecognitionSample> = emptyList(),
@@ -175,7 +172,6 @@ private class ActivityBuilder(private val activityId: Long) {
                 val activity = record.field("detectedActivity")?.let { enumOrNull<RecognizedActivity>(it) }
                     ?: RecognizedActivity.UNKNOWN
                 val confidence = record.field("confidencePercent")?.toIntOrNull() ?: 0
-                detectorSignals += DetectorSignal.Recognized(timestamp, activity, confidence)
                 // Альтернативы записаны строкой «ON_FOOT=80, IN_VEHICLE=6».
                 val alternatives = record.field("alternatives").orEmpty().split(",").mapNotNull { entry ->
                     val (name, value) = entry.split("=").takeIf { it.size == 2 } ?: return@mapNotNull null
