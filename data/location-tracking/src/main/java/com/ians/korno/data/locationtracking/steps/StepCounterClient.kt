@@ -5,12 +5,20 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.SystemClock
 import androidx.core.content.getSystemService
 import com.ians.korno.data.locationtracking.permission.LocationPermissionChecker
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.emptyFlow
+
+/**
+ * Показание шагомера: [counter] — кумулятивный счётчик датчика, [timestampEpochMillis] —
+ * момент показания по сенсору. Время доставки не годится: в doze датчик без пробуждения
+ * может отдавать показания пачками.
+ */
+data class StepCounterReading(val counter: Long, val timestampEpochMillis: Long)
 
 /**
  * Кумулятивное число шагов с момента последней перезагрузки устройства.
@@ -25,7 +33,7 @@ class StepCounterClient(
     private val context: Context,
     private val permissionChecker: LocationPermissionChecker,
 ) {
-    fun stepCounts(): Flow<Long> {
+    fun stepCounts(): Flow<StepCounterReading> {
         val sensorManager = context.getSystemService<SensorManager>() ?: return emptyFlow()
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return emptyFlow()
         if (!permissionChecker.hasActivityRecognitionPermission()) return emptyFlow()
@@ -33,7 +41,9 @@ class StepCounterClient(
         return callbackFlow {
             val listener = object : SensorEventListener {
                 override fun onSensorChanged(event: SensorEvent) {
-                    trySend(event.values[0].toLong())
+                    // `SensorEvent.timestamp` — наносекунды шкалы elapsedRealtime.
+                    val ageMillis = (SystemClock.elapsedRealtimeNanos() - event.timestamp) / 1_000_000
+                    trySend(StepCounterReading(event.values[0].toLong(), System.currentTimeMillis() - ageMillis))
                 }
 
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit

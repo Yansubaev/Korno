@@ -6,8 +6,10 @@ import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecordingMode
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.trackprocessing.ActivityModeDecoder
+import com.ians.korno.core.trackprocessing.DetectorSignal
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import com.ians.korno.core.trackprocessing.ModeDecoderInput
 
@@ -18,11 +20,10 @@ import com.ians.korno.core.trackprocessing.ModeDecoderInput
  * себе: правка трека сегменты не трогает. Поэтому после изменения декодера старые записи
  * остаются с прежней разметкой, и проверить правку можно только новой поездкой. Всё, из
  * чего декодер решает, у сохранённой записи есть: доплеровская скорость лежит в точках,
- * ответы распознавания — в `recognition_samples`.
+ * ответы распознавания — в `recognition_samples`, шаги во времени — в `step_samples`.
  *
- * Не сохранилась только дорожка шагомера: она жила в памяти сессии. Каденс различает
- * ходьбу и бег, и без него эти два вида решаются по одному распознаванию; шаги сегментов
- * не теряются — они делятся между новыми границами по пересечению времени.
+ * У записей старше `step_samples` дорожки шагомера нет: каденса у декодера для них нет, а
+ * шаги сегментов делятся между новыми границами по пересечению времени.
  */
 class RedecodeActivitySegmentsUseCase(
     private val trackRepository: TrackRepository,
@@ -45,12 +46,14 @@ class RedecodeActivitySegmentsUseCase(
         val recognitions = (trackRepository.getRecognitionSamples(activity.id) as? Result.Success)
             ?.data
             .orEmpty()
+        val steps = (trackRepository.getStepSamples(activity.id) as? Result.Success)?.data.orEmpty()
         val decoded = modeDecoder.decode(
             ModeDecoderInput(
                 startMillis = activity.startTimeEpochMillis,
                 endMillis = endMillis,
                 points = points,
                 recognitions = recognitions,
+                steps = steps.map { DetectorSignal.StepCounter(it.timestampEpochMillis, it.stepCount.toLong()) },
                 manualSegments = segments.filter(ActivitySegment::isManuallyEdited),
             ),
         )
@@ -60,9 +63,11 @@ class RedecodeActivitySegmentsUseCase(
         if (decoded.isEmpty()) return Result.Error(Skipped.NO_RECOGNITION)
 
         val withSteps = decoded.map { segment ->
+            val start = segment.startTimeEpochMillis
+            val end = segment.endTimeEpochMillis ?: endMillis
             segment.copy(
                 activityId = activity.id,
-                stepCount = stepsBetween(segments, segment.startTimeEpochMillis, segment.endTimeEpochMillis ?: endMillis),
+                stepCount = if (steps.isEmpty()) stepsBetween(segments, start, end) else stepsAt(steps, end) - stepsAt(steps, start),
             )
         }
         val track = finalizeTrack(activity, points, withSteps)
@@ -70,9 +75,13 @@ class RedecodeActivitySegmentsUseCase(
         return Result.Success(Unit)
     }
 
+    /** Счёт шагов записи на момент [timeMillis]; до первого показания — ноль. */
+    private fun stepsAt(steps: List<StepSample>, timeMillis: Long): Int =
+        steps.lastOrNull { it.timestampEpochMillis <= timeMillis }?.stepCount ?: 0
+
     /**
-     * Шаги старых сегментов, поделённые по времени между новыми границами. Точнее уже не
-     * восстановить: в БД лежит сумма за сегмент, а не показания счётчика во времени.
+     * Шаги старых сегментов, поделённые по времени между новыми границами. Точнее для
+     * записей без `step_samples` не восстановить: в БД лежит сумма за сегмент.
      */
     private fun stepsBetween(segments: List<ActivitySegment>, start: Long, end: Long): Int? {
         val counted = segments.filter { it.stepCount != null }

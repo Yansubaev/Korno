@@ -8,6 +8,7 @@ import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
@@ -63,6 +64,12 @@ internal class DefaultTrackRepository(
 
     override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
         localDataSource.getRecognitionSamples(activityId)
+
+    override suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local> =
+        localDataSource.addStepSample(sample)
+
+    override suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local> =
+        localDataSource.getStepSamples(activityId)
 
     override suspend fun insertTrack(
         activity: Activity,

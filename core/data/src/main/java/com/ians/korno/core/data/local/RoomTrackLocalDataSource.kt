@@ -10,6 +10,7 @@ import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.RoutePoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -109,6 +110,15 @@ internal class RoomTrackLocalDataSource(
 
     override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
         safeLocalCall { trackDao.recognitionSamples(activityId).map { it.toDomain() } }
+
+    override suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local> =
+        when (val result = safeLocalCall { trackDao.insertStepSample(sample.toEntity()) }) {
+            is Result.Success -> Result.Success(Unit)
+            is Result.Error -> result
+        }
+
+    override suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local> =
+        safeLocalCall { trackDao.stepSamples(activityId).map { it.toDomain() } }
 
     override suspend fun insertTrack(
         activity: Activity,

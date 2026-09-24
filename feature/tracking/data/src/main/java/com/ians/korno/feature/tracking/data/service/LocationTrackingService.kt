@@ -227,9 +227,9 @@ internal class LocationTrackingService : Service() {
                         throwable = error,
                     ) { "Step counter stream failed" }
                 }
-                .collect { counter ->
+                .collect { reading ->
                     pulse.stepReadings.incrementAndGet()
-                    coordinator.applyStepCounter(counter)
+                    coordinator.applyStepCounter(reading.counter, reading.timestampEpochMillis)
                 }
         }
     }

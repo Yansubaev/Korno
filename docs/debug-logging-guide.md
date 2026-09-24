@@ -205,7 +205,7 @@ rg '"level":"(WARN|ERROR)"|Unhandled exception' logs
 
 Пишутся, когда запись идёт в режиме «Авто» (`autoMode=true`), подробности фичи — `docs/auto-activity-segments.md`.
 
-- `Step counter reading` — `stepCounter` (накопительный счётчик с загрузки устройства) и `readingTimestamp`; не чаще раза в интервал, для любого типа активности.
+- `Step counter reading` — `stepCounter` (накопительный счётчик с загрузки устройства), `readingTimestamp` (момент показания по сенсору, `SensorEvent.timestamp`) и `deliveredAt` (когда показание дошло до приложения); не чаще раза в интервал, для любого типа активности. Большая разница `deliveredAt − readingTimestamp` — показания пришли пачкой, так бывает в doze. В логах до появления `deliveredAt` в `readingTimestamp` лежит время доставки.
 - `Segment detector decision` — каждое решение живого детектора, поле `decision`: `CANDIDATE` (`kind`), `DROPPED` (кандидат не удержался), `REJECTED` (вердикт распознавания отклонён, `reason`: `LOW_CONFIDENCE`, `NOT_MOVEMENT`, `SPEED`, `MANUAL_HOLD`, `PAUSED`) и `CONFIRMED` (`from` → `to`, `boundaryTimestamp`, `manual`). `CONFIRMED` пишется на `INFO`, остальные — на `DEBUG`.
 - `Activity mode decoded` — одна запись при остановке: `liveSegments` (что нарезал живой детектор) против `decodedSegments` (что пересчитал декодер Витерби по всей записи и что будет сохранено). Формат `KIND@м:сс-м:сс` от начала записи. Расхождение этих двух строк — первое, на что смотреть при жалобе на сегменты.
 

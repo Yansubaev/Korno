@@ -7,6 +7,7 @@ import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
@@ -405,6 +406,11 @@ class TrackingRecordingViewModelTest {
             Result.Success(Unit)
 
         override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
+            Result.Success(emptyList())
+
+        override suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local> = Result.Success(Unit)
+
+        override suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local> =
             Result.Success(emptyList())
 
         override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> =

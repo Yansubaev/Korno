@@ -7,6 +7,7 @@ import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.RoutePoint
 import com.ians.korno.core.domain.repository.TrackRepository
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,9 @@ internal class FakeTrackRepository : TrackRepository {
 
     /** Ответы распознавания записи: их читает пересчёт разметки. */
     var recognitionSamples: List<RecognitionSample> = emptyList()
+
+    /** Шаги записи во времени: их тоже читает пересчёт. */
+    var stepSamples: List<StepSample> = emptyList()
 
     override fun observeActivities(): Flow<Result<List<Activity>, DataError.Local>> =
         flowOf(Result.Success(emptyList()))
@@ -58,6 +62,11 @@ internal class FakeTrackRepository : TrackRepository {
 
     override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
         Result.Success(recognitionSamples)
+
+    override suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local> = Result.Success(Unit)
+
+    override suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local> =
+        Result.Success(stepSamples)
 
     override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> = Result.Success(Unit)
 

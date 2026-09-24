@@ -7,6 +7,7 @@ import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.RoutePoint
 import kotlinx.coroutines.flow.Flow
 
@@ -41,6 +42,10 @@ internal interface TrackLocalDataSource {
     suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local>
 
     suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local>
+
+    suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local>
+
+    suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local>
 
     suspend fun insertTrack(
         activity: Activity,

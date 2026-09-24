@@ -11,6 +11,7 @@ import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RecognizedActivity
 import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
@@ -64,6 +65,28 @@ class RedecodeActivitySegmentsUseCaseTest {
         assertThat(segments.map(ActivitySegment::kind)).isEqualTo(listOf(SegmentKind.ON_FOOT, SegmentKind.RUNNING))
         // Один сохранённый сегмент на 600 шагов, граница посередине — значит поровну.
         assertThat(segments.map { it.stepCount }).isEqualTo(listOf(300, 300))
+    }
+
+    @Test
+    fun `stored step samples reach the decoder and count the steps of the new segments`() = runTest {
+        val repository = FakeTrackRepository()
+        // Распознавание говорит только зонтичное «на ногах»: ходьбу от бега отличает каденс.
+        repository.recognitionSamples = (0 until DURATION_MILLIS step 20_000L).map { at ->
+            RecognitionSample(ACTIVITY_ID, at, mapOf(RecognizedActivity.ON_FOOT to 90))
+        }
+        // Показание раз в 6 с: 10 шагов (100 в минуту) — ходьба, потом 17 (170 в минуту) — бег.
+        var total = 0
+        repository.stepSamples = (0 until DURATION_MILLIS step 6_000L).map { at ->
+            StepSample(ACTIVITY_ID, at, total).also { total += if (at < DURATION_MILLIS / 2) 10 else 17 }
+        }
+        val stored = listOf(segment(SegmentKind.ON_FOOT, start = 0L, end = DURATION_MILLIS, steps = 600))
+
+        useCase(repository)(activity(), points(speed = 2.5f), stored)
+
+        val segments = repository.replacedSegments.orEmpty()
+        assertThat(segments.map(ActivitySegment::kind)).isEqualTo(listOf(SegmentKind.ON_FOOT, SegmentKind.RUNNING))
+        // Шаги — по дорожке, а не по сумме сохранённого сегмента: последнее показание записи.
+        assertThat(segments.sumOf { it.stepCount ?: 0 }).isEqualTo(repository.stepSamples.last().stepCount)
     }
 
     @Test

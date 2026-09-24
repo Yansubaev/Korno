@@ -8,6 +8,7 @@ import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
 import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RoutePoint
+import com.ians.korno.core.domain.model.StepSample
 import kotlinx.coroutines.flow.Flow
 
 interface TrackRepository {
@@ -58,6 +59,11 @@ interface TrackRepository {
     suspend fun addRecognitionSample(sample: RecognitionSample): EmptyResult<DataError.Local>
 
     suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local>
+
+    /** Шаги записи авторежима во времени: без них после смерти процесса и в пересчёте нет каденса. */
+    suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local>
+
+    suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local>
 
     /**
      * Atomically stores a complete track that arrived from outside the app.

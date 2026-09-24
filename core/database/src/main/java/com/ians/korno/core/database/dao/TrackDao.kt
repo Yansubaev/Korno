@@ -9,6 +9,7 @@ import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
 import com.ians.korno.core.database.entity.RecognitionSampleEntity
+import com.ians.korno.core.database.entity.StepSampleEntity
 import com.ians.korno.core.database.entity.RoutePointProjection
 import kotlinx.coroutines.flow.Flow
 
@@ -159,6 +160,16 @@ interface TrackDao {
             "ORDER BY timestamp ASC, id ASC",
     )
     suspend fun recognitionSamples(activityId: Long): List<RecognitionSampleEntity>
+
+    @Insert
+    suspend fun insertStepSample(sample: StepSampleEntity): Long
+
+    @Query(
+        "SELECT * FROM step_samples " +
+            "WHERE activity_id = :activityId " +
+            "ORDER BY timestamp ASC, id ASC",
+    )
+    suspend fun stepSamples(activityId: Long): List<StepSampleEntity>
 
     @Query("DELETE FROM activities WHERE id = :activityId")
     suspend fun deleteActivity(activityId: Long): Int

@@ -5,6 +5,7 @@ import assertk.assertThat
 import assertk.assertions.isEqualTo
 import com.ians.korno.core.database.dao.TrackDao
 import com.ians.korno.core.database.entity.RecognitionSampleEntity
+import com.ians.korno.core.database.entity.StepSampleEntity
 import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
@@ -149,6 +150,10 @@ class RoomTrackLocalDataSourceTest {
         override suspend fun insertRecognitionSample(sample: RecognitionSampleEntity): Long = 1L
 
         override suspend fun recognitionSamples(activityId: Long): List<RecognitionSampleEntity> = emptyList()
+
+        override suspend fun insertStepSample(sample: StepSampleEntity): Long = 1L
+
+        override suspend fun stepSamples(activityId: Long): List<StepSampleEntity> = emptyList()
 
         override suspend fun deleteActivity(activityId: Long): Int = updatedRows
     }

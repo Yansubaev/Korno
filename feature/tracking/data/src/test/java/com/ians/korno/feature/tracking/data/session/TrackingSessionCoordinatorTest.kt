@@ -13,6 +13,7 @@ import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.RecognitionSample
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
@@ -894,6 +895,50 @@ class TrackingSessionCoordinatorTest {
     }
 
     @Test
+    fun `auto mode stores at most one step sample per decoder epoch, the first one always`() = runTest {
+        beginWarmedSession(autoMode = true)
+        // Время — сенсора, а не доставки: часы координатора стоят, показания пришли пачкой.
+        val start = clockMillis
+
+        coordinator.applyStepCounter(1_000L, start)
+        coordinator.applyStepCounter(1_005L, start + 1_000L)
+        coordinator.applyStepCounter(1_010L, start + 6_000L)
+        coordinator.applyStepCounter(1_020L, start + 9_000L)
+        coordinator.applyStepCounter(1_030L, start + 12_000L)
+        coordinator.endSession()
+
+        assertThat(repository.stepSamples.map { it.timestampEpochMillis to it.stepCount }).isEqualTo(
+            listOf(start to 0, start + 9_000L to 20, start + 12_000L to 30),
+        )
+    }
+
+    @Test
+    fun `a recovered auto session restores its steps from the step samples`() = runTest {
+        repository.activeActivity = Activity(
+            id = 5L,
+            startTimeEpochMillis = clockMillis - 600_000L,
+            recordingMode = RecordingMode.AUTO,
+        )
+        repository.storedSegments = listOf(ActivitySegment(6L, 5L, SegmentKind.ON_FOOT, clockMillis - 600_000L))
+        repository.stepSamples += listOf(
+            StepSample(5L, clockMillis - 500_000L, 0),
+            StepSample(5L, clockMillis - 250_000L, 200),
+            StepSample(5L, clockMillis - 100_000L, 300),
+        )
+
+        coordinator.recoverActiveSessionIfNeeded()
+        assertThat(coordinator.session.value.stepCount).isEqualTo(300)
+
+        // Граница ставится задним числом, и шаги до неё берутся из восстановленной дорожки.
+        coordinator.applyActivityRecognition(recognized("IN_VEHICLE"))
+        clockMillis += 40_000L
+        coordinator.applyActivityRecognition(recognized("IN_VEHICLE", confidence = 90))
+
+        val (closed, _) = repository.savedOpenSegments.single()
+        assertThat(closed.stepCount).isEqualTo(300)
+    }
+
+    @Test
     fun `a recovered auto session continues its open segment`() = runTest {
         repository.activeActivity = Activity(
             id = 5L,
@@ -1027,6 +1072,16 @@ class TrackingSessionCoordinatorTest {
 
         override suspend fun getRecognitionSamples(activityId: Long): Result<List<RecognitionSample>, DataError.Local> =
             Result.Success(recognitionSamples.filter { it.activityId == activityId })
+
+        val stepSamples = mutableListOf<StepSample>()
+
+        override suspend fun addStepSample(sample: StepSample): EmptyResult<DataError.Local> {
+            stepSamples += sample
+            return Result.Success(Unit)
+        }
+
+        override suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local> =
+            Result.Success(stepSamples.filter { it.activityId == activityId })
 
         override suspend fun getRoutePreview(
             activityId: Long,

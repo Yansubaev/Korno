@@ -236,13 +236,41 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
+    fun migration12To13KeepsActivitiesAndStartsWithoutStepSamples() {
+        helper.createDatabase(TEST_DATABASE_NAME, 12).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO activities (
+                    id, start_time, end_time, title, note, distance, moving_time, elapsed_time,
+                    avg_speed, max_speed, elevation_gain, is_manually_edited, step_count, recording_mode
+                ) VALUES (1, 1757052000000, 1757052600000, 'Auto walk', NULL, 1200.0, 600000,
+                    600000, 2.0, 3.5, 12.0, 0, 4200, 'AUTO')
+                """.trimIndent(),
+            )
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 13, true)
+
+        migrated.query("SELECT title, step_count FROM activities WHERE id = 1").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getString(0)).isEqualTo("Auto walk")
+            assertThat(row.getInt(1)).isEqualTo(4200)
+        }
+        // Старые записи не заполняются: шагов во времени у них нет.
+        migrated.query("SELECT COUNT(*) FROM step_samples").use { row ->
+            assertThat(row.moveToFirst()).isTrue()
+            assertThat(row.getInt(0)).isEqualTo(0)
+        }
+    }
+
+    @Test
     fun allMigrationsFromFirstVersionLeaveTheTrackReadableByRoom() = runTest {
         helper.createDatabase(TEST_DATABASE_NAME, 1).use { database ->
             database.insertActivity(id = 1L, title = "Hike")
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 12, true, KornoDatabase.MIGRATION_11_12).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 13, true, KornoDatabase.MIGRATION_11_12).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.

@@ -12,6 +12,7 @@ import com.ians.korno.core.domain.model.RecognitionSample
 import com.ians.korno.core.domain.model.RecognizedActivity
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.domain.model.SegmentKind
+import com.ians.korno.core.domain.model.StepSample
 import com.ians.korno.core.domain.model.RecordingMode
 import com.ians.korno.core.domain.model.toSingleSegment
 import com.ians.korno.core.domain.repository.TrackRepository
@@ -30,6 +31,7 @@ import com.ians.korno.core.trackprocessing.DetectorSignal
 import com.ians.korno.core.trackprocessing.FinalizeTrackUseCase
 import com.ians.korno.core.trackprocessing.IncrementalTrackProcessor
 import com.ians.korno.core.trackprocessing.LiveTrackUpdate
+import com.ians.korno.core.trackprocessing.ModeDecoderConfig
 import com.ians.korno.core.trackprocessing.ModeDecoderInput
 import com.ians.korno.core.trackprocessing.SegmentDetector
 import com.ians.korno.core.trackprocessing.SegmentDetectorState
@@ -58,6 +60,12 @@ private const val FLUSH_INTERVAL_MILLIS = 5_000L
  * счётчик кумулятивен: каденс по логу восстанавливается и из редких показаний.
  */
 private const val STEP_LOG_INTERVAL_MILLIS = 5_000L
+
+/**
+ * `step_samples` пишется не чаще раза за эпоху декодера: чаще ему не нужно, а датчик
+ * шлёт событие на каждый шаг.
+ */
+private val STEP_SAMPLE_EPOCH_MILLIS = ModeDecoderConfig().epochMillis
 
 /**
  * Насколько точной должна быть точка, чтобы считать сигнал пойманным.
@@ -163,6 +171,14 @@ internal class TrackingSessionCoordinator(
     private var lastStepLoggedAtMillis: Long? = null
 
     /**
+     * Прореживание `step_samples`: эпоха последней записанной строки и последнее показание
+     * текущей эпохи — оно ляжет в БД, когда придёт показание из следующей эпохи или
+     * запись остановится.
+     */
+    private var lastStepSampleEpoch: Long? = null
+    private var pendingStepSample: StepSample? = null
+
+    /**
      * Время последнего принятого фикса — ключ, по которому отсеиваются повторы.
      *
      * Провайдер регулярно отдаёт один и тот же фикс дважды: в разобранных логах так
@@ -239,6 +255,8 @@ internal class TrackingSessionCoordinator(
             lastFlushAtMillis = startTime
             waitingForFixSinceMillis = if (hasWarmFix) null else startTime
             lastStepCounter = null
+            lastStepSampleEpoch = null
+            pendingStepSample = null
             _autoPauseMovementHint.value = false
             resetSegments(if (autoMode) listOf(firstSegment.copy(activityId = id)) else emptyList(), stepCount = null)
             _session.value = RecordingSession(
@@ -316,12 +334,26 @@ internal class TrackingSessionCoordinator(
                 // Вид продолжается тот же, каким запись шла: в авторежиме — вид открытого
                 // сегмента, в фиксированном — тот единственный, что выбрали до старта.
                 val segmentKind = stored.lastOrNull()?.kind ?: SegmentKind.UNKNOWN
+                // Шаги авторежима лежат в `step_samples`: по ним восстанавливается и
+                // дорожка шагомера, и счёт. У фиксированного режима их нет — счёт
+                // продолжается с последнего подтверждённого значения активности.
+                val stepSamples = if (isAutoMode) {
+                    (trackRepository.getStepSamples(activity.id) as? Result.Success)?.data.orEmpty()
+                } else {
+                    emptyList()
+                }
+                val stepCount = stepSamples.lastOrNull()?.stepCount ?: activity.stepCount
                 // Чувствительность — та, с которой запись началась, а не текущая настройка.
                 loadRecordingPreferences(
                     base = TrackProcessingConfig.forSegmentKind(segmentKind),
                     sensitivity = activity.autoPauseSensitivity,
                 )
-                resetSegments(segments, stepCount = activity.stepCount)
+                resetSegments(segments, stepCount = stepSamples.firstOrNull()?.stepCount ?: activity.stepCount)
+                synchronized(segmentLock) {
+                    stepTimeline += stepSamples.map { it.timestampEpochMillis to it.stepCount }
+                }
+                lastStepSampleEpoch = stepSamples.lastOrNull()?.epoch()
+                pendingStepSample = null
                 pointBuffer.clear()
                 val restoredPoints = when (val result = trackRepository.observeGeoPoints(activity.id).first()) {
                     is Result.Success -> result.data
@@ -339,9 +371,7 @@ internal class TrackingSessionCoordinator(
                 val processed = trackProcessor.process(rawPoints, processingConfig)
                 lastFlushAtMillis = nowMillis()
                 waitingForFixSinceMillis = null
-                // Шаги не флашатся в БД по ходу записи (см. applyStepCounter), поэтому
-                // после восстановления процесса счёт продолжается с последнего
-                // подтверждённого значения активности, а не с накопленного в памяти.
+                // Показание датчика до смерти процесса неизвестно: следующее станет базой.
                 lastStepCounter = null
                 _autoPauseMovementHint.value = false
                 _session.value = RecordingSession(
@@ -354,7 +384,7 @@ internal class TrackingSessionCoordinator(
                     maxSpeedMetersPerSecond = processed.statistics.maxSpeedMetersPerSecond.toFloat(),
                     elevationGainMeters = processed.statistics.elevationGainMeters,
                     lastPoint = processed.points.lastOrNull { !it.isOutlier },
-                    stepCount = activity.stepCount,
+                    stepCount = stepCount,
                     recordingMode = activity.recordingMode,
                     segmentKind = segmentKind,
                     segmentDistancesMeters = if (isAutoMode) {
@@ -389,22 +419,32 @@ internal class TrackingSessionCoordinator(
      * [RecordingStatus.AUTO_PAUSE] — так же, как и время: ручная пауза и ожидание сигнала
      * из зачёта исключены.
      *
-     * ponytail: значение не сохраняется в БД по ходу записи (в отличие от точек трека),
+     * В авторежиме счёт во времени пишется в `step_samples` (см. [recordStepSample]) и
+     * переживает смерть процесса.
+     *
+     * ponytail: в фиксированном режиме значение не сохраняется в БД по ходу записи,
      * поэтому при убийстве процесса счёт после восстановления сессии продолжается с
-     * последнего подтверждённого значения активности, а не с того, что было в памяти —
-     * см. [recoverActiveSessionIfNeeded]. Апгрейд, если это станет заметно на практике: то
-     * же периодическое сохранение, что и у точек ([flushBuffer]), но точечным UPDATE
-     * колонки `step_count`, а не перезаписью всей строки активности.
+     * последнего подтверждённого значения активности — см. [recoverActiveSessionIfNeeded].
+     * Апгрейд, если это станет заметно на практике: писать `step_samples` и здесь.
+     *
+     * @param readingMillis момент показания по сенсору, а не доставки.
      */
-    suspend fun applyStepCounter(counter: Long) {
+    suspend fun applyStepCounter(counter: Long, readingMillis: Long = nowMillis()) {
         val current = _session.value
-        if (current.activityId == null) return
-        logStepCounter(counter)
+        val activityId = current.activityId ?: return
+        logStepCounter(counter, readingMillis)
         if (current.isAutoMode) feedDetector(DetectorSignal.StepCounter(nowMillis(), counter))
         // В авторежиме шаги считаются всю запись: делятся они по сегментам, а в сводку
         // попадают только пешие.
         if (!current.isAutoMode && !current.segmentKind.countsSteps) return
 
+        countSteps(current, counter, readingMillis)
+        if (current.isAutoMode) {
+            recordStepSample(StepSample(activityId, readingMillis, _session.value.stepCount ?: 0))
+        }
+    }
+
+    private fun countSteps(current: RecordingSession, counter: Long, readingMillis: Long) {
         val previous = lastStepCounter
         lastStepCounter = counter
         if (previous == null) {
@@ -421,8 +461,31 @@ internal class TrackingSessionCoordinator(
             return
         }
         val total = _session.updateAndGet { it.copy(stepCount = (it.stepCount ?: 0) + delta) }.stepCount ?: 0
-        if (current.isAutoMode) synchronized(segmentLock) { stepTimeline += nowMillis() to total }
+        if (current.isAutoMode) synchronized(segmentLock) { stepTimeline += readingMillis to total }
     }
+
+    /**
+     * Не больше строки за эпоху декодера: самое первое показание записи пишется сразу —
+     * по нему видно, что шагомер у записи был, — а дальше последнее показание каждой
+     * эпохи. Счёт кумулятивен, поэтому пропущенные показания ничего не теряют.
+     */
+    private suspend fun recordStepSample(sample: StepSample) {
+        val epoch = sample.epoch()
+        if (lastStepSampleEpoch == null) {
+            writeStepSample(sample)
+            return
+        }
+        pendingStepSample?.takeIf { it.epoch() != epoch }?.let { writeStepSample(it) }
+        pendingStepSample = sample.takeIf { epoch != lastStepSampleEpoch }
+    }
+
+    private suspend fun writeStepSample(sample: StepSample) {
+        trackRepository.addStepSample(sample)
+        lastStepSampleEpoch = sample.epoch()
+        pendingStepSample = null
+    }
+
+    private fun StepSample.epoch(): Long = Math.floorDiv(timestampEpochMillis, STEP_SAMPLE_EPOCH_MILLIS)
 
     /**
      * Вердикт Activity Recognition. Нужен только авторежиму: живому детектору — лучший
@@ -603,7 +666,7 @@ internal class TrackingSessionCoordinator(
      * Показание пишется для любого типа активности: по логам калибруется детектор вида
      * движения, и нужно проверить, считает ли шагомер шаги при педалировании.
      */
-    private fun logStepCounter(counter: Long) {
+    private fun logStepCounter(counter: Long, readingMillis: Long) {
         val now = nowMillis()
         if (lastStepLoggedAtMillis?.let { now - it < STEP_LOG_INTERVAL_MILLIS } == true) return
         lastStepLoggedAtMillis = now
@@ -611,7 +674,9 @@ internal class TrackingSessionCoordinator(
             category = LogCategory.TRACKING,
             tag = TAG,
             fields = mapOf(
-                "readingTimestamp" to now.toString(),
+                "readingTimestamp" to readingMillis.toString(),
+                // Отставание доставки от показания — так видны пачки в doze.
+                "deliveredAt" to now.toString(),
                 "stepCounter" to counter.toString(),
             ),
         ) { "Step counter reading" }
@@ -1093,6 +1158,7 @@ internal class TrackingSessionCoordinator(
         val activityId = current.activityId ?: return null
 
         flushBuffer()
+        pendingStepSample?.let { writeStepSample(it) }
 
         val endTime = nowMillis()
         val ongoingPauseMillis = current.currentPauseStartMillis
@@ -1151,6 +1217,7 @@ internal class TrackingSessionCoordinator(
         _autoPauseMovementHint.value = false
         waitingForFixSinceMillis = null
         lastStepCounter = null
+        lastStepSampleEpoch = null
         _session.value = RecordingSession(status = RecordingStatus.STOPPED)
         return activityId
     }

@@ -11,6 +11,7 @@ import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
 import com.ians.korno.core.database.entity.RecognitionSampleEntity
+import com.ians.korno.core.database.entity.StepSampleEntity
 
 @Database(
     entities = [
@@ -18,8 +19,9 @@ import com.ians.korno.core.database.entity.RecognitionSampleEntity
         GeoPointEntity::class,
         ActivitySegmentEntity::class,
         RecognitionSampleEntity::class,
+        StepSampleEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: activities.is_pending_summary (NOT NULL DEFAULT 0).
@@ -52,6 +54,9 @@ import com.ians.korno.core.database.entity.RecognitionSampleEntity
         AutoMigration(from = 10, to = 11),
         // 11 -> 12: activity_type и is_type_chosen_by_user сносятся, is_auto_mode
         // становится режимом записи — см. `MIGRATION_11_12`.
+        // 12 -> 13: таблица step_samples. У прежних записей шагов во времени нет: в БД
+        // лежит только сумма за сегмент.
+        AutoMigration(from = 12, to = 13),
     ],
 )
 abstract class KornoDatabase : RoomDatabase() {
