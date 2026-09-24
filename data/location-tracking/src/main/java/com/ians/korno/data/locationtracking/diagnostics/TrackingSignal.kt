@@ -1,5 +1,6 @@
 package com.ians.korno.data.locationtracking.diagnostics
 
+import com.ians.korno.core.logging.LogLevel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -28,6 +29,9 @@ sealed interface TrackingSignal {
      */
     val dedupKey: Any get() = this
 
+    /** Уровень записи в логе: большинство сигналов редки и важны, поэтому `INFO`. */
+    val logLevel: LogLevel get() = LogLevel.INFO
+
     /**
      * Что система думает о происходящем: ходьба, бег, велосипед, автомобиль или покой.
      * Расхождение с выбранным типом активности объясняет и «слишком быстрый» трек,
@@ -51,10 +55,70 @@ sealed interface TrackingSignal {
      * `NO_PERMISSION` — подписываться не стали. Без этой строки «распознавание молчит» не
      * отличить от «подписки нет»: в записях 4 и 5 не было ни одного вердикта и ни одной
      * ошибки. Отказ самих Play Services приходит ошибкой потока.
+     *
+     * [subscription] — номер подписки в процессе: по нему снятие и тишина в логе
+     * сопоставляются с конкретной подпиской.
      */
-    data class ActivityRecognitionSubscription(val status: String) : TrackingSignal {
+    data class ActivityRecognitionSubscription(
+        val status: String,
+        val subscription: Int? = null,
+    ) : TrackingSignal {
         override val name = "Activity recognition subscription"
-        override val fields = mapOf("status" to status)
+        override val fields = buildMap {
+            put("status", status)
+            subscription?.let { put("subscription", it.toString()) }
+        }
+    }
+
+    /**
+     * Каждый broadcast распознавания, в том числе без результата. Раньше интент без
+     * результата отбрасывался молча, и в записях 18 и 19 было не отличить «Play Services
+     * ничего не шлёт» от «шлёт, но не в том виде».
+     *
+     * [resultAgeMillis] — сколько вердикт шёл до приложения. [receivedAtElapsedMillis]
+     * в поля не идёт (время есть у самой записи), но делает каждый приём отдельным
+     * сигналом: одинаковые подряд broadcast'ы не должны схлопываться при дедупликации.
+     */
+    data class ActivityRecognitionBroadcast(
+        val subscription: Int,
+        val hasResult: Boolean,
+        val action: String?,
+        val extrasKeys: List<String>,
+        val resultAgeMillis: Long?,
+        val receivedAtElapsedMillis: Long,
+    ) : TrackingSignal {
+        override val name = "Activity recognition broadcast"
+        override val fields = mapOf(
+            "subscription" to subscription.toString(),
+            "hasResult" to hasResult.toString(),
+            "action" to action.toString(),
+            "extras" to extrasKeys.joinToString(),
+            "resultAgeMillis" to resultAgeMillis.toString(),
+        )
+
+        /** Приходит раз в несколько секунд; broadcast без результата — аномалия. */
+        override val logLevel = if (hasResult) LogLevel.DEBUG else LogLevel.WARN
+    }
+
+    /**
+     * Разрешения на момент старта записи. Отозванное распознавание или «приблизительная»
+     * геолокация объясняют пустые сегменты и рыхлый трек раньше любых алгоритмов.
+     */
+    data class PermissionsSnapshot(
+        val preciseLocation: Boolean,
+        val approximateLocation: Boolean,
+        val backgroundLocation: Boolean,
+        val activityRecognition: Boolean,
+        val notifications: Boolean,
+    ) : TrackingSignal {
+        override val name = "Permissions snapshot"
+        override val fields = mapOf(
+            "preciseLocation" to preciseLocation.toString(),
+            "approximateLocation" to approximateLocation.toString(),
+            "backgroundLocation" to backgroundLocation.toString(),
+            "activityRecognition" to activityRecognition.toString(),
+            "notifications" to notifications.toString(),
+        )
     }
 
     /** Пользователь выключил геолокацию посреди записи — самая частая причина дыры в треке. */

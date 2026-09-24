@@ -15,6 +15,7 @@ korno-activity-*.zip
 .externalNativeBuild
 .cxx
 local.properties
+diagnostics
 
 # служебные данные Kotlin Gradle plugin (маркеры сессий, отчёты об ошибках)
 .kotlin/

@@ -7,18 +7,26 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.DetectedActivity
+import com.ians.korno.core.logging.AppLogger
+import com.ians.korno.core.logging.LogCategory
+import com.ians.korno.core.logging.info
+import com.ians.korno.core.logging.warn
 import com.ians.korno.data.locationtracking.permission.LocationPermissionChecker
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Подписка на распознавание активности. У Play Services нет колбэка: результат приходит
@@ -32,7 +40,10 @@ import kotlinx.coroutines.flow.flowOf
 class ActivityRecognitionSignalSource(
     private val context: Context,
     private val permissionChecker: LocationPermissionChecker,
+    private val logger: AppLogger,
 ) : TrackingSignalSource {
+
+    private val subscriptionCounter = AtomicInteger()
 
     /**
      * Распознавание вообще может работать: разрешение выдано и Play Services на месте.
@@ -50,11 +61,27 @@ class ActivityRecognitionSignalSource(
             return flowOf(TrackingSignal.ActivityRecognitionSubscription(STATUS_NO_PERMISSION))
         }
         return callbackFlow {
+            val subscription = subscriptionCounter.incrementAndGet()
+            val broadcasts = AtomicInteger()
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    if (!ActivityRecognitionResult.hasResult(intent)) return
-                    val result = ActivityRecognitionResult.extractResult(intent) ?: return
-                    trySend(result.toSignal())
+                    broadcasts.incrementAndGet()
+                    val result = intent.takeIf(ActivityRecognitionResult::hasResult)
+                        ?.let(ActivityRecognitionResult::extractResult)
+                    val now = SystemClock.elapsedRealtime()
+                    trySend(
+                        TrackingSignal.ActivityRecognitionBroadcast(
+                            subscription = subscription,
+                            hasResult = result != null,
+                            action = intent.action,
+                            extrasKeys = runCatching { intent.extras?.keySet()?.sorted() }
+                                .getOrNull()
+                                .orEmpty(),
+                            resultAgeMillis = result?.let { now - it.elapsedRealtimeMillis },
+                            receivedAtElapsedMillis = now,
+                        ),
+                    )
+                    result?.let { trySend(it.toSignal()) }
                 }
             }
             ContextCompat.registerReceiver(
@@ -77,7 +104,12 @@ class ActivityRecognitionSignalSource(
             val request = runCatching {
                 client.requestActivityUpdates(UPDATE_INTERVAL_MILLIS, pendingIntent)
                     .addOnSuccessListener {
-                        trySend(TrackingSignal.ActivityRecognitionSubscription(STATUS_SUBSCRIBED))
+                        trySend(
+                            TrackingSignal.ActivityRecognitionSubscription(
+                                status = STATUS_SUBSCRIBED,
+                                subscription = subscription,
+                            ),
+                        )
                     }
                     .addOnFailureListener { error -> close(error) }
             }
@@ -87,14 +119,50 @@ class ActivityRecognitionSignalSource(
                 return@callbackFlow
             }
 
+            // Отсутствие вердиктов раньше выражалось только отсутствием строк — и его нельзя
+            // было отличить от «сборка такого не пишет». Молчание пишется явно.
+            launch {
+                delay(SILENCE_WARNING_MILLIS.milliseconds)
+                if (broadcasts.get() == 0) {
+                    logger.warn(
+                        category = LogCategory.SYSTEM,
+                        tag = TAG,
+                        fields = mapOf(
+                            "subscription" to subscription.toString(),
+                            "waitedMillis" to SILENCE_WARNING_MILLIS.toString(),
+                        ),
+                    ) { "Activity recognition silent" }
+                }
+            }
+
             awaitClose {
-                runCatching { client.removeActivityUpdates(pendingIntent) }
+                // Итог снятия приходит уже после закрытия потока, поэтому пишется
+                // напрямую. Снятие, опередившее следующую подписку на тот же
+                // PendingIntent, иначе было бы не видно.
+                val fields = mapOf(
+                    "subscription" to subscription.toString(),
+                    "broadcastCount" to broadcasts.get().toString(),
+                )
+                runCatching {
+                    client.removeActivityUpdates(pendingIntent)
+                        .addOnSuccessListener {
+                            logger.info(LogCategory.SYSTEM, TAG, fields) {
+                                "Activity recognition updates removed"
+                            }
+                        }
+                        .addOnFailureListener { error ->
+                            logger.warn(LogCategory.SYSTEM, TAG, error, fields) {
+                                "Activity recognition removal failed"
+                            }
+                        }
+                }
                 runCatching { context.unregisterReceiver(receiver) }
             }
         }
             // Распознавание повторяет один и тот же вердикт каждые несколько секунд;
-            // в логе нужен момент смены, а не подтверждение прежнего состояния.
-            .distinctUntilChanged()
+            // в логе нужен момент смены, а не подтверждение прежнего состояния. Дедупликация
+            // по типу: вердикты чередуются с broadcast'ами и подряд не идут никогда.
+            .distinctPerSignalType()
     }
 
     /**
@@ -116,7 +184,14 @@ class ActivityRecognitionSignalSource(
             Intent(ACTION_ACTIVITY_UPDATE).setPackage(context.packageName),
             pendingIntentFlags() or PendingIntent.FLAG_NO_CREATE,
         ) ?: return false
-        runCatching { ActivityRecognition.getClient(context).removeActivityUpdates(pendingIntent) }
+        runCatching {
+            ActivityRecognition.getClient(context).removeActivityUpdates(pendingIntent)
+                .addOnFailureListener { error ->
+                    logger.warn(LogCategory.SYSTEM, TAG, error) {
+                        "Stale activity recognition removal failed"
+                    }
+                }
+        }
         return true
     }
 
@@ -167,6 +242,8 @@ class ActivityRecognitionSignalSource(
     }
 
     private companion object {
+        const val TAG = "ActivityRecognition"
+        const val SILENCE_WARNING_MILLIS = 60_000L
         const val ACTION_ACTIVITY_UPDATE = "com.ians.korno.ACTION_ACTIVITY_RECOGNITION_UPDATE"
         const val REQUEST_CODE = 4201
         const val UPDATE_INTERVAL_MILLIS = 15_000L

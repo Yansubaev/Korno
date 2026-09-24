@@ -1,6 +1,10 @@
 package com.ians.korno
 
+import android.app.ActivityManager
 import android.app.Application
+import android.app.ApplicationExitInfo
+import android.os.Build
+import androidx.core.content.getSystemService
 import com.ians.korno.core.data.di.coreDataModule
 import com.ians.korno.core.database.di.databaseModule
 import com.ians.korno.core.domain.repository.MapCacheRepository
@@ -83,6 +87,7 @@ class KornoApplication : Application() {
         logger.info(LogCategory.APP, TAG) {
             "Application started"
         }
+        logPreviousProcessExit()
 
         // Подписка на распознавание, оставшаяся от убитого процесса. Только здесь: в свежем
         // процессе записи ещё нет, а позже вызов снял бы живую подписку.
@@ -101,6 +106,51 @@ class KornoApplication : Application() {
         // Записи, остановленные кнопкой в уведомлении, сохраняются без подтверждения —
         // пока такие есть, о них напоминает отдельное уведомление.
         pendingSummaryNotifier.startWatching()
+    }
+
+    /**
+     * Почему умер прошлый процесс: смахнули из недавних, крэш, ANR, нехватка памяти.
+     * Крэш, который логгер не успел сбросить на диск, виден только здесь, а «процесс
+     * умер через 11 секунд после стопа» без этой строки превращается в переписку.
+     */
+    private fun logPreviousProcessExit() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val exit = runCatching {
+            getSystemService<ActivityManager>()
+                ?.getHistoricalProcessExitReasons(packageName, 0, 1)
+                ?.firstOrNull()
+        }.getOrNull() ?: return
+        logger.info(
+            category = LogCategory.APP,
+            tag = TAG,
+            fields = mapOf(
+                "reason" to exitReasonName(exit.reason),
+                "description" to exit.description.toString(),
+                "status" to exit.status.toString(),
+                "importance" to exit.importance.toString(),
+                "exitTimestamp" to exit.timestamp.toString(),
+            ),
+        ) { "Previous process exit" }
+    }
+
+    private fun exitReasonName(reason: Int): String = when (reason) {
+        ApplicationExitInfo.REASON_EXIT_SELF -> "EXIT_SELF"
+        ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+        ApplicationExitInfo.REASON_CRASH -> "CRASH"
+        ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE"
+        ApplicationExitInfo.REASON_ANR -> "ANR"
+        ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INITIALIZATION_FAILURE"
+        ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "PERMISSION_CHANGE"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE_USAGE"
+        ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+        ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
+        ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "DEPENDENCY_DIED"
+        ApplicationExitInfo.REASON_OTHER -> "OTHER"
+        ApplicationExitInfo.REASON_FREEZER -> "FREEZER"
+        ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE -> "PACKAGE_STATE_CHANGE"
+        ApplicationExitInfo.REASON_PACKAGE_UPDATED -> "PACKAGE_UPDATED"
+        else -> "UNKNOWN($reason)"
     }
 
     private companion object {

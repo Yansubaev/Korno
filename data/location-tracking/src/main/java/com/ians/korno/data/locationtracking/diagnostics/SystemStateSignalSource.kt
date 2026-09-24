@@ -1,15 +1,18 @@
 package com.ians.korno.data.locationtracking.diagnostics
 
+import android.Manifest
 import android.app.ActivityManager
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import kotlinx.coroutines.channels.awaitClose
@@ -85,6 +88,7 @@ internal class SystemStateSignalSource(
         )
         send(currentIdleSignal())
         send(currentBackgroundRestrictionSignal())
+        send(currentPermissionsSignal())
 
         awaitClose { runCatching { context.unregisterReceiver(receiver) } }
     }
@@ -108,6 +112,20 @@ internal class SystemStateSignalSource(
             standbyBucket = standbyBucketName(),
         )
     }
+
+    /** Только снимок: отзыв разрешения во время записи и так роняет её с ошибкой в логе. */
+    private fun currentPermissionsSignal() = TrackingSignal.PermissionsSnapshot(
+        preciseLocation = isGranted(Manifest.permission.ACCESS_FINE_LOCATION),
+        approximateLocation = isGranted(Manifest.permission.ACCESS_COARSE_LOCATION),
+        backgroundLocation = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            isGranted(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+        activityRecognition = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            isGranted(Manifest.permission.ACTIVITY_RECOGNITION),
+        notifications = NotificationManagerCompat.from(context).areNotificationsEnabled(),
+    )
+
+    private fun isGranted(permission: String) =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
     private fun standbyBucketName(): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return "UNKNOWN"

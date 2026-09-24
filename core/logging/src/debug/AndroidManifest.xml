@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Версия Play Services в заголовке лога: без запроса пакет с Android 11 не виден. -->
+    <queries>
+        <package android:name="com.google.android.gms" />
+    </queries>
+
     <application>
         <provider
             android:name="com.ians.korno.core.logging.DiagnosticsFileProvider"

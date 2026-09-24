@@ -72,6 +72,55 @@ class LogFileStoreTest {
     }
 
     @Test
+    fun `detailed activity records stay out of the session log`() = runTest {
+        val store = createStore()
+
+        store.append("{\"message\":\"sample\"}", activityId = 7L, level = LogLevel.DEBUG)
+        store.append("{\"message\":\"app detail\"}", level = LogLevel.DEBUG)
+
+        assertThat(store.activityInfo(7L).recordCount).isEqualTo(1)
+        val sessionLog = temporaryDirectory.resolve("logs/korno-$SESSION_ID-0.jsonl").toFile()
+        assertThat(sessionLog.readLines()).isEqualTo(listOf("{\"message\":\"app detail\"}"))
+    }
+
+    @Test
+    fun `every new file starts with its header`() = runTest {
+        val store = createStore(fileHeader = { activityId -> "header-$activityId" })
+
+        store.append("app")
+        store.append("activity", activityId = 7L)
+
+        val sessionLog = temporaryDirectory.resolve("logs/korno-$SESSION_ID-0.jsonl").toFile()
+        assertThat(sessionLog.readLines()).isEqualTo(listOf("header-null", "app", "activity"))
+        assertThat(store.activityInfo(7L).recordCount).isEqualTo(2)
+    }
+
+    @Test
+    fun `activity archive carries app records around the activity`() = runTest {
+        val store = createStore()
+        store.append(record("2026-09-24T08:40:00.000Z"))
+        store.append(record("2026-09-24T08:59:10.000Z", message = "Application started"))
+        store.append(record("2026-09-24T08:59:35.000Z", activityId = 2L), activityId = 2L)
+        store.append(record("2026-09-24T09:28:04.000Z", activityId = 2L), activityId = 2L)
+        store.append(record("2026-09-24T09:28:05.000Z", message = "Updates removed"))
+        store.append(record("2026-09-24T09:40:00.000Z"))
+
+        val result = store.createActivityArchive(2L, "{\"activityId\":2}")
+
+        val archive = (result as LogArchiveResult.Success).archive
+        ZipFile(archive.uri).use { zip ->
+            val context = zip.getInputStream(zip.getEntry("context/app.jsonl"))
+                .bufferedReader().readLines()
+            assertThat(context).isEqualTo(
+                listOf(
+                    record("2026-09-24T08:59:10.000Z", message = "Application started"),
+                    record("2026-09-24T09:28:05.000Z", message = "Updates removed"),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `activity logs are kept apart from each other`() = runTest {
         val store = createStore()
 
@@ -150,6 +199,7 @@ class LogFileStoreTest {
         maxFileCount: Int = 5,
         maxActivityFileBytes: Long = 8L * 1024L * 1024L,
         maxActivityFileCount: Int = 20,
+        fileHeader: (Long?) -> String? = { null },
     ) = LogFileStore(
         logsDirectory = temporaryDirectory.resolve("logs").toFile(),
         shareDirectory = temporaryDirectory.resolve("share").toFile(),
@@ -160,7 +210,12 @@ class LogFileStoreTest {
         maxFileCount = maxFileCount,
         maxActivityFileBytes = maxActivityFileBytes,
         maxActivityFileCount = maxActivityFileCount,
+        fileHeader = fileHeader,
     )
+
+    private fun record(timestamp: String, message: String = "noise", activityId: Long? = null) =
+        "{\"timestampUtc\":\"$timestamp\",\"message\":\"$message\"" +
+            (activityId?.let { ",\"activityId\":$it" } ?: "") + "}"
 
     private companion object {
         const val SESSION_ID = "session1"

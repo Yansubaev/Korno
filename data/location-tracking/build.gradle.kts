@@ -6,6 +6,7 @@ plugins {
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:domain"))
+    api(project(":core:logging"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.play.services.location)
 }

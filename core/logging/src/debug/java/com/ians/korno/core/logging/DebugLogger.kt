@@ -50,7 +50,22 @@ internal class DebugLogger(
                 file,
             ).toString()
         },
+        fileHeader = ::fileHeaderLine,
     )
+
+    /** Чем записан лог; не меняется за время жизни процесса. */
+    private val buildFields: Map<String, String> by lazy {
+        val packageInfo = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        }.getOrNull()
+        mapOf(
+            "gitSha" to BuildConfig.GIT_SHA,
+            "gitDirty" to BuildConfig.GIT_DIRTY.toString(),
+            "versionName" to packageInfo?.versionName.orEmpty(),
+            "sdkInt" to Build.VERSION.SDK_INT.toString(),
+            "playServicesVersion" to playServicesVersion(),
+        )
+    }
 
     @Volatile
     private var settingsLoaded = false
@@ -70,6 +85,7 @@ internal class DebugLogger(
                         fileStore.append(
                             jsonLine = json.encodeToString(command.record),
                             activityId = command.record.activityId,
+                            level = command.level,
                         )
                     } catch (error: Exception) {
                         Logger.e { "[APP/DebugLogger] File logging failed: ${error.message}" }
@@ -230,7 +246,9 @@ internal class DebugLogger(
                 safeFields
             },
         )
-        if (queue.trySend(LogCommand.Write(record)).isFailure) droppedRecords.incrementAndGet()
+        if (queue.trySend(LogCommand.Write(record, request.level)).isFailure) {
+            droppedRecords.incrementAndGet()
+        }
     }
 
     private suspend fun awaitPendingWrites() {
@@ -280,8 +298,42 @@ internal class DebugLogger(
             sdkInt = Build.VERSION.SDK_INT,
             loggingLevel = currentSettings.minimumLevel.name,
             locationSamplesIncluded = currentSettings.includeLocationSamples,
+            gitSha = BuildConfig.GIT_SHA,
+            gitDirty = BuildConfig.GIT_DIRTY,
+            playServicesVersion = playServicesVersion(),
         )
     }
+
+    /**
+     * Первая строка каждого файла лога. `versionName` у всех debug-сборок один, и какой
+     * сборкой записан лог, раньше приходилось угадывать по датам коммитов; Play Services
+     * обновляется сам и меняет поведение распознавания без единой правки у нас.
+     */
+    private fun fileHeaderLine(activityId: Long?): String = json.encodeToString(
+        LogRecord(
+            timestampUtc = utcTimestamp(System.currentTimeMillis()),
+            uptimeMillis = SystemClock.elapsedRealtime(),
+            level = LogLevel.INFO.name,
+            category = LogCategory.APP.name,
+            tag = TAG,
+            message = "Log file opened",
+            thread = Thread.currentThread().name,
+            sessionId = sessionId,
+            activityId = activityId,
+            fields = buildFields,
+        ),
+    )
+
+    private fun playServicesVersion(): String = runCatching {
+        val info = context.packageManager.getPackageInfo(PLAY_SERVICES_PACKAGE, 0)
+        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
+        "${info.versionName} ($code)"
+    }.getOrDefault("unavailable")
 
     private data class LogRequest(
         val level: LogLevel,
@@ -295,7 +347,7 @@ internal class DebugLogger(
     )
 
     private sealed interface LogCommand {
-        data class Write(val record: LogRecord) : LogCommand
+        data class Write(val record: LogRecord, val level: LogLevel) : LogCommand
 
         data class Barrier(val completion: CompletableDeferred<Unit>) : LogCommand
     }
@@ -329,9 +381,14 @@ internal class DebugLogger(
         val sdkInt: Int,
         val loggingLevel: String,
         val locationSamplesIncluded: Boolean,
+        val gitSha: String,
+        val gitDirty: Boolean,
+        val playServicesVersion: String,
     )
 
     private companion object {
+        const val TAG = "DebugLogger"
+        const val PLAY_SERVICES_PACKAGE = "com.google.android.gms"
         const val LOG_QUEUE_CAPACITY = 1_024
         const val BOOTSTRAP_BUFFER_CAPACITY = 100
         const val CRASH_FLUSH_TIMEOUT_MILLIS = 750L

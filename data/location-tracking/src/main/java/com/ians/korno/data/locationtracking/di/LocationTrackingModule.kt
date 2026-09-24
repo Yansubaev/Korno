@@ -19,6 +19,6 @@ val locationTrackingModule = module {
     single { DefaultLocationClient(get()) } bind LocationClient::class
     single { DefaultLocationPermissionChecker(get()) } bind LocationPermissionChecker::class
     single { SystemStateSignalSource(get()) } bind TrackingSignalSource::class
-    single { ActivityRecognitionSignalSource(get(), get()) }
+    single { ActivityRecognitionSignalSource(get(), get(), get()) }
     single { StepCounterClient(get(), get()) }
 }

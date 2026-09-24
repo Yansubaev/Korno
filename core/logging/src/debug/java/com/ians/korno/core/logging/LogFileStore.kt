@@ -4,6 +4,9 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CoroutineDispatcher
@@ -14,10 +17,16 @@ import kotlinx.coroutines.withContext
 
 /**
  * Логи лежат в двух измерениях. Общий поток сессии приложения ротируется по объёму
- * ([maxFileBytes] × [maxFileCount]) — за пару часов записи с точками он успевает
- * прокрутиться целиком. Поэтому запись, у которой известна активность, дублируется во
- * второй файл: лог конкретной тренировки должен пережить и ротацию общего потока,
- * и перезапуск приложения, иначе экспортировать с экрана активности было бы нечего.
+ * ([maxFileBytes] × [maxFileCount]), лог активности живёт своим файлом и переживает и
+ * ротацию, и перезапуск приложения.
+ *
+ * Подробности записи (`DEBUG` и ниже — по строке на каждый сэмпл) идут только в лог
+ * активности: в общем потоке они занимали 95–97 % объёма и прокручивали его за пару часов,
+ * вытесняя редкие события самого приложения. В общий поток из записи попадает `INFO` и
+ * выше — старт, стоп, смены состояния, системные сигналы, ошибки.
+ *
+ * Каждый новый файл начинается строкой [fileHeader]: чем записан файл (сборка, версия
+ * Play Services). `diagnostics.json` описывает момент выгрузки, а не записи.
  */
 internal class LogFileStore(
     private val logsDirectory: File,
@@ -30,6 +39,8 @@ internal class LogFileStore(
     private val maxActivityFileBytes: Long = DEFAULT_MAX_ACTIVITY_FILE_BYTES,
     private val maxActivityFileCount: Int = DEFAULT_MAX_ACTIVITY_FILE_COUNT,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    /** Первая строка каждого нового файла; `activityId` — для файла активности. */
+    private val fileHeader: (activityId: Long?) -> String? = { null },
 ) {
     private val mutex = Mutex()
     private val activitiesDirectory = File(logsDirectory, ACTIVITIES_DIRECTORY_NAME)
@@ -43,9 +54,15 @@ internal class LogFileStore(
     private var openActivityId: Long? = null
     private var activityTruncated = false
 
-    suspend fun append(jsonLine: String, activityId: Long? = null) = withContext(ioDispatcher) {
+    suspend fun append(
+        jsonLine: String,
+        activityId: Long? = null,
+        level: LogLevel = LogLevel.INFO,
+    ) = withContext(ioDispatcher) {
         mutex.withLock {
-            appendToSessionLogLocked(jsonLine)
+            if (activityId == null || level.priority >= LogLevel.INFO.priority) {
+                appendToSessionLogLocked(jsonLine)
+            }
             if (activityId != null) appendToActivityLogLocked(activityId, jsonLine)
         }
     }
@@ -119,18 +136,48 @@ internal class LogFileStore(
             if (openActivityId == activityId) runCatching { activityWriter?.flush() }
             val file = activityFileFor(activityId)
             if (!file.isFile || file.length() == 0L) return@withLock LogArchiveResult.NoLogs
+            flushWritersLocked()
             writeArchiveLocked(
                 archiveName = "korno-activity-$activityId-$sessionId.zip",
                 diagnosticsJson = diagnosticsJson,
                 entries = mapOf("logs/${file.name}" to file),
+                textEntries = appContextLocked(file)
+                    ?.let { context -> mapOf(APP_CONTEXT_ENTRY to context) }
+                    .orEmpty(),
             )
         }
+    }
+
+    /**
+     * Записи приложения вне активности вокруг неё: запуск процесса и причина смерти
+     * прошлого, прогрев GPS до появления `activityId`, снятие зависшей подписки, итог
+     * отписки после стопа. В сам лог активности они не попадают — активности ещё или уже
+     * нет, — а без них не видно, в каком окружении запись началась.
+     *
+     * Строки общего потока с `activityId` пропускаются: свои уже лежат в логе активности,
+     * чужие к ней не относятся. Время сравнивается строками — формат у всех записей один.
+     */
+    private fun appContextLocked(activityFile: File): String? {
+        val activityTimestamps = activityFile.useLines { lines ->
+            lines.mapNotNull(::timestampOf).toList()
+        }
+        val from = activityTimestamps.minOrNull()?.shiftedBy(-APP_CONTEXT_BEFORE_MILLIS) ?: return null
+        val to = activityTimestamps.max().shiftedBy(APP_CONTEXT_AFTER_MILLIS) ?: return null
+        val context = logFilesLocked()
+            .flatMap { file -> file.readLines() }
+            .filterNot { line -> ACTIVITY_ID_MARKER in line }
+            .mapNotNull { line -> timestampOf(line)?.let { timestamp -> timestamp to line } }
+            .filter { (timestamp, _) -> timestamp in from..to }
+            .sortedBy { (timestamp, _) -> timestamp }
+        if (context.isEmpty()) return null
+        return context.joinToString(separator = "\n", postfix = "\n") { (_, line) -> line }
     }
 
     private fun writeArchiveLocked(
         archiveName: String,
         diagnosticsJson: String,
         entries: Map<String, File>,
+        textEntries: Map<String, String> = emptyMap(),
     ): LogArchiveResult = try {
         shareDirectory.mkdirs()
         clearStaleArchivesLocked()
@@ -142,6 +189,11 @@ internal class LogFileStore(
             entries.forEach { (entryName, file) ->
                 zip.putNextEntry(ZipEntry(entryName))
                 file.inputStream().use { input -> input.copyTo(zip) }
+                zip.closeEntry()
+            }
+            textEntries.forEach { (entryName, text) ->
+                zip.putNextEntry(ZipEntry(entryName))
+                zip.write(text.toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
             }
         }
@@ -183,6 +235,7 @@ internal class LogFileStore(
             activityFile = file
             activityTruncated = false
             activityWriter = file.appendingWriter()
+            fileHeader(activityId)?.let { header -> activityWriter?.writeLine(header) }
         }
         if (activityTruncated) return
         val file = activityFile ?: return
@@ -200,6 +253,7 @@ internal class LogFileStore(
         val file = File(logsDirectory, "korno-$sessionId-$fileIndex.jsonl")
         currentFile = file
         writer = file.appendingWriter()
+        fileHeader(null)?.let { header -> writer?.writeLine(header) }
         return file
     }
 
@@ -272,6 +326,18 @@ internal class LogFileStore(
         flush()
     }
 
+    private fun timestampOf(line: String): String? =
+        TIMESTAMP_PATTERN.find(line)?.groupValues?.get(1)
+
+    private fun String.shiftedBy(millis: Long): String? = runCatching {
+        val format = timestampFormat()
+        format.format(format.parse(this)!!.time + millis)
+    }.getOrNull()
+
+    private fun timestampFormat() = SimpleDateFormat(TIMESTAMP_FORMAT, Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+
     private fun String.byteLength(): Long = toByteArray(Charsets.UTF_8).size + 1L
 
     private companion object {
@@ -282,6 +348,12 @@ internal class LogFileStore(
         const val LOG_RETENTION_MILLIS = 7L * 24L * 60L * 60L * 1_000L
         const val ARCHIVE_RETENTION_MILLIS = 24L * 60L * 60L * 1_000L
         const val ACTIVITIES_DIRECTORY_NAME = "activities"
+        const val APP_CONTEXT_ENTRY = "context/app.jsonl"
+        const val APP_CONTEXT_BEFORE_MILLIS = 10L * 60L * 1_000L
+        const val APP_CONTEXT_AFTER_MILLIS = 60L * 1_000L
+        const val ACTIVITY_ID_MARKER = "\"activityId\":"
+        const val TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        val TIMESTAMP_PATTERN = Regex("\"timestampUtc\":\"([^\"]+)\"")
 
         /** Валидная JSONL-строка: файл должен остаться читаемым для `jq` и после обрыва. */
         const val TRUNCATION_RECORD =

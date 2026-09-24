@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.content.getSystemService
 import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.RecordingNotificationStyle
@@ -82,7 +83,9 @@ internal class LocationTrackingService : Service() {
     private var stepJob: Job? = null
     private var signalJob: Job? = null
     private var recognitionJob: Job? = null
+    private var heartbeatJob: Job? = null
     private var preparationTimeoutJob: Job? = null
+    private var pulse = RecordingPulse()
     private var isPreparing = false
     private var measurementSystem = MeasurementSystem.METRIC
     private var notificationStyle = RecordingNotificationStyle.AUTO
@@ -128,6 +131,7 @@ internal class LocationTrackingService : Service() {
         stepJob?.cancel()
         signalJob?.cancel()
         recognitionJob?.cancel()
+        heartbeatJob?.cancel()
         preparationTimeoutJob?.cancel()
         serviceScope.cancel()
         super.onDestroy()
@@ -171,10 +175,32 @@ internal class LocationTrackingService : Service() {
         preparationTimeoutJob?.cancel()
         preparationTimeoutJob = null
         startForegroundCompat(buildNotification())
+        if (heartbeatJob?.isActive != true) pulse = RecordingPulse()
         startLocationUpdates()
         startStepCollection()
         startSignalCollection()
         startRecognitionCollection()
+        startHeartbeat()
+    }
+
+    private fun startHeartbeat() {
+        if (heartbeatJob?.isActive == true) return
+        heartbeatJob = serviceScope.launch {
+            while (true) {
+                delay(HEARTBEAT_INTERVAL_MILLIS.milliseconds)
+                logHeartbeat()
+            }
+        }
+    }
+
+    /** Последний пульс пишется и на стопе: в нём итоги записи по каждому источнику. */
+    private fun logHeartbeat() {
+        val idle = getSystemService<PowerManager>()?.isDeviceIdleMode == true
+        logger.info(
+            category = LogCategory.TRACKING,
+            tag = TAG,
+            fields = pulse.snapshot() + ("deviceIdleMode" to idle.toString()),
+        ) { "Recording heartbeat" }
     }
 
     /**
@@ -201,7 +227,10 @@ internal class LocationTrackingService : Service() {
                         throwable = error,
                     ) { "Step counter stream failed" }
                 }
-                .collect(coordinator::applyStepCounter)
+                .collect { counter ->
+                    pulse.stepReadings.incrementAndGet()
+                    coordinator.applyStepCounter(counter)
+                }
         }
     }
 
@@ -229,14 +258,20 @@ internal class LocationTrackingService : Service() {
                     ) { "Activity recognition stream failed" }
                 }
                 .collect { signal ->
-                    logger.info(
+                    logger.log(
+                        level = signal.logLevel,
                         category = LogCategory.SYSTEM,
                         tag = TAG,
-                        fields = signal.fields
+                        fields = signal.fields,
                     ) { signal.name }
-                    if (signal is TrackingSignal.ActivityRecognized) coordinator.applyActivityRecognition(
-                        signal
-                    )
+                    when (signal) {
+                        is TrackingSignal.ActivityRecognitionBroadcast -> {
+                            pulse.recognitionBroadcasts.incrementAndGet()
+                            if (signal.hasResult) pulse.recognitionResults.incrementAndGet()
+                        }
+                        is TrackingSignal.ActivityRecognized -> coordinator.applyActivityRecognition(signal)
+                        else -> Unit
+                    }
                 }
         }
     }
@@ -263,7 +298,8 @@ internal class LocationTrackingService : Service() {
                     ) { "System signal stream failed" }
                 }
                 .collect { signal ->
-                    logger.info(
+                    logger.log(
+                        level = signal.logLevel,
                         category = LogCategory.SYSTEM,
                         tag = TAG,
                         fields = signal.fields,
@@ -353,6 +389,7 @@ internal class LocationTrackingService : Service() {
                     stopRecording(pendingSummary = true)
                 }
                 .collect { sample ->
+                    pulse.locationSamples.incrementAndGet()
                     coordinator.applySample(sample)
                     if (!isPreparing) refreshNotification()
                 }
@@ -363,6 +400,8 @@ internal class LocationTrackingService : Service() {
         serviceScope.launch {
             // Сервис останавливается в любом случае: сбой сохранения не должен оставлять
             // включённым GPS. Незакрытая активность восстановится при следующем открытии.
+            heartbeatJob?.cancel()
+            if (coordinator.session.value.activityId != null) logHeartbeat()
             try {
                 coordinator.endSession(pendingSummary)
             } catch (error: CancellationException) {
@@ -378,6 +417,7 @@ internal class LocationTrackingService : Service() {
             stepJob?.cancel()
             signalJob?.cancel()
             recognitionJob?.cancel()
+            heartbeatJob?.cancel()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -427,6 +467,7 @@ internal class LocationTrackingService : Service() {
 
     companion object {
         private const val TAG = "LocationTrackingService"
+        private const val HEARTBEAT_INTERVAL_MILLIS = 60_000L
         const val ACTION_PREPARE = "com.ians.korno.tracking.action.PREPARE"
         const val ACTION_CANCEL_PREPARATION = "com.ians.korno.tracking.action.CANCEL_PREPARATION"
         const val ACTION_START = "com.ians.korno.tracking.action.START"
