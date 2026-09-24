@@ -1126,10 +1126,10 @@ class TrackingSessionCoordinatorTest {
         override suspend fun getStepSamples(activityId: Long): Result<List<StepSample>, DataError.Local> =
             Result.Success(stepSamples.filter { it.activityId == activityId })
 
-        override suspend fun getRoutePreview(
-            activityId: Long,
-            maxPoints: Int,
-        ): Result<List<RoutePoint>, DataError.Local> = Result.Success(emptyList())
+        override fun observeRoutePreviews(): Flow<Result<Map<Long, List<RoutePoint>>, DataError.Local>> =
+            flowOf(Result.Success(emptyMap()))
+
+        override suspend fun backfillRoutePreviews(): EmptyResult<DataError.Local> = Result.Success(Unit)
 
         override suspend fun insertTrack(
             activity: Activity,

@@ -242,10 +242,6 @@ internal fun ActivityListContent(
                 }
             }
             items(items = state.items, key = { it.id }) { item ->
-                // Маршрут запрашивается ровно для тех строк, которые LazyColumn
-                // действительно собрал: за списком в сотню активностей иначе
-                // тянулись бы все треки разом.
-                LaunchedEffect(item.id) { onAction(ActivityListAction.RowShown(item.id)) }
                 ActivityRow(
                     item = item,
                     routePreview = state.routePreviews[item.id].orEmpty(),

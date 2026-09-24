@@ -8,6 +8,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isTrue
+import com.ians.korno.core.database.entity.RoutePreviewEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -264,13 +266,49 @@ class KornoDatabaseMigrationTest {
     }
 
     @Test
+    fun migration13To14StartsWithoutPreviewsAndLeavesOldActivitiesToBackfill() = runTest {
+        helper.createDatabase(TEST_DATABASE_NAME, 13).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO activities (
+                    id, start_time, end_time, title, note, distance, moving_time, elapsed_time,
+                    avg_speed, max_speed, elevation_gain, is_manually_edited, step_count, recording_mode
+                ) VALUES (1, 1757052000000, 1757052600000, 'Old run', NULL, 1200.0, 600000,
+                    600000, 2.0, 3.5, 12.0, 0, NULL, 'FIXED')
+                """.trimIndent(),
+            )
+        }
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 14, true).close()
+
+        val database = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            KornoDatabase::class.java,
+            TEST_DATABASE_NAME,
+        ).build()
+        try {
+            val dao = database.trackDao()
+            // Превью старой записи посчитает дозаполнение — миграция его не пишет.
+            assertThat(dao.activityIdsWithoutRoutePreview()).isEqualTo(listOf(1L))
+
+            dao.upsertRoutePreview(RoutePreviewEntity(activityId = 1L, points = ByteArray(16)))
+            assertThat(dao.activityIdsWithoutRoutePreview()).isEqualTo(emptyList())
+
+            // Превью уходит вместе с активностью: иначе у удалённой записи оставался бы мусор.
+            dao.deleteActivity(1L)
+            assertThat(dao.observeRoutePreviews().first()).isEqualTo(emptyList())
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
     fun allMigrationsFromFirstVersionLeaveTheTrackReadableByRoom() = runTest {
         helper.createDatabase(TEST_DATABASE_NAME, 1).use { database ->
             database.insertActivity(id = 1L, title = "Hike")
             database.insertGeoPoint(id = 1L, activityId = 1L, timestamp = 1_757_052_000_000L)
             database.insertGeoPoint(id = 2L, activityId = 1L, timestamp = 1_757_052_005_000L)
         }
-        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 13, true, KornoDatabase.MIGRATION_11_12).close()
+        helper.runMigrationsAndValidate(TEST_DATABASE_NAME, 14, true, KornoDatabase.MIGRATION_11_12).close()
 
         // Валидация схемы ещё не значит, что по ней читается трек: DAO спрашивает и те
         // колонки, которых в первой версии не было.

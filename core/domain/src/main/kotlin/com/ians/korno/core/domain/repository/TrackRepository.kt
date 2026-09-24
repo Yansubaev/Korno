@@ -21,14 +21,14 @@ interface TrackRepository {
     suspend fun findActiveActivity(): Result<Activity?, DataError.Local>
 
     /**
-     * Упрощённый маршрут для превью: не более [maxPoints] точек, равномерно
-     * прореженных по треку. Разовое чтение, без подписки — миниатюра в списке
-     * не обязана перерисовываться на каждое изменение трека.
+     * Превью маршрутов всех записей по id активности — прореженные силуэты для миниатюр.
+     * Считаются, когда трек пишется целиком ([insertTrack], [replaceTrack]); здесь только
+     * читаются, одной подпиской на всю базу вместо чтения треков построчно.
      */
-    suspend fun getRoutePreview(
-        activityId: Long,
-        maxPoints: Int,
-    ): Result<List<RoutePoint>, DataError.Local>
+    fun observeRoutePreviews(): Flow<Result<Map<Long, List<RoutePoint>>, DataError.Local>>
+
+    /** Досчитывает превью завершённым записям без него — сохранённым до появления превью. */
+    suspend fun backfillRoutePreviews(): EmptyResult<DataError.Local>
 
     /** Завершённые записи, которые пользователь ещё не подтвердил на экране сохранения. */
     fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>>

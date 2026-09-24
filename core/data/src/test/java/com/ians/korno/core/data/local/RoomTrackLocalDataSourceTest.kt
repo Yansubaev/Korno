@@ -2,7 +2,11 @@ package com.ians.korno.core.data.local
 
 import app.cash.turbine.test
 import assertk.assertThat
+import assertk.assertions.containsExactly
+import assertk.assertions.hasSize
+import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
+import assertk.assertions.isSameInstanceAs
 import com.ians.korno.core.database.dao.TrackDao
 import com.ians.korno.core.database.entity.RecognitionSampleEntity
 import com.ians.korno.core.database.entity.StepSampleEntity
@@ -10,12 +14,15 @@ import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
 import com.ians.korno.core.database.entity.RoutePointProjection
+import com.ians.korno.core.database.entity.RoutePreviewEntity
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.Result
 import com.ians.korno.core.domain.model.Activity
 import com.ians.korno.core.domain.model.GeoPoint
+import com.ians.korno.core.domain.model.RoutePoint
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 
@@ -89,6 +96,69 @@ class RoomTrackLocalDataSourceTest {
         assertThat(dao.insertedGeoPoints.size).isEqualTo(1)
     }
 
+    @Test
+    fun `replace track stores a preview without outliers in time order`() = runTest {
+        val points = listOf(
+            GeoPoint(activityId = 8L, latitude = 3.0, longitude = 3.0, timestampEpochMillis = 3_000L),
+            GeoPoint(activityId = 8L, latitude = 9.0, longitude = 9.0, timestampEpochMillis = 2_000L, isOutlier = true),
+            GeoPoint(activityId = 8L, latitude = 1.0, longitude = 1.0, timestampEpochMillis = 1_000L),
+        )
+
+        dataSource.replaceTrack(Activity(id = 8L, startTimeEpochMillis = 1_000L), points, segments = null)
+
+        assertThat(dao.previews.getValue(8L).decodeRoutePreview()).containsExactly(
+            RoutePoint(1.0, 1.0),
+            RoutePoint(3.0, 3.0),
+        )
+    }
+
+    @Test
+    fun `a long track is stored as a fixed number of preview points`() = runTest {
+        val points = (0 until 1_000).map {
+            GeoPoint(activityId = 8L, latitude = it.toDouble(), longitude = 0.0, timestampEpochMillis = it.toLong())
+        }
+
+        dataSource.insertTrack(Activity(startTimeEpochMillis = 0L), points, segments = emptyList())
+
+        assertThat(dao.previews.getValue(1L).decodeRoutePreview()).hasSize(ROUTE_PREVIEW_POINTS)
+    }
+
+    @Test
+    fun `backfill fills only missing previews and keeps existing ones`() = runTest {
+        dao.idsWithoutPreview = listOf(5L, 6L)
+        dao.setPoints(
+            GeoPointEntity(activityId = 5L, latitude = 1.0, longitude = 2.0, timestamp = 1L),
+            GeoPointEntity(activityId = 5L, latitude = 3.0, longitude = 4.0, timestamp = 2L),
+        )
+        // Трек 6 успели пересохранить, пока шло дозаполнение: его свежее превью не трогаем.
+        val fresh = listOf(RoutePoint(7.0, 7.0)).encodeRoutePreview()
+        dao.previews[6L] = fresh
+
+        dataSource.backfillRoutePreviews()
+
+        assertThat(dao.previews.getValue(5L).decodeRoutePreview()).containsExactly(RoutePoint(1.0, 2.0), RoutePoint(3.0, 4.0))
+        assertThat(dao.previews.getValue(6L)).isSameInstanceAs(fresh)
+    }
+
+    @Test
+    fun `a track without points gets an empty preview so backfill does not retry it`() = runTest {
+        dao.idsWithoutPreview = listOf(5L)
+
+        dataSource.backfillRoutePreviews()
+
+        assertThat(dao.previews.getValue(5L).decodeRoutePreview()).isEmpty()
+    }
+
+    @Test
+    fun `observed previews are decoded per activity`() = runTest {
+        dao.previews[5L] = listOf(RoutePoint(55.75, 37.61)).encodeRoutePreview()
+
+        dataSource.observeRoutePreviews().test {
+            assertThat(awaitItem()).isEqualTo(Result.Success(mapOf(5L to listOf(RoutePoint(55.75, 37.61)))))
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private class FakeTrackDao : TrackDao {
         val activities = MutableStateFlow<List<ActivityEntity>>(emptyList())
         val pendingActivities = MutableStateFlow<List<ActivityEntity>>(emptyList())
@@ -97,6 +167,25 @@ class RoomTrackLocalDataSourceTest {
         var updatedRows: Int = 1
         var deletedGeoPointsForActivity: Long? = null
         val insertedGeoPoints = mutableListOf<GeoPointEntity>()
+        val previews = mutableMapOf<Long, ByteArray>()
+        var idsWithoutPreview: List<Long> = emptyList()
+
+        fun setPoints(vararg entities: GeoPointEntity) {
+            points.value = entities.toList()
+        }
+
+        override fun observeRoutePreviews(): Flow<List<RoutePreviewEntity>> =
+            flowOf(previews.map { (id, bytes) -> RoutePreviewEntity(id, bytes) })
+
+        override suspend fun activityIdsWithoutRoutePreview(): List<Long> = idsWithoutPreview
+
+        override suspend fun upsertRoutePreview(preview: RoutePreviewEntity) {
+            previews[preview.activityId] = preview.points
+        }
+
+        override suspend fun insertRoutePreviewIfAbsent(preview: RoutePreviewEntity) {
+            previews.putIfAbsent(preview.activityId, preview.points)
+        }
 
         override fun observeActivities(): Flow<List<ActivityEntity>> = activities
 

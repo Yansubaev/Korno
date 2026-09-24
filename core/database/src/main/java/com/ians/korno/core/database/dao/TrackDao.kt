@@ -2,6 +2,7 @@ package com.ians.korno.core.database.dao
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
@@ -9,6 +10,7 @@ import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
 import com.ians.korno.core.database.entity.RecognitionSampleEntity
+import com.ians.korno.core.database.entity.RoutePreviewEntity
 import com.ians.korno.core.database.entity.StepSampleEntity
 import com.ians.korno.core.database.entity.RoutePointProjection
 import kotlinx.coroutines.flow.Flow
@@ -48,6 +50,26 @@ interface TrackDao {
             "ORDER BY timestamp ASC, id ASC",
     )
     suspend fun routePoints(activityId: Long): List<RoutePointProjection>
+
+    @Query("SELECT * FROM route_previews")
+    fun observeRoutePreviews(): Flow<List<RoutePreviewEntity>>
+
+    /** Завершённые записи без превью — сохранённые до появления `route_previews`. */
+    @Query(
+        "SELECT id FROM activities " +
+            "WHERE end_time IS NOT NULL AND id NOT IN (SELECT activity_id FROM route_previews)",
+    )
+    suspend fun activityIdsWithoutRoutePreview(): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRoutePreview(preview: RoutePreviewEntity)
+
+    /**
+     * Для дозаполнения: превью, записанное вместе с треком, свежее посчитанного по старым
+     * точкам, и затирать его нельзя.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRoutePreviewIfAbsent(preview: RoutePreviewEntity)
 
     @Insert
     suspend fun insertActivity(activity: ActivityEntity): Long
@@ -123,14 +145,17 @@ interface TrackDao {
         return activityId
     }
 
+    /** @param routePreview см. [RoutePreviewEntity.points]; пишется вместе с точками, из которых посчитан. */
     @Transaction
     suspend fun insertTrack(
         activity: ActivityEntity,
         points: List<GeoPointEntity>,
         segments: List<ActivitySegmentEntity>,
+        routePreview: ByteArray,
     ): Long {
         val activityId = insertActivityWithSegments(activity, segments)
         insertGeoPoints(points.map { it.copy(id = 0L, activityId = activityId) })
+        upsertRoutePreview(RoutePreviewEntity(activityId, routePreview))
         return activityId
     }
 
@@ -140,10 +165,12 @@ interface TrackDao {
         activity: ActivityEntity,
         points: List<GeoPointEntity>,
         segments: List<ActivitySegmentEntity>?,
+        routePreview: ByteArray,
     ): Boolean {
         if (updateActivity(activity) == 0) return false
         deleteGeoPoints(activity.id)
         insertGeoPoints(points)
+        upsertRoutePreview(RoutePreviewEntity(activity.id, routePreview))
         if (segments != null) {
             deleteSegments(activity.id)
             insertSegments(segments.map { it.copy(id = 0L, activityId = activity.id) })

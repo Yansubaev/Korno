@@ -11,6 +11,7 @@ import com.ians.korno.core.database.entity.ActivityEntity
 import com.ians.korno.core.database.entity.ActivitySegmentEntity
 import com.ians.korno.core.database.entity.GeoPointEntity
 import com.ians.korno.core.database.entity.RecognitionSampleEntity
+import com.ians.korno.core.database.entity.RoutePreviewEntity
 import com.ians.korno.core.database.entity.StepSampleEntity
 
 @Database(
@@ -20,8 +21,9 @@ import com.ians.korno.core.database.entity.StepSampleEntity
         ActivitySegmentEntity::class,
         RecognitionSampleEntity::class,
         StepSampleEntity::class,
+        RoutePreviewEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: activities.is_pending_summary (NOT NULL DEFAULT 0).
@@ -57,6 +59,10 @@ import com.ians.korno.core.database.entity.StepSampleEntity
         // 12 -> 13: таблица step_samples. У прежних записей шагов во времени нет: в БД
         // лежит только сумма за сегмент.
         AutoMigration(from = 12, to = 13),
+        // 13 -> 14: таблица route_previews. Прежние записи получают превью дозаполнением
+        // при старте (`TrackRepository.backfillRoutePreviews`): в SQL прореживания не
+        // посчитать, а в миграции оно держало бы открытие базы на тысячах точек.
+        AutoMigration(from = 13, to = 14),
     ],
 )
 abstract class KornoDatabase : RoomDatabase() {

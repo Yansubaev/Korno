@@ -8,6 +8,7 @@ import androidx.core.content.getSystemService
 import com.ians.korno.core.data.di.coreDataModule
 import com.ians.korno.core.database.di.databaseModule
 import com.ians.korno.core.domain.repository.MapCacheRepository
+import com.ians.korno.core.domain.repository.TrackRepository
 import com.ians.korno.core.logging.AppLogger
 import com.ians.korno.core.logging.LogCategory
 import com.ians.korno.core.logging.info
@@ -56,6 +57,7 @@ private val appModule = module {
 class KornoApplication : Application() {
 
     private val mapCacheRepository: MapCacheRepository by inject()
+    private val trackRepository: TrackRepository by inject()
     private val pendingSummaryNotifier: PendingSummaryNotifier by inject()
     private val logger: AppLogger by inject()
     private val activityRecognition: ActivityRecognitionSignalSource by inject()
@@ -101,6 +103,11 @@ class KornoApplication : Application() {
             // Кэш тайлов ограничивается один раз за запуск: настройка живёт в базе
             // MapLibre, но применяется только после явного вызова.
             mapCacheRepository.configure()
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            // Превью миниатюр для записей, сохранённых до их появления. Разово: дальше запрос
+            // пустой, превью пишутся вместе с треком.
+            trackRepository.backfillRoutePreviews()
         }
 
         // Записи, остановленные кнопкой в уведомлении, сохраняются без подтверждения —

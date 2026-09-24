@@ -70,10 +70,10 @@ internal class FakeTrackRepository : TrackRepository {
 
     override suspend fun addGeoPoints(points: List<GeoPoint>): EmptyResult<DataError.Local> = Result.Success(Unit)
 
-    override suspend fun getRoutePreview(
-        activityId: Long,
-        maxPoints: Int,
-    ): Result<List<RoutePoint>, DataError.Local> = Result.Success(emptyList())
+    override fun observeRoutePreviews(): Flow<Result<Map<Long, List<RoutePoint>>, DataError.Local>> =
+        flowOf(Result.Success(emptyMap()))
+
+    override suspend fun backfillRoutePreviews(): EmptyResult<DataError.Local> = Result.Success(Unit)
 
     override suspend fun insertTrack(
         activity: Activity,

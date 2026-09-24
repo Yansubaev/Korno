@@ -3,6 +3,7 @@ package com.ians.korno.core.data.local
 import com.ians.korno.core.data.mapper.toDomain
 import com.ians.korno.core.data.mapper.toEntity
 import com.ians.korno.core.database.dao.TrackDao
+import com.ians.korno.core.database.entity.RoutePreviewEntity
 import com.ians.korno.core.domain.error.DataError
 import com.ians.korno.core.domain.error.EmptyResult
 import com.ians.korno.core.domain.error.Result
@@ -45,13 +46,18 @@ internal class RoomTrackLocalDataSource(
     override suspend fun findActiveActivity(): Result<Activity?, DataError.Local> =
         safeLocalCall { trackDao.findActiveActivity()?.toDomain() }
 
-    override suspend fun getRoutePreview(
-        activityId: Long,
-        maxPoints: Int,
-    ): Result<List<RoutePoint>, DataError.Local> = safeLocalCall {
-        trackDao.routePoints(activityId)
-            .map { RoutePoint(latitude = it.latitude, longitude = it.longitude) }
-            .downsampledTo(maxPoints)
+    override fun observeRoutePreviews(): Flow<Result<Map<Long, List<RoutePoint>>, DataError.Local>> =
+        trackDao.observeRoutePreviews()
+            .map { entities -> entities.associate { it.activityId to it.points.decodeRoutePreview() } }
+            .asLocalResult()
+
+    override suspend fun backfillRoutePreviews(): EmptyResult<DataError.Local> = safeLocalCall {
+        trackDao.activityIdsWithoutRoutePreview().forEach { activityId ->
+            val preview = trackDao.routePoints(activityId)
+                .map { RoutePoint(latitude = it.latitude, longitude = it.longitude) }
+                .downsampledTo(ROUTE_PREVIEW_POINTS)
+            trackDao.insertRoutePreviewIfAbsent(RoutePreviewEntity(activityId, preview.encodeRoutePreview()))
+        }
     }
 
     override fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>> =
@@ -125,7 +131,12 @@ internal class RoomTrackLocalDataSource(
         points: List<GeoPoint>,
         segments: List<ActivitySegment>,
     ): Result<Long, DataError.Local> = safeLocalCall {
-        trackDao.insertTrack(activity.toEntity(), points.map { it.toEntity() }, segments.map { it.toEntity() })
+        trackDao.insertTrack(
+            activity.toEntity(),
+            points.map { it.toEntity() },
+            segments.map { it.toEntity() },
+            points.routePreview().encodeRoutePreview(),
+        )
     }
 
     override suspend fun replaceTrack(
@@ -138,6 +149,7 @@ internal class RoomTrackLocalDataSource(
                 activity.toEntity(),
                 points.map { it.toEntity() },
                 segments?.map { it.toEntity() },
+                points.routePreview().encodeRoutePreview(),
             )
         }
     ) {

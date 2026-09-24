@@ -20,10 +20,9 @@ internal interface TrackLocalDataSource {
 
     suspend fun findActiveActivity(): Result<Activity?, DataError.Local>
 
-    suspend fun getRoutePreview(
-        activityId: Long,
-        maxPoints: Int,
-    ): Result<List<RoutePoint>, DataError.Local>
+    fun observeRoutePreviews(): Flow<Result<Map<Long, List<RoutePoint>>, DataError.Local>>
+
+    suspend fun backfillRoutePreviews(): EmptyResult<DataError.Local>
 
     fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>>
 

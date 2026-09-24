@@ -28,11 +28,11 @@ internal class DefaultTrackRepository(
     override suspend fun findActiveActivity(): Result<Activity?, DataError.Local> =
         localDataSource.findActiveActivity()
 
-    override suspend fun getRoutePreview(
-        activityId: Long,
-        maxPoints: Int,
-    ): Result<List<RoutePoint>, DataError.Local> =
-        localDataSource.getRoutePreview(activityId, maxPoints)
+    override fun observeRoutePreviews(): Flow<Result<Map<Long, List<RoutePoint>>, DataError.Local>> =
+        localDataSource.observeRoutePreviews()
+
+    override suspend fun backfillRoutePreviews(): EmptyResult<DataError.Local> =
+        localDataSource.backfillRoutePreviews()
 
     override fun observePendingSummaryActivities(): Flow<Result<List<Activity>, DataError.Local>> =
         localDataSource.observePendingSummaryActivities()

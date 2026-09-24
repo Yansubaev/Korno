@@ -50,15 +50,6 @@ class ActivityListContentTest {
     }
 
     @Test
-    fun visibleRowAsksForItsRoutePreview() {
-        setContent(ActivityListState(isLoading = false, items = listOf(item(id = 42L))))
-
-        composeRule.waitForIdle()
-
-        assertThat(actions).contains(ActivityListAction.RowShown(42L))
-    }
-
-    @Test
     fun searchQueryIsReported() {
         setContent(ActivityListState(isLoading = false))
 
