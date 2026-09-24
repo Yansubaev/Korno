@@ -2,6 +2,7 @@ package com.ians.korno.feature.activitylist.presentation
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -46,6 +47,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.ActivityBoundsSource
+import com.ians.korno.core.designsystem.animation.activityBoundsKey
+import com.ians.korno.core.designsystem.animation.containerTransformBounds
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.map.MapPoint
@@ -61,6 +65,7 @@ private val LIST_BOTTOM_PADDING = 96.dp
 
 @Composable
 internal fun ActivityListScreen(
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onOpenActivity: (Long) -> Unit,
     onOpenRecording: () -> Unit,
     modifier: Modifier = Modifier,
@@ -106,6 +111,7 @@ internal fun ActivityListScreen(
             onOpenActivity = onOpenActivity,
             onOpenRecording = onOpenRecording,
             onImportClick = { importLauncher.launch(arrayOf("*/*")) },
+            animatedVisibilityScope = animatedVisibilityScope,
             modifier = Modifier.padding(padding),
         )
     }
@@ -126,6 +132,7 @@ internal fun ActivityListContent(
     onOpenRecording: () -> Unit,
     onImportClick: () -> Unit,
     modifier: Modifier = Modifier,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     val listState = rememberLazyListState()
     // Смена фильтра даёт другой список — позиция от прежнего в нём бессмысленна.
@@ -243,6 +250,7 @@ internal fun ActivityListContent(
                     item = item,
                     routePreview = state.routePreviews[item.id].orEmpty(),
                     onClick = { onOpenActivity(item.id) },
+                    animatedVisibilityScope = animatedVisibilityScope,
                 )
             }
         }
@@ -254,9 +262,17 @@ private fun ActivityRow(
     item: ActivityListItemUi,
     routePreview: List<MapPoint>,
     onClick: () -> Unit,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
 ) {
     Row(
         modifier = Modifier
+            .containerTransformBounds(
+                activityBoundsKey(item.id, ActivityBoundsSource.LIST),
+                animatedVisibilityScope,
+                RoundedCornerShape(16.dp),
+                contentAlignment = Alignment.TopStart,
+                zIndexInOverlay = 1f,
+            )
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
             .padding(14.dp)

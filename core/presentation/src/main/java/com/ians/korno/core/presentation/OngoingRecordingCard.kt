@@ -21,12 +21,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.ians.korno.core.domain.model.RecordingStatus
@@ -100,18 +99,24 @@ fun OngoingRecordingCard(
 /** Точка перед статусом: мигает во время записи, на паузе и при ожидании GPS стоит. */
 @Composable
 fun RecordingDot(pulsing: Boolean, color: Color, modifier: Modifier = Modifier) {
-    val alpha = if (pulsing) {
-        val pulse by rememberInfiniteTransition(label = "recordingDot").animateFloat(
+    val pulse = if (pulsing) {
+        rememberInfiniteTransition(label = "recordingDot").animateFloat(
             initialValue = 1f,
             targetValue = 0.25f,
             animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Reverse),
             label = "recordingDotAlpha",
         )
-        pulse
     } else {
-        1f
+        null
     }
-    Box(modifier = modifier.size(8.dp).alpha(alpha).background(color, CircleShape))
+    // Прозрачность читается на этапе отрисовки: иначе точка (а их две на главной — в карточке
+    // и в кнопке) рекомпозировалась бы каждый кадр, пока идёт запись.
+    Box(
+        modifier = modifier
+            .size(8.dp)
+            .graphicsLayer { alpha = pulse?.value ?: 1f }
+            .background(color, CircleShape),
+    )
 }
 
 private fun RecordingStatus.ongoingLabelRes(): Int = when (this) {

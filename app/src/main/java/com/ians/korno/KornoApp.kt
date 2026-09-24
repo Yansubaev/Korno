@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
@@ -54,13 +55,16 @@ import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.ActivityBoundsSource
 import com.ians.korno.core.designsystem.animation.DISINTEGRATING_ENTRY_KEY
 import com.ians.korno.core.designsystem.animation.LocalSharedTransitionScope
 import com.ians.korno.core.designsystem.animation.StartRecordingTransition
+import com.ians.korno.core.designsystem.animation.recordingFabSharedBounds
 import com.ians.korno.core.designsystem.layout.LocalBottomBarPadding
 import com.ians.korno.core.domain.model.RecordingStatus
 import com.ians.korno.core.presentation.RecordingFab
@@ -214,11 +218,18 @@ fun KornoApp(
                                 // проявляться сквозь пыль. Запись в стеке ещё жива: NavHost зовёт
                                 // переходы только для видимых записей.
                                 initialState.savedStateHandle.contains(DISINTEGRATING_ENTRY_KEY) -> EnterTransition.None
+                                // Вкладка под сворачивающимся в кнопку экраном стоит на месте целиком:
+                                // fade открывал бы под окном цвет фона Scaffold.
+                                initialState.isFabScreen() && targetState.tabIndex() in 0..1 -> EnterTransition.None
                                 else -> tabSlideDirection()?.let { slideIntoContainer(it) } ?: fadeIn(tween(fadeMillis()))
                             }
                         },
                         exitTransition = {
-                            tabSlideDirection()?.let { slideOutOfContainer(it) } ?: fadeOut(tween(fadeMillis()))
+                            when {
+                                // Вкладка под раскрывающимся из кнопки экраном не гаснет, см. enterTransition.
+                                initialState.tabIndex() in 0..1 && targetState.isFabScreen() -> ExitTransition.None
+                                else -> tabSlideDirection()?.let { slideOutOfContainer(it) } ?: fadeOut(tween(fadeMillis()))
+                            }
                         },
                     ) {
                         onboardingGraph(
@@ -229,10 +240,12 @@ fun KornoApp(
                             },
                         )
                         homeGraph(
-                            onSeeAllActivities = { navController.navigate(ActivityListRoute) },
-                            onOpenActivity = { activityId -> navController.navigate(ActivityDetailRoute(activityId)) },
+                            onSeeAllActivities = { navController.navigateToTab(ActivityListRoute) },
+                            onOpenActivity = { activityId ->
+                                navController.navigate(ActivityDetailRoute(activityId, ActivityBoundsSource.HOME))
+                            },
                             onOpenRecording = openRecording,
-                            onOpenSettings = { navController.navigate(SettingsRoute) },
+                            onOpenSettings = { navController.navigateToTab(SettingsRoute) },
                         )
                         trackingGraph(
                             navController = navController,
@@ -248,7 +261,9 @@ fun KornoApp(
                             },
                         )
                         activityListGraph(
-                            onOpenActivity = { activityId -> navController.navigate(ActivityDetailRoute(activityId)) },
+                            onOpenActivity = { activityId ->
+                                navController.navigate(ActivityDetailRoute(activityId, ActivityBoundsSource.LIST))
+                            },
                             onOpenRecording = openRecording,
                         )
                         activityDetailGraph(navController = navController)
@@ -257,15 +272,16 @@ fun KornoApp(
                             onViewOnboarding = { navController.navigate(OnboardingRoute) },
                         )
                     }
+                    // Кнопка живёт над NavHost, а не внутри экранов: при переходе между главной
+                    // и списком она стоит на месте, уходит только с остальных экранов. В провайдере,
+                    // потому что экраны записи раскрываются из неё и сворачиваются обратно.
+                    RecordingFabHost(
+                        visible = showBottomBar && currentTab != SETTINGS_TAB,
+                        onClick = viewModel::onRecordingFabClicked,
+                        viewModel = viewModel,
+                        modifier = Modifier.padding(padding).padding(bottom = bottomBarPadding),
+                    )
                 }
-                // Кнопка живёт над NavHost, а не внутри экранов: при переходе между главной
-                // и списком она стоит на месте, уходит только с остальных экранов.
-                RecordingFabHost(
-                    visible = showBottomBar && currentTab != SETTINGS_TAB,
-                    onClick = viewModel::onRecordingFabClicked,
-                    viewModel = viewModel,
-                    modifier = Modifier.padding(padding).padding(bottom = bottomBarPadding),
-                )
                 AnimatedVisibility(
                     visible = showBottomBar,
                     modifier = Modifier.align(Alignment.BottomCenter),
@@ -277,15 +293,9 @@ fun KornoApp(
                         isHomeSelected = selectedTab == 0,
                         isListSelected = selectedTab == 1,
                         isSettingsSelected = selectedTab == 2,
-                        onHomeClick = {
-                            navController.navigate(HomeRoute) { launchSingleTop = true; popUpTo(HomeRoute) }
-                        },
-                        onListClick = {
-                            navController.navigate(ActivityListRoute) { launchSingleTop = true; popUpTo(HomeRoute) }
-                        },
-                        onSettingsClick = {
-                            navController.navigate(SettingsRoute) { launchSingleTop = true; popUpTo(HomeRoute) }
-                        },
+                        onHomeClick = { navController.navigateToTab(HomeRoute) },
+                        onListClick = { navController.navigateToTab(ActivityListRoute) },
+                        onSettingsClick = { navController.navigateToTab(SettingsRoute) },
                         modifier = Modifier.onSizeChanged { bottomBarHeight = with(density) { it.height.toDp() } },
                     )
                 }
@@ -315,9 +325,27 @@ private fun BoxScope.RecordingFabHost(
             timeText = ongoing?.let { formatTimerDuration(it.elapsedMillis) },
             isPulsing = ongoing?.status == RecordingStatus.RECORDING,
             onClick = onClick,
+            modifier = Modifier.recordingFabSharedBounds(
+                key = if (ongoing != null) StartRecordingTransition.RECORDING_KEY else StartRecordingTransition.SETUP_KEY,
+                animatedVisibilityScope = this,
+            ),
         )
     }
 }
+
+/**
+ * Вкладка уходит из стека с сохранением и при возврате восстанавливается вместе с ViewModel:
+ * иначе каждый заход заново читает базу и начинается с пустого кадра посреди анимации.
+ */
+private fun <T : Any> NavController.navigateToTab(route: T) = navigate(route) {
+    popUpTo(HomeRoute) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
+}
+
+/** Экраны настройки и записи раскрываются из кнопки записи, см. [recordingFabSharedBounds]. */
+private fun NavBackStackEntry.isFabScreen(): Boolean =
+    destination.hasRoute<TrackingSetupRoute>() || destination.hasRoute<TrackingRecordingRoute>()
 
 private fun NavBackStackEntry.tabIndex(): Int = when {
     destination.hasRoute<HomeRoute>() -> 0
@@ -334,13 +362,14 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSlideDirection(
     return if (to > from) SlideDirection.Left else SlideDirection.Right
 }
 
-/** Home ↔ настройка записи идут в такт раскрытию кнопки; остальным — дефолт NavHost. */
+/** Вкладка ↔ экран настройки/записи/обзора идут в такт раскрытию кнопки; остальным — дефолт NavHost. */
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.fadeMillis(): Int {
-    val homeAndSetup = setOf(initialState, targetState).let { entries ->
-        entries.any { it.destination.hasRoute<HomeRoute>() } &&
-            entries.any { it.destination.hasRoute<TrackingSetupRoute>() }
+    val tabAndFabScreen = setOf(initialState, targetState).let { entries ->
+        entries.any { it.tabIndex() in 0..1 } &&
+            entries.any { it.destination.hasRoute<TrackingSetupRoute>() || it.destination.hasRoute<TrackingRecordingRoute>() ||
+                it.destination.hasRoute<ActivityDetailRoute>() }
     }
-    return if (homeAndSetup) StartRecordingTransition.DURATION_MILLIS else 700
+    return if (tabAndFabScreen) StartRecordingTransition.DURATION_MILLIS else 700
 }
 
 @Composable

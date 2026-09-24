@@ -1,5 +1,6 @@
 package com.ians.korno.feature.home.presentation
 
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +33,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.ActivityBoundsSource
+import com.ians.korno.core.designsystem.animation.activityBoundsKey
+import com.ians.korno.core.designsystem.animation.containerTransformBounds
 import com.ians.korno.core.designsystem.theme.KornoTheme
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.presentation.OngoingRecordingCard
@@ -42,6 +46,7 @@ private val RECENT_LIST_BOTTOM_PADDING = 96.dp
 
 @Composable
 internal fun HomeScreen(
+    animatedVisibilityScope: AnimatedVisibilityScope,
     onSeeAllActivities: () -> Unit,
     onOpenActivity: (Long) -> Unit,
     onOpenRecording: () -> Unit,
@@ -52,6 +57,7 @@ internal fun HomeScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     HomeContent(
+        animatedVisibilityScope = animatedVisibilityScope,
         state = state,
         onAction = viewModel::onAction,
         onSeeAllActivities = onSeeAllActivities,
@@ -71,6 +77,7 @@ private fun HomeContent(
     onOpenRecording: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -129,7 +136,11 @@ private fun HomeContent(
                     }
                     state.ongoing?.let { OngoingRecordingCard(ongoing = it, onClick = onOpenRecording) }
                     state.recentActivities.forEach { activity ->
-                        RecentActivityRow(activity = activity, onClick = { onOpenActivity(activity.id) })
+                        RecentActivityRow(
+                            activity = activity,
+                            onClick = { onOpenActivity(activity.id) },
+                            animatedVisibilityScope = animatedVisibilityScope,
+                        )
                     }
                     if (state.hasMoreActivities) {
                         TextButton(onClick = onSeeAllActivities) {
@@ -143,9 +154,20 @@ private fun HomeContent(
 }
 
 @Composable
-private fun RecentActivityRow(activity: RecentActivityUi, onClick: () -> Unit) {
+private fun RecentActivityRow(
+    activity: RecentActivityUi,
+    onClick: () -> Unit,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+) {
     Row(
         modifier = Modifier
+            .containerTransformBounds(
+                activityBoundsKey(activity.id, ActivityBoundsSource.HOME),
+                animatedVisibilityScope,
+                RoundedCornerShape(16.dp),
+                contentAlignment = Alignment.TopStart,
+                zIndexInOverlay = 1f,
+            )
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))

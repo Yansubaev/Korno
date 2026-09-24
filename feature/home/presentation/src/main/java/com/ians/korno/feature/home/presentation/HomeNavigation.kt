@@ -18,6 +18,7 @@ fun NavGraphBuilder.homeGraph(
 ) {
     composable<HomeRoute> {
         HomeScreen(
+            animatedVisibilityScope = this,
             onSeeAllActivities = onSeeAllActivities,
             onOpenActivity = onOpenActivity,
             onOpenRecording = onOpenRecording,

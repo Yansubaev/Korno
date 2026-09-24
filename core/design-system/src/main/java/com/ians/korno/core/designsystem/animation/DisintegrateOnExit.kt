@@ -46,6 +46,9 @@ class DisintegrationState internal constructor(
     internal var snapshot by mutableStateOf<ImageBitmap?>(null)
         private set
 
+    /** Уход уже начат: экран заморожен и покажет только снимок. */
+    val isStarted: Boolean get() = snapshot != null
+
     /**
      * Снимает экран и с этого момента показывает только снимок; [then] — когда он готов.
      * Замораживать нужно сразу: действие, ради которого экран уходит (удаление), успевает
@@ -69,12 +72,14 @@ fun rememberDisintegrationState(): DisintegrationState {
 
 /**
  * Экран сам анимирует свой уход — destination должен отдать ему exit без анимации: после
- * [DisintegrationState.start] рассыпается в пыль, в остальных случаях просто гаснет, как fade NavHost.
+ * [DisintegrationState.start] рассыпается в пыль, в остальных случаях просто гаснет, как fade NavHost
+ * (кроме [fadeOnExit] = false: тогда гашение на destination).
  */
 @Composable
 fun Modifier.disintegrateOnExit(
     state: DisintegrationState,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    fadeOnExit: Boolean = true,
 ): Modifier {
     val progress by animatedVisibilityScope.transition.animateFloat(
         transitionSpec = {
@@ -88,6 +93,7 @@ fun Modifier.disintegrateOnExit(
 
     return drawWithContent {
         when {
+            snapshot == null && !fadeOnExit -> drawContent()
             snapshot == null -> {
                 state.layer.record { this@drawWithContent.drawContent() }
                 state.layer.alpha = 1f - progress

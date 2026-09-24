@@ -1,14 +1,23 @@
 package com.ians.korno.feature.tracking.presentation
 
 import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import com.ians.korno.core.designsystem.animation.DISINTEGRATING_ENTRY_KEY
+import com.ians.korno.core.designsystem.animation.StartRecordingTransition
+import com.ians.korno.core.designsystem.animation.recordingScreenSharedBounds
+import com.ians.korno.core.designsystem.animation.rememberTopEntryVisibilityScope
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.feature.tracking.domain.navigation.TrackingDeepLinks
 import kotlinx.serialization.Serializable
@@ -23,6 +32,14 @@ data class TrackingRecordingRoute(val finish: Boolean = false)
 @Serializable
 data class TrackingSummaryRoute(val activityId: Long)
 
+/** Scope общих границ для экрана, раскрывающегося из кнопки записи, см. [rememberTopEntryVisibilityScope]. */
+@Composable
+private fun rememberFabTransitionScope(navController: NavController, entry: NavBackStackEntry) =
+    rememberTopEntryVisibilityScope(
+        navController.currentBackStackEntryFlow
+            .collectAsState(navController.currentBackStackEntry).value == entry,
+    )
+
 fun NavGraphBuilder.trackingGraph(
     navController: NavController,
     onFinished: (activityId: Long) -> Unit,
@@ -30,6 +47,7 @@ fun NavGraphBuilder.trackingGraph(
 ) {
     composable<TrackingSetupRoute> { backStackEntry ->
         val route: TrackingSetupRoute = backStackEntry.toRoute()
+        val fabScope = rememberFabTransitionScope(navController, backStackEntry)
         TrackingSetupScreen(
             initialSegmentKind = route.initialSegmentKind,
             onStartRecording = {
@@ -40,7 +58,12 @@ fun NavGraphBuilder.trackingGraph(
                     popUpTo<TrackingSetupRoute> { inclusive = true }
                 }
             },
-            onBack = onDiscarded,
+            // Настройка лежит прямо над вкладкой, с которой открыта, — туда и возвращаем.
+            onBack = { navController.popBackStack() },
+            // Фон нужен самому экрану: пока он раскрывается из кнопки, рисуется поверх Scaffold.
+            modifier = Modifier
+                .recordingScreenSharedBounds(StartRecordingTransition.SETUP_KEY, fabScope)
+                .background(MaterialTheme.colorScheme.surface),
         )
     }
     composable<TrackingRecordingRoute>(
@@ -52,9 +75,13 @@ fun NavGraphBuilder.trackingGraph(
         // чтобы он не открылся снова после поворота. Туда же флаг кладёт KornoApp, если
         // «Стоп» нажат, когда экран записи уже открыт.
         val handle = backStackEntry.savedStateHandle
+        val fabScope = rememberFabTransitionScope(navController, backStackEntry)
         val finishRequested by handle.getStateFlow(TrackingDeepLinks.FINISH_PARAM, false)
             .collectAsStateWithLifecycle()
         TrackingRecordingScreen(
+            modifier = Modifier
+                .recordingScreenSharedBounds(StartRecordingTransition.RECORDING_KEY, fabScope)
+                .background(MaterialTheme.colorScheme.surface),
             finishRequested = finishRequested,
             onFinishRequestHandled = { handle[TrackingDeepLinks.FINISH_PARAM] = false },
             onFinished = { activityId ->

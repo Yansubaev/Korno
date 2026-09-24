@@ -16,6 +16,7 @@ fun NavGraphBuilder.activityListGraph(
 ) {
     composable<ActivityListRoute> {
         ActivityListScreen(
+            animatedVisibilityScope = this,
             onOpenActivity = onOpenActivity,
             onOpenRecording = onOpenRecording,
             modifier = Modifier.padding(bottom = LocalBottomBarPadding.current),

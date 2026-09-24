@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +54,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ians.korno.core.designsystem.animation.activityBoundsKey
+import com.ians.korno.core.designsystem.animation.containerTransformBounds
 import com.ians.korno.core.designsystem.animation.disintegrateOnExit
 import com.ians.korno.core.designsystem.animation.rememberDisintegrationState
 import com.ians.korno.core.designsystem.theme.KornoTheme
@@ -68,6 +71,7 @@ import org.koin.core.parameter.parametersOf
 internal fun ActivityDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     activityId: Long,
+    source: String,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
     onEditTrack: (Long) -> Unit,
@@ -116,7 +120,19 @@ internal fun ActivityDetailScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = modifier.disintegrateOnExit(disintegration, animatedVisibilityScope),
+        // Границы снаружи disintegrateOnExit: весь экран, с фоном, летит в строку списка одним
+        // куском и на месте ничего не остаётся. Не при удалении: строки уже нет, рассыпается снимок.
+        modifier = modifier
+            .then(
+                if (disintegration.isStarted) Modifier else Modifier.containerTransformBounds(
+                    activityBoundsKey(activityId, source),
+                    animatedVisibilityScope,
+                    RoundedCornerShape(16.dp),
+                    contentAlignment = Alignment.TopStart,
+                    exit = ExitTransition.None,
+                ),
+            )
+            .disintegrateOnExit(disintegration, animatedVisibilityScope, fadeOnExit = false),
     ) { padding ->
         ActivityDetailContent(
             state = state,
