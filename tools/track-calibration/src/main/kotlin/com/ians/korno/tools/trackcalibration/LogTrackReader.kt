@@ -57,6 +57,8 @@ class LoggedActivity(
     val detectorSignals: List<DetectorSignal> = emptyList(),
     /** Ответы распознавания целиком, с альтернативами, — вход декодера вида движения. */
     val recognitions: List<RecognitionSample> = emptyList(),
+    /** Эталонная разметка: метки, поставленные во время записи дебажной кнопкой. */
+    val groundTruthMarks: List<GroundTruthMark> = emptyList(),
 )
 
 private const val SESSION_STARTED = "Tracking session started"
@@ -67,6 +69,7 @@ private const val ACTIVITY_RECOGNIZED = "Activity recognized"
 private const val STEP_COUNTER_READING = "Step counter reading"
 private const val PAUSED_MANUALLY = "Tracking paused manually"
 private const val RESUMED_MANUALLY = "Tracking resumed manually"
+private const val GROUND_TRUTH_MARK = "Ground truth mark"
 
 private val json = Json { ignoreUnknownKeys = true }
 
@@ -125,6 +128,7 @@ private class ActivityBuilder(private val activityId: Long) {
     private var sawCoordinateRecords = false
     private val detectorSignals = mutableListOf<DetectorSignal>()
     private val recognitions = mutableListOf<RecognitionSample>()
+    private val groundTruthMarks = mutableListOf<GroundTruthMark>()
 
     fun consume(record: JsonObject) {
         when (record.string("message")) {
@@ -191,6 +195,12 @@ private class ActivityBuilder(private val activityId: Long) {
                 detectorSignals += DetectorSignal.StepCounter(timestamp, counter)
             }
 
+            GROUND_TRUTH_MARK -> {
+                val timestamp = record.field("markTimestamp")?.toLongOrNull() ?: return
+                val kind = record.field("kind")?.let { enumOrNull<SegmentKind>(it) } ?: return
+                groundTruthMarks += GroundTruthMark(timestamp, kind)
+            }
+
             PAUSED_MANUALLY -> record.loggedAtMillis()?.let { detectorSignals += DetectorSignal.Paused(it) }
 
             RESUMED_MANUALLY -> record.loggedAtMillis()?.let { detectorSignals += DetectorSignal.Resumed(it) }
@@ -218,6 +228,7 @@ private class ActivityBuilder(private val activityId: Long) {
             sawCoordinateRecords = sawCoordinateRecords,
             detectorSignals = detectorSignals.toList(),
             recognitions = recognitions.toList(),
+            groundTruthMarks = groundTruthMarks.sortedBy(GroundTruthMark::timestampMillis),
         )
     }
 

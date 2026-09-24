@@ -34,6 +34,7 @@
     </plurals>
     <string name="tracking_segment_auto_label">Авто · %1$s</string>
     <string name="tracking_cd_change_segment_kind">Сменить вид движения</string>
+    <string name="tracking_cd_ground_truth_mark">Отметить, как движемся на самом деле</string>
     <string name="tracking_pace_label">Темп</string>
     <string name="tracking_avg_pace_label">Средний темп</string>
     <string name="tracking_distance_label">Дистанция</string>

@@ -18,6 +18,12 @@ internal sealed interface TrackingRecordingAction {
     /** Ручная поправка вида текущего сегмента. */
     data class ChangeSegmentKind(val kind: SegmentKind) : TrackingRecordingAction
 
+    /**
+     * Эталонная метка «сейчас вид [kind]» для калибровки — только строка в лог, на запись
+     * не влияет. Кнопка есть только в debug-сборке.
+     */
+    data class MarkGroundTruth(val kind: SegmentKind) : TrackingRecordingAction
+
     data object RequestFinish : TrackingRecordingAction
 
     data object CancelFinish : TrackingRecordingAction

@@ -170,6 +170,22 @@ class LogTrackReaderTest {
         )
     }
 
+    @Test
+    fun `ground truth marks are read with their kind and time`() {
+        val activity = readSingleActivity(
+            sessionStarted(),
+            """{"message":"Ground truth mark","activityId":"7","fields":""" +
+                """{"kind":"VEHICLE","markTimestamp":"1757052020000"}}""",
+            """{"message":"Ground truth mark","activityId":"7","fields":""" +
+                """{"kind":"ON_FOOT","markTimestamp":"1757052010000"}}""",
+        )
+
+        assertThat(activity.groundTruthMarks).containsExactly(
+            GroundTruthMark(1_757_052_010_000L, SegmentKind.ON_FOOT),
+            GroundTruthMark(1_757_052_020_000L, SegmentKind.VEHICLE),
+        )
+    }
+
     private fun sessionStarted() =
         """{"message":"Tracking session started","activityId":"7","fields":""" +
             """{"activityId":"7","segmentKind":"ON_FOOT","autoPauseSensitivity":"MEDIUM"}}"""

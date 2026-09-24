@@ -192,7 +192,13 @@ private fun RecordingHeader(
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
-        GpsIndicator(hasFix = state.currentPoint != null)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (state.segmentKindEditable) GroundTruthMarkButton(onAction = onAction)
+            GpsIndicator(hasFix = state.currentPoint != null)
+        }
     }
 }
 

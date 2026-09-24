@@ -8,6 +8,10 @@ import com.ians.korno.core.domain.model.MeasurementSystem
 import com.ians.korno.core.domain.model.SegmentKind
 import com.ians.korno.core.domain.model.isTrackGap
 import com.ians.korno.core.domain.repository.UserPreferencesRepository
+import com.ians.korno.core.logging.AppLogger
+import com.ians.korno.core.logging.LogCategory
+import com.ians.korno.core.logging.NoOpAppLogger
+import com.ians.korno.core.logging.info
 import com.ians.korno.core.map.MapPoint
 import com.ians.korno.feature.tracking.domain.model.RecordingSession
 import com.ians.korno.feature.tracking.domain.usecase.ChangeSegmentKindUseCase
@@ -45,6 +49,7 @@ internal class TrackingRecordingViewModel(
     private val stopTracking: StopTrackingUseCase,
     preferencesRepository: UserPreferencesRepository,
     private val changeSegmentKind: ChangeSegmentKindUseCase,
+    private val logger: AppLogger = NoOpAppLogger,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(LocalUi())
@@ -99,6 +104,15 @@ internal class TrackingRecordingViewModel(
                 local.update { it.copy(segmentMenuOpen = false) }
                 viewModelScope.launch { changeSegmentKind(action.kind) }
             }
+            // Контракт с `:tools:track-calibration` — см. LogTrackReaderTest.
+            is TrackingRecordingAction.MarkGroundTruth -> logger.info(
+                category = LogCategory.TRACKING,
+                tag = TAG,
+                fields = mapOf(
+                    "kind" to action.kind.name,
+                    "markTimestamp" to System.currentTimeMillis().toString(),
+                ),
+            ) { "Ground truth mark" }
             TrackingRecordingAction.RequestFinish -> local.update { it.copy(finishDialogOpen = true) }
             TrackingRecordingAction.CancelFinish -> local.update { it.copy(finishDialogOpen = false) }
             TrackingRecordingAction.ConfirmFinish -> viewModelScope.launch {
@@ -152,6 +166,8 @@ internal class TrackingRecordingViewModel(
     private fun RecordingSession.averageSpeedMetersPerSecond(): Double =
         if (movingTimeMillis > 0) distanceMeters / (movingTimeMillis / 1000.0) else 0.0
 }
+
+private const val TAG = "TrackingRecordingViewModel"
 
 private val RecordingStatus.isPause: Boolean
     get() = this == RecordingStatus.MANUAL_PAUSE || this == RecordingStatus.AUTO_PAUSE

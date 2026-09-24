@@ -40,7 +40,9 @@ Korno track calibration — прогон записанных треков че�
   --no-sweep               только сводка по трекам, без перебора порогов
 
 Для логов с распознаванием активности (включается вместе с диагностикой) выводятся
-ещё сегменты по виду движения и перебор порогов детектора.
+ещё сегменты по виду движения и перебор порогов детектора. Если в записи стоят
+эталонные метки (дебажная кнопка-флажок на экране записи), в конце — доля времени,
+где разметка совпала с ними.
 """
 
 fun main(arguments: Array<String>) {
@@ -62,6 +64,7 @@ fun main(arguments: Array<String>) {
     printSummary(tracks)
     if (!options.noSweep) tracks.forEach(::printSweeps)
     tracks.forEach { track -> printSegments(track, sweep = !options.noSweep) }
+    printGroundTruth(tracks)
 }
 
 private class Options(
@@ -82,6 +85,7 @@ private class LoadedTrack(
     /** Сигналы детектора вида движения из лога; у GPX и TCX их нет. */
     val detectorSignals: List<DetectorSignal> = emptyList(),
     val recognitions: List<RecognitionSample> = emptyList(),
+    val groundTruthMarks: List<GroundTruthMark> = emptyList(),
     /** Чувствительность автопаузы записи: итоговый пересчёт сегментов идёт с ней. */
     val sensitivity: AutoPauseSensitivity = AutoPauseSensitivity.MEDIUM,
 )
@@ -174,6 +178,7 @@ private fun loadLogTracks(file: File, options: Options): List<LoadedTrack> {
             recorded = RecordedVerdicts(activity.recordedOutliers, activity.recordedStopRuns),
             detectorSignals = activity.detectorSignals,
             recognitions = activity.recognitions,
+            groundTruthMarks = activity.groundTruthMarks,
         )
     }
 }
@@ -401,6 +406,33 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
                 ),
             )
         }
+    }
+}
+
+/**
+ * Доля эталонного времени, где итоговая разметка совпала с метками, — по записи и в сумме.
+ * Колонки «без AR» и «живой вид» добавят следующие этапы (`docs/auto-activity-segments.md`).
+ */
+private fun printGroundTruth(tracks: List<LoadedTrack>) {
+    val rows = tracks.filter { it.groundTruthMarks.isNotEmpty() }.mapNotNull { track ->
+        val input = segmentInput(track.points, track.detectorSignals, track.recognitions) ?: return@mapNotNull null
+        val decoded = runModeDecoder(input, ModeDecoderConfig(), track.sensitivity)
+        track.name to groundTruthMatch(track.groundTruthMarks, decoded.merged, input.signals, input.endMillis)
+    }
+    if (rows.isEmpty()) return
+
+    println()
+    println("ЭТАЛОННАЯ РАЗМЕТКА — доля времени, где вид совпал с метками".title())
+    println("  %-40s %9s %8s".format(Locale.US, "запись", "эталон", "декодер"))
+    (rows + ("в сумме" to rows.map { it.second }.reduce(GroundTruthMatch::plus))).forEach { (name, match) ->
+        println(
+            "  %-40s %9s %8s".format(
+                Locale.US,
+                name.takeLast(40),
+                formatDuration(match.referenceMillis),
+                match.share?.let { "%.1f%%".format(Locale.US, it * 100) } ?: "—",
+            ),
+        )
     }
 }
 

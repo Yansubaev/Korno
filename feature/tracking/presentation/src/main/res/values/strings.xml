@@ -32,6 +32,7 @@
     </plurals>
     <string name="tracking_segment_auto_label">Auto · %1$s</string>
     <string name="tracking_cd_change_segment_kind">Change the kind of movement</string>
+    <string name="tracking_cd_ground_truth_mark">Mark the actual kind of movement</string>
     <string name="tracking_pace_label">Pace</string>
     <string name="tracking_avg_pace_label">Avg pace</string>
     <string name="tracking_distance_label">Distance</string>
