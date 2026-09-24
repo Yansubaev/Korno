@@ -94,6 +94,23 @@ data class ModeDecoderConfig(
     val cadenceScaleStepsPerMinute: Double = 20.0,
     val cadenceWeightPerSecond: Double = 0.05,
     val cadenceWindowMillis: Long = 20_000L,
+
+    /**
+     * Движется, а шагов нет — сильный голос против пеших видов (`ADR 0007`): автобус в
+     * записи 41 — ни одного показания шагомера за 12 минут. Порог скорости выше пешего
+     * шага: на медленной ходьбе шагомер сам запаздывает на несколько секунд. Каденс ниже
+     * [stepFreeCadenceStepsPerMinute] — «шагов нет»: на велосипеде шагомер насчитывает и
+     * 10–80 в минуту, а ходьба начинается с 90.
+     */
+    val stepFreeSpeedMetersPerSecond: Double = 2.0,
+    val stepFreeCadenceStepsPerMinute: Double = 30.0,
+    val stepFreeWeightPerSecond: Double = 0.3,
+    /**
+     * Каденс ходьбы — слабый голос против транспорта. Только против него: «шаги есть» не
+     * исключают велосипед (`ADR 0007`, запись 46).
+     */
+    val walkingCadenceStepsPerMinute: ClosedFloatingPointRange<Double> = 90.0..140.0,
+    val walkingCadenceVehicleWeightPerSecond: Double = 0.05,
 )
 
 /** Всё, из чего определяется вид движения записи. */
@@ -112,6 +129,8 @@ class ModeDecoderInput(
 private val MODES = listOf(SegmentKind.ON_FOOT, SegmentKind.RUNNING, SegmentKind.CYCLING, SegmentKind.VEHICLE)
 private val VEHICLE_INDEX = MODES.indexOf(SegmentKind.VEHICLE)
 private val CYCLING_INDEX = MODES.indexOf(SegmentKind.CYCLING)
+private val ON_FOOT_INDEX = MODES.indexOf(SegmentKind.ON_FOOT)
+private val RUNNING_INDEX = MODES.indexOf(SegmentKind.RUNNING)
 private const val FORBIDDEN = -1e12
 
 /**
@@ -123,7 +142,11 @@ private const val FORBIDDEN = -1e12
  *   а на записях 41 и 46 две трети времени вообще не сказал ничего;
  * - доплеровская скорость — физический предел вида и, отдельно, улика «велосипед против
  *   транспорта»: пределом эти два не различить, верхом диапазона — надёжно;
- * - каденс шагов — ходьба против бега.
+ * - каденс шагов — ходьба против бега; движение без шагов — против пеших видов; каденс
+ *   ходьбы — против транспорта.
+ *
+ * Распознавание — одна из улик, а не условие (`ADR 0007`): без него эпоха решается по
+ * скорости и шагам.
  *
  * Главное знание — в переходах: смена вида стоит штрафа, а смена с транспортом или на
  * транспорт без остановки — большого штрафа. Витерби ищет разметку, которая лучше всего
@@ -138,19 +161,24 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
     /**
      * Сегменты записи по порядку, от [ModeDecoderInput.startMillis] до
      * [ModeDecoderInput.endMillis], с дистанцией по не-выбросам. Шаги не заполняются.
-     * Пусто — судить не по чему: ни одного ответа о движении и ни одной ручной поправки.
+     * Пусто — судить не по чему: ни в одной эпохе нет улики — запись стояла, шагов нет,
+     * распознавание молчит, ручных поправок нет.
      */
     fun decode(input: ModeDecoderInput): List<ActivitySegment> {
         if (input.endMillis <= input.startMillis) return emptyList()
-        if (input.recognitions.none { it.movementConfidences() != null } && input.manualSegments.isEmpty()) {
-            return emptyList()
-        }
         val epochCount = ceil((input.endMillis - input.startMillis).toDouble() / config.epochMillis).toInt()
         val emissions = emissions(input, epochCount)
+        if (emissions.none(::hasEvidence)) return emptyList()
         val transferCosts = transferCosts(input, epochCount)
         val path = viterbi(emissions, transferCosts)
         return segments(input, path)
     }
+
+    /**
+     * Эпоха без улики даёт всем видам одно и то же — ноль, и вид в ней решают соседи и
+     * штрафы переходов. Любой голос делает строку неровной.
+     */
+    private fun hasEvidence(row: DoubleArray): Boolean = row.any { it != row[0] }
 
     private fun epochStart(input: ModeDecoderInput, epoch: Int) = input.startMillis + epoch * config.epochMillis
 
@@ -194,7 +222,8 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             while (pointIndex < movingPoints.size && movingPoints[pointIndex].timestampEpochMillis < end) {
                 movingPoints[pointIndex++].dopplerSpeed()?.let(speeds::add)
             }
-            speeds.sorted().getOrNull(speeds.size / 2)?.let { speed ->
+            val medianSpeed = speeds.sorted().getOrNull(speeds.size / 2)
+            medianSpeed?.let { speed ->
                 MODES.forEachIndexed { mode, kind ->
                     val limit = speedLimit(kind) ?: return@forEachIndexed
                     val excess = max(0.0, speed - limit) / config.speedToleranceMetersPerSecond
@@ -214,10 +243,21 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
             }
 
             cadence(steps, end)?.let { cadence ->
+                if (cadence < config.stepFreeCadenceStepsPerMinute) {
+                    // Стоять без шагов нормально для любого вида: голос — только на ходу.
+                    if (medianSpeed != null && medianSpeed > config.stepFreeSpeedMetersPerSecond) {
+                        row[ON_FOOT_INDEX] -= config.stepFreeWeightPerSecond * seconds
+                        row[RUNNING_INDEX] -= config.stepFreeWeightPerSecond * seconds
+                    }
+                    return@let
+                }
                 val vote = ((cadence - config.runningCadenceStepsPerMinute) / config.cadenceScaleStepsPerMinute)
                     .coerceIn(-1.0, 1.0) * config.cadenceWeightPerSecond * seconds
-                row[MODES.indexOf(SegmentKind.RUNNING)] += vote
-                row[MODES.indexOf(SegmentKind.ON_FOOT)] -= vote
+                row[RUNNING_INDEX] += vote
+                row[ON_FOOT_INDEX] -= vote
+                if (cadence in config.walkingCadenceStepsPerMinute) {
+                    row[VEHICLE_INDEX] -= config.walkingCadenceVehicleWeightPerSecond * seconds
+                }
             }
 
             input.manualSegments.firstOrNull { segment ->
@@ -237,13 +277,26 @@ class ActivityModeDecoder(private val config: ModeDecoderConfig = ModeDecoderCon
         else -> null
     }
 
+    /**
+     * Шаги в минуту за окно до [atMillis]; `null` — судить не по чему. Шагомер шлёт показание
+     * только на шаг, поэтому пустое окно у записи с шагомером — ноль шагов, а не пропуск.
+     * Без единого показания у записи шагомера не было, и ноль означал бы «едет» там, где
+     * просто нет датчика. До первого показания записи тоже неизвестно ничего.
+     */
     private fun cadence(steps: List<DetectorSignal.StepCounter>, atMillis: Long): Double? {
-        val window = steps.filter { it.timestampMillis in (atMillis - config.cadenceWindowMillis)..atMillis }
-        val first = window.firstOrNull() ?: return null
-        val last = window.last()
-        val span = last.timestampMillis - first.timestampMillis
-        if (span < config.cadenceWindowMillis / 2 || last.counter < first.counter) return null
-        return (last.counter - first.counter) * 60_000.0 / span
+        val windowStart = atMillis - config.cadenceWindowMillis
+        if (steps.isEmpty() || windowStart < steps.first().timestampMillis) return null
+        // Показания отсортированы: последнее не позже [time] ищется двоичным поиском —
+        // декодер спрашивает каденс на каждую эпоху, а показаний за час бывают тысячи.
+        fun counterAt(time: Long): Long {
+            var index = steps.binarySearchBy(time) { it.timestampMillis }.let { if (it < 0) -it - 2 else it }
+            while (index + 1 < steps.size && steps[index + 1].timestampMillis <= time) index++
+            return steps[index].counter
+        }
+        val counted = counterAt(atMillis) - counterAt(windowStart)
+        // Перезагрузка обнуляет счётчик: такое окно ничего не говорит.
+        if (counted < 0) return null
+        return counted * 60_000.0 / config.cadenceWindowMillis
     }
 
     /**

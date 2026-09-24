@@ -4,6 +4,8 @@ import assertk.assertThat
 import assertk.assertions.containsExactly
 import assertk.assertions.isBetween
 import assertk.assertions.isEmpty
+import assertk.assertions.isIn
+import assertk.assertions.isNotEmpty
 import assertk.assertions.isTrue
 import com.ians.korno.core.domain.model.ActivitySegment
 import com.ians.korno.core.domain.model.GeoPoint
@@ -148,10 +150,50 @@ class ActivityModeDecoderTest {
     }
 
     @Test
-    fun `nothing is decoded without a single movement verdict`() {
-        val track = Track().move(seconds = 300, speed = 0.0, RecognizedActivity.STILL to 100)
+    fun `nothing is decoded without a single piece of evidence`() {
+        // Стоит, шагов нет, распознавание говорит только STILL — судить не по чему.
+        val track = Track().stepSensor().move(seconds = 300, speed = 0.0, RecognizedActivity.STILL to 100)
 
         assertThat(track.decode()).isEmpty()
+    }
+
+    @Test
+    fun `without recognition, moving at 20 kmh without steps is not on foot`() {
+        // Шагомер у записи был — первое показание есть, — но на ходу он молчит.
+        val track = Track().stepSensor().move(seconds = 600, speed = 5.5)
+
+        val kinds = track.decode().kinds()
+        assertThat(kinds).isNotEmpty()
+        kinds.forEach { assertThat(it).isIn(SegmentKind.CYCLING, SegmentKind.VEHICLE) }
+    }
+
+    @Test
+    fun `without recognition, 5 kmh at a walking cadence is on foot`() {
+        val track = Track().move(seconds = 600, speed = 1.4, cadence = 100)
+
+        assertThat(track.decode().kinds()).containsExactly(SegmentKind.ON_FOOT)
+    }
+
+    @Test
+    fun `without recognition, 35 kmh without steps is a vehicle`() {
+        val track = Track().stepSensor().move(seconds = 600, speed = 9.7)
+
+        assertThat(track.decode().kinds()).containsExactly(SegmentKind.VEHICLE)
+    }
+
+    @Test
+    fun `a recording without a single step reading gets no step-free evidence`() {
+        // Нет показаний — нет шагомера, а не ноль шагов. Иначе отсутствие датчика читалось
+        // бы как «едет». Пешие виды на 2.5 м/с ничто не запрещает.
+        val track = Track().move(seconds = 600, speed = 2.5)
+
+        val withoutSensor = track.decode().kinds()
+        assertThat(withoutSensor).isNotEmpty()
+        withoutSensor.forEach { assertThat(it).isIn(SegmentKind.ON_FOOT, SegmentKind.RUNNING) }
+        // С шагомером, который молчит на той же скорости, пешком уже не идут.
+        val silent = Track().stepSensor().move(seconds = 600, speed = 2.5).decode().kinds()
+        assertThat(silent).isNotEmpty()
+        silent.forEach { assertThat(it).isIn(SegmentKind.CYCLING, SegmentKind.VEHICLE) }
     }
 
     private fun List<ActivitySegment>.kinds() = map(ActivitySegment::kind)
@@ -213,6 +255,12 @@ class ActivityModeDecoderTest {
                 now += 4_000L
             }
             now = end
+            return this
+        }
+
+        /** Шагомер у записи есть: первое показание, как его пишет координатор, — сразу. */
+        fun stepSensor(): Track {
+            steps += DetectorSignal.StepCounter(now, stepCount.toLong())
             return this
         }
 

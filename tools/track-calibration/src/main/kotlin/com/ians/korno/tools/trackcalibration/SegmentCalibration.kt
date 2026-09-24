@@ -73,6 +73,9 @@ fun segmentInput(
     )
 }
 
+/** Та же запись, но декодер не видит распознавания — как с переключателем «Игнорировать AR». */
+fun SegmentInput.withoutRecognition() = SegmentInput(signals, points, emptyList(), validPoints, startMillis, endMillis)
+
 /**
  * Прогон детектора так же, как в приложении: сигналы по одному, сегмент режется на
  * подтверждении, при «сохранении» короткие сливаются. Первый подтверждённый вид тянется

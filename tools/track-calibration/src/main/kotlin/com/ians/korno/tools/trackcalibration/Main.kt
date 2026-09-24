@@ -410,27 +410,34 @@ private fun printSegments(track: LoadedTrack, sweep: Boolean) {
 }
 
 /**
- * Доля эталонного времени, где итоговая разметка совпала с метками, — по записи и в сумме.
- * Колонки «без AR» и «живой вид» добавят следующие этапы (`docs/auto-activity-segments.md`).
+ * Доля эталонного времени, где итоговая разметка совпала с метками, — по записи и в сумме:
+ * декодер как есть и декодер без Activity Recognition (`ADR 0007`) на той же записи.
+ * Колонку «живой вид» добавит онлайн-этап (`docs/auto-activity-segments.md`).
  */
 private fun printGroundTruth(tracks: List<LoadedTrack>) {
     val rows = tracks.filter { it.groundTruthMarks.isNotEmpty() }.mapNotNull { track ->
         val input = segmentInput(track.points, track.detectorSignals, track.recognitions) ?: return@mapNotNull null
-        val decoded = runModeDecoder(input, ModeDecoderConfig(), track.sensitivity)
-        track.name to groundTruthMatch(track.groundTruthMarks, decoded.merged, input.signals, input.endMillis)
+        fun match(input: SegmentInput) = groundTruthMatch(
+            track.groundTruthMarks,
+            runModeDecoder(input, ModeDecoderConfig(), track.sensitivity).merged,
+            input.signals,
+            input.endMillis,
+        )
+        track.name to listOf(match(input), match(input.withoutRecognition()))
     }
     if (rows.isEmpty()) return
 
     println()
     println("ЭТАЛОННАЯ РАЗМЕТКА — доля времени, где вид совпал с метками".title())
-    println("  %-40s %9s %8s".format(Locale.US, "запись", "эталон", "декодер"))
-    (rows + ("в сумме" to rows.map { it.second }.reduce(GroundTruthMatch::plus))).forEach { (name, match) ->
+    println("  %-40s %9s %8s %8s".format(Locale.US, "запись", "эталон", "с AR", "без AR"))
+    val total = "в сумме" to rows.map { it.second }.reduce { sum, row -> sum.zip(row, GroundTruthMatch::plus) }
+    (rows + total).forEach { (name, matches) ->
         println(
-            "  %-40s %9s %8s".format(
+            "  %-40s %9s %8s %8s".format(
                 Locale.US,
                 name.takeLast(40),
-                formatDuration(match.referenceMillis),
-                match.share?.let { "%.1f%%".format(Locale.US, it * 100) } ?: "—",
+                formatDuration(matches.first().referenceMillis),
+                *matches.map { match -> match.share?.let { "%.1f%%".format(Locale.US, it * 100) } ?: "—" }.toTypedArray(),
             ),
         )
     }
