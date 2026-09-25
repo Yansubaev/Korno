@@ -25,3 +25,6 @@ diagnostics
 
 # graphify knowledge graph (derived, rebuild with /graphify)
 graphify-out/
+
+# кэш байткода Python (tools/klog)
+__pycache__/
