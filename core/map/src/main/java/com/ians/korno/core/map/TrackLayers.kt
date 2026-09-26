@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.ln
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
@@ -324,7 +326,7 @@ internal fun Style.installTrackLayers(colors: TrackMapColors) {
 
 /** Перерисовывает линию трека. */
 internal fun Style.setRoute(points: List<MapPoint>, defaultColor: Int) {
-    val sections = points.toRouteSections()
+    val sections = points.withoutInvisibleRejects().toRouteSections()
     getSourceAs<GeoJsonSource>(ROUTE_SOURCE)
         ?.setGeoJson(sections.toFeatureCollection(EdgeKind.NORMAL, defaultColor))
     getSourceAs<GeoJsonSource>(PAUSED_ROUTE_SOURCE)
@@ -333,6 +335,58 @@ internal fun Style.setRoute(points: List<MapPoint>, defaultColor: Int) {
         ?.setGeoJson(sections.toFeatureCollection(EdgeKind.GAP, defaultColor))
     getSourceAs<GeoJsonSource>(REJECTED_ROUTE_SOURCE)
         ?.setGeoJson(sections.toFeatureCollection(EdgeKind.REJECTED, defaultColor))
+}
+
+/**
+ * Отбракованный фикс, который ближе [INVISIBLE_REJECT_METERS] к прямой между принятыми
+ * соседями, линию никуда не уводит, и бледный отрезок через него врёт: верный кусок
+ * маршрута выглядит выкинутым. В записи 34 так рисовались повторы прошлого фикса с
+ * погрешностью 45 м — те же координаты, что у соседа, — и полчаса стоянки на Wi‑Fi. Такие
+ * точки из линии убираются, а соседей соединяет обычное ребро: статистика считает так же.
+ *
+ * Разрыв переносится на следующую точку без потерь — он и так про входящее в неё ребро.
+ * Пауза так не переносится: серия с паузой, которой нет у соседей, остаётся как была.
+ */
+internal fun List<MapPoint>.withoutInvisibleRejects(): List<MapPoint> {
+    val kept = ArrayList<MapPoint>(size)
+    var index = 0
+    while (index < size) {
+        if (!this[index].isRejected) {
+            kept += this[index++]
+            continue
+        }
+        val end = (index until size).firstOrNull { !this[it].isRejected } ?: size
+        val run = subList(index, end)
+        val before = getOrNull(index - 1)
+        val after = getOrNull(end)
+        val invisible = before != null && after != null &&
+            (before.isPaused || after.isPaused || run.none(MapPoint::isPaused)) &&
+            run.all { it.distanceToChordMeters(before, after) <= INVISIBLE_REJECT_METERS }
+        if (invisible) {
+            kept += after.copy(isGap = after.isGap || run.any(MapPoint::isGap))
+            index = end + 1
+        } else {
+            kept += run
+            index = end
+        }
+    }
+    return kept
+}
+
+/** Порядка погрешности обычного фикса: отклонение меньше неё — не другой маршрут. */
+private const val INVISIBLE_REJECT_METERS = 10.0
+
+/** Равнопрямоугольная проекция: соседи трека в сотнях метров друг от друга, не дальше. */
+private fun MapPoint.distanceToChordMeters(start: MapPoint, end: MapPoint): Double {
+    val metersPerDegree = 111_320.0
+    val lonScale = cos(Math.toRadians(start.latitude))
+    fun MapPoint.x() = (longitude - start.longitude) * lonScale * metersPerDegree
+    fun MapPoint.y() = (latitude - start.latitude) * metersPerDegree
+    val dx = end.x()
+    val dy = end.y()
+    val lengthSquared = dx * dx + dy * dy
+    val t = if (lengthSquared == 0.0) 0.0 else ((x() * dx + y() * dy) / lengthSquared).coerceIn(0.0, 1.0)
+    return hypot(x() - t * dx, y() - t * dy)
 }
 
 /**
@@ -389,7 +443,10 @@ private fun List<MapPoint>.edgeStyle(index: Int): EdgeStyle = EdgeStyle(
         this[index + 1].isGap -> EdgeKind.GAP
         else -> EdgeKind.NORMAL
     },
-    shade = this[index].shade,
+    // Цвет — по правой точке: ребро — это путь, которым к ней пришли, и её вид и скорость
+    // описывают как раз его. По левой стык сегментов доставался уходящему виду: в записи 35
+    // рывок 57 м за 2 с, когда сел на велосипед, нарисовался пешим.
+    shade = this[index + 1].shade,
 )
 
 private fun List<RouteSection>.toFeatureCollection(

@@ -91,6 +91,59 @@ class RouteSectionsTest {
     }
 
     @Test
+    fun `an edge takes the shade of the point it leads to`() {
+        // Стык пешком → велосипед: рывок к первой велосипедной точке — уже езда.
+        val points = listOf(
+            point(0.0).copy(shade = Color.Green),
+            point(1.0).copy(shade = Color.Green),
+            point(2.0).copy(shade = Color.Red),
+            point(3.0).copy(shade = Color.Red),
+        )
+
+        assertThat(points.toRouteSections().map { it.shade to it.points.size }).isEqualTo(
+            listOf(Color.Green to 2, Color.Red to 3),
+        )
+    }
+
+    @Test
+    fun `a rejected fix on the line between its neighbours leaves the line`() {
+        // Запись 34: провайдер повторил прошлый фикс с погрешностью 45 м.
+        val points = listOf(
+            point(0.0),
+            point(0.0001),
+            point(0.0001, isRejected = true),
+            point(0.0002),
+        )
+
+        assertThat(points.withoutInvisibleRejects()).isEqualTo(listOf(point(0.0), point(0.0001), point(0.0002)))
+    }
+
+    @Test
+    fun `a rejected fix that leads the line aside stays pale`() {
+        val points = listOf(
+            point(0.0),
+            point(0.0001, isRejected = true).copy(longitude = 0.001),
+            point(0.0002),
+        )
+
+        assertThat(points.withoutInvisibleRejects()).isEqualTo(points)
+    }
+
+    @Test
+    fun `a dropped rejected fix hands its gap to the next point`() {
+        val points = listOf(point(0.0), point(0.0001, isGap = true, isRejected = true), point(0.0002))
+
+        assertThat(points.withoutInvisibleRejects()).isEqualTo(listOf(point(0.0), point(0.0002, isGap = true)))
+    }
+
+    @Test
+    fun `a rejected run carrying a pause its neighbours lack stays`() {
+        val points = listOf(point(0.0), point(0.0001, isPaused = true, isRejected = true), point(0.0002))
+
+        assertThat(points.withoutInvisibleRejects()).isEqualTo(points)
+    }
+
+    @Test
     fun `lens shades land on accepted points, skipping rejected and unanalysed ones`() {
         val line = listOf(
             point(0.0),
