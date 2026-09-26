@@ -55,9 +55,10 @@ class KalmanTrackFilterUseCaseTest {
     }
 
     @Test
-    fun `three rejections in a row restart the filter instead of blocking the track`() {
-        // Приёмник действительно переезжает разом — на выходе из здания. Если продолжать
-        // верить старому состоянию, забракован будет весь остаток трека.
+    fun `three rejections in a row restart the filter from the first rejected fix`() {
+        // Приёмник действительно переезжает разом — на выходе из здания или догоняя позицию
+        // после стоянки. Если продолжать верить старому состоянию, забракован будет весь
+        // остаток трека; если начать участок после отказов — пропадёт сам переезд.
         val relocated = (0..5).map { index ->
             point(
                 id = (10 + index).toLong(),
@@ -69,10 +70,22 @@ class KalmanTrackFilterUseCaseTest {
 
         val filtered = filter(steadyWalk() + relocated, config).points
 
-        assertThat(filtered.take(6).none(GeoPoint::isOutlier)).isTrue()
-        // Три отказа подряд, а дальше участок начинается заново и трек продолжается.
+        assertThat(filtered.none(GeoPoint::isOutlier)).isTrue()
+    }
+
+    @Test
+    fun `scattered rejections stay outliers after the restart`() {
+        // Три дикие точки в разные стороны друг с другом не согласны: это выбросы, а не
+        // переезд, и участок начинает следующая нормальная точка.
+        val scattered = listOf(300.0 to 0.0, 0.0 to 300.0, -300.0 to 0.0).mapIndexed { index, (north, east) ->
+            point(id = (10 + index).toLong(), north = north, east = east, timestamp = (6 + index) * 1_000L, accuracy = 5f)
+        }
+        val resumed = point(id = 20L, north = 9 * 1.4, timestamp = 9_000L, accuracy = 5f)
+
+        val filtered = filter(steadyWalk() + scattered + resumed, config).points
+
         assertThat(filtered.drop(6).take(3).all(GeoPoint::isOutlier)).isTrue()
-        assertThat(filtered.drop(9).none(GeoPoint::isOutlier)).isTrue()
+        assertThat(filtered.last().isOutlier).isFalse()
     }
 
     @Test

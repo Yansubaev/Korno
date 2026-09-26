@@ -46,7 +46,7 @@ class KalmanTrackFilterUseCase {
         val speeds = arrayOfNulls<EstimatedSpeed>(points.size)
         val runs = mutableListOf<MutableList<SmootherStep>>()
         var filter: TrackKalmanFilter? = null
-        var rejectionStreak = 0
+        val rejectedInRow = mutableListOf<Int>()
 
         points.forEachIndexed { index, point ->
             // Точку, уже забракованную грубыми проверками, фильтр не трогает: она не
@@ -67,27 +67,39 @@ class KalmanTrackFilterUseCase {
                 filter = started
                 runs += mutableListOf(SmootherStep(index, started.snapshot()))
                 speeds[index] = started.estimatedSpeed()
-                rejectionStreak = 0
+                rejectedInRow.clear()
                 return@forEachIndexed
             }
 
             val current = requireNotNull(active)
             val step = current.step(point, config)
             if (step == null) {
-                rejectionStreak++
+                rejectedInRow += index
                 estimated[index] = point.copy(isOutlier = true, isStop = false)
                 // Три отказа подряд — это уже не выброс, а разошедшийся фильтр: приёмник
-                // действительно переехал (вышли из здания, кончился тоннель), а модель
-                // всё ещё держится за старое состояние и будет браковать всё подряд.
-                // Дешевле поверить измерениям и начать участок заново.
-                if (rejectionStreak >= config.maximumConsecutiveGateRejections) {
-                    filter = null
-                    rejectionStreak = 0
+                // действительно переехал (вышли из здания, кончился тоннель, провайдер
+                // догнал позицию после стоянки), а модель всё ещё держится за старое
+                // состояние и будет браковать всё подряд. Неправы тогда не точки, а
+                // фильтр, и участок начинается с первой отброшенной — иначе сам переезд
+                // навсегда остаётся выбросом. На велосипеде в записи 36 так пропадали по
+                // три верные точки после каждого светофора.
+                if (rejectedInRow.size >= config.maximumConsecutiveGateRejections) {
+                    // Отброшенные не согласны и между собой — это всё-таки выбросы, и
+                    // участок начнёт следующая точка.
+                    filter = restartAt(rejectedInRow, points, config)?.let { (restarted, replayed) ->
+                        runs += replayed.map { SmootherStep(it.index, it.state) }.toMutableList()
+                        replayed.forEach {
+                            speeds[it.index] = it.speed
+                            estimated[it.index] = points[it.index].withPosition(it.position)
+                        }
+                        restarted
+                    }
+                    rejectedInRow.clear()
                 }
                 return@forEachIndexed
             }
 
-            rejectionStreak = 0
+            rejectedInRow.clear()
             runs.last() += SmootherStep(index, step)
             speeds[index] = current.estimatedSpeed()
             // Точку, поправленную вручную, пользователь поставил сам — её координаты
@@ -101,6 +113,33 @@ class KalmanTrackFilterUseCase {
         val smoothed = if (backwardPass) smoothBackwards(points.size, runs) else null
         return FilteredTrack(estimated, speeds.toList(), smoothed)
     }
+
+    /**
+     * Участок заново с первой из [indices], остальные — шагами нового фильтра.
+     * `null` — новый фильтр забраковал хоть одну: отброшенные не согласны и между собой.
+     */
+    private fun restartAt(
+        indices: List<Int>,
+        points: List<GeoPoint>,
+        config: TrackProcessingConfig,
+    ): Pair<TrackKalmanFilter, List<ReplayedPoint>>? {
+        val restarted = TrackKalmanFilter(points[indices.first()], config)
+        val replayed = mutableListOf(
+            ReplayedPoint(indices.first(), restarted.snapshot(), restarted.estimatedSpeed(), restarted.position()),
+        )
+        for (index in indices.drop(1)) {
+            val step = restarted.step(points[index], config) ?: return null
+            replayed += ReplayedPoint(index, step, restarted.estimatedSpeed(), restarted.position())
+        }
+        return restarted to replayed
+    }
+
+    private class ReplayedPoint(
+        val index: Int,
+        val state: StepState,
+        val speed: EstimatedSpeed,
+        val position: Position,
+    )
 
     /**
      * Обратный проход по каждому непрерывному участку.
