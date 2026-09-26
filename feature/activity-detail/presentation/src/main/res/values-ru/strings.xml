@@ -99,5 +99,6 @@
     <string name="track_correction_saved_snackbar">Трек обновлён</string>
     <string name="activity_detail_redecode_not_auto">Пересчитать участки можно только у записи в авторежиме</string>
     <string name="activity_detail_redecode_no_evidence">У записи нет ни одной улики вида движения — разметка не изменена</string>
+    <string name="activity_detail_redecode_speed_only">У записи нет дорожки шагов, а распознавание выключено: по одной скорости вид не определить — разметка не изменена</string>
     <string name="activity_detail_redecode_failed">Не удалось пересчитать участки</string>
 </resources>
