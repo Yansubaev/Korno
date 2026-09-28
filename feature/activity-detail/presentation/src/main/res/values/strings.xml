@@ -97,5 +97,6 @@
     <string name="track_correction_saved_snackbar">Track updated</string>
     <string name="activity_detail_redecode_not_auto">Segments can only be recomputed for an auto-mode recording</string>
     <string name="activity_detail_redecode_no_evidence">This recording has no evidence of how it moved — segments left unchanged</string>
+    <string name="activity_detail_redecode_speed_only">This recording has no step track, and recognition is ignored: speed alone cannot tell the kind — segments left unchanged</string>
     <string name="activity_detail_redecode_failed">Could not recompute the segments</string>
 </resources>

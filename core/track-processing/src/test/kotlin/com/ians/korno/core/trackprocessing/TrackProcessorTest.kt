@@ -448,6 +448,21 @@ class TrackProcessorTest {
     }
 
     @Test
+    fun `stationary fixes spaced between half the window and minimum stop duration are a stop`() {
+        // Лог активности 32: телефон лежал две минуты, fused отдавал фикс раз в 7.8 с.
+        // В окно 15 с попадали ровно две точки с разницей 7.8 с — меньше минимальных
+        // 10 с, — а схлопнутым окно не считалось: стоянка не объявлялась никогда.
+        val result = processor.process(
+            points = (0..15).map { index ->
+                point(id = index + 1L, latitude = 43.0, timestamp = index * 7_800L, accuracy = 4f, speed = 0f)
+            },
+            config = TrackProcessingConfig.forSegmentKind(SegmentKind.UNKNOWN),
+        )
+
+        assertThat(result.points.last().isStop).isTrue()
+    }
+
+    @Test
     fun `walking with city grade accuracy is not mistaken for a stop`() {
         // 1.15 м/с (4.1 км/ч) при погрешности 12 м и шаге 4 с — обычная городская
         // прогулка. Раньше из смещения вычиталась погрешность: у пешехода за окно

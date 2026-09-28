@@ -93,10 +93,10 @@ fun Modifier.disintegrateOnExit(
 
     return drawWithContent {
         when {
-            snapshot == null && !fadeOnExit -> drawContent()
+            // Писать в слой и без гашения: из него start() берёт снимок, пустой слой — 0×0.
             snapshot == null -> {
                 state.layer.record { this@drawWithContent.drawContent() }
-                state.layer.alpha = 1f - progress
+                state.layer.alpha = if (fadeOnExit) 1f - progress else 1f
                 drawLayer(state.layer)
             }
             disintegration != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->

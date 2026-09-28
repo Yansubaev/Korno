@@ -128,6 +128,23 @@ class RedecodeActivitySegmentsUseCaseTest {
     }
 
     @Test
+    fun `speed alone does not relabel a recording`() = runTest {
+        // Запись 21: старше step_samples, распознавание выключено — по одной скорости
+        // велосипед и пешая часть целиком становились бегом.
+        val repository = FakeTrackRepository().apply {
+            recognitionSamples = (0 until DURATION_MILLIS step 20_000L).map { at ->
+                RecognitionSample(ACTIVITY_ID, at, mapOf(RecognizedActivity.ON_BICYCLE to 90))
+            }
+        }
+        val stored = listOf(segment(SegmentKind.CYCLING, start = 0L, end = DURATION_MILLIS, steps = 600))
+
+        val result = useCase(repository)(activity(), points(speed = 4f), stored, ignoreRecognition = true)
+
+        assertThat(result).isEqualTo(Result.Error(RedecodeActivitySegmentsUseCase.Skipped.SPEED_ONLY))
+        assertThat(repository.replacedSegments).isNull()
+    }
+
+    @Test
     fun `a fixed-type recording is not touched`() = runTest {
         val repository = FakeTrackRepository()
         val stored = listOf(segment(SegmentKind.CYCLING, start = 0L, end = DURATION_MILLIS, steps = 600))

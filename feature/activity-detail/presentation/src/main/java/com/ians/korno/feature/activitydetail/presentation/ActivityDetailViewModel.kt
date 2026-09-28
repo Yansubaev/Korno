@@ -275,6 +275,8 @@ internal class ActivityDetailViewModel(
                             R.string.activity_detail_redecode_not_auto
                         RedecodeActivitySegmentsUseCase.Skipped.NO_EVIDENCE ->
                             R.string.activity_detail_redecode_no_evidence
+                        RedecodeActivitySegmentsUseCase.Skipped.SPEED_ONLY ->
+                            R.string.activity_detail_redecode_speed_only
                         null -> if (outcome == null) R.string.activity_detail_redecode_failed else null
                     },
                 )

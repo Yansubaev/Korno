@@ -31,7 +31,7 @@ class RedecodeActivitySegmentsUseCase(
     private val modeDecoder: ActivityModeDecoder = ActivityModeDecoder(),
 ) {
     /** Почему пересчёт ничего не дал: экрану нужно объяснить бездействие, а не промолчать. */
-    enum class Skipped : Error { NOT_AUTO_MODE, NO_EVIDENCE }
+    enum class Skipped : Error { NOT_AUTO_MODE, NO_EVIDENCE, SPEED_ONLY }
 
     /**
      * [ignoreRecognition] — дебажное «игнорировать Activity Recognition»: ответы
@@ -68,6 +68,12 @@ class RedecodeActivitySegmentsUseCase(
         // ответа распознавания о движении, ни ручного сегмента (ADR 0007). Прежняя разметка
         // лучше пустой, поэтому не трогаем её.
         if (decoded.isEmpty()) return Result.Error(Skipped.NO_EVIDENCE)
+        // Без шагов и распознавания остаётся одна скорость, а по ней бег не отличить ни от
+        // велосипеда, ни от ходьбы: виды выходят поровну, и побеждает первый в списке. Запись
+        // 21 (старше `step_samples`) с выключенным распознаванием так целиком стала бегом,
+        // хотя была велосипедом и пешком. Разметка со времени записи видела больше — её и
+        // оставляем.
+        if (steps.isEmpty() && recognitions.isEmpty()) return Result.Error(Skipped.SPEED_ONLY)
 
         val withSteps = decoded.map { segment ->
             val start = segment.startTimeEpochMillis

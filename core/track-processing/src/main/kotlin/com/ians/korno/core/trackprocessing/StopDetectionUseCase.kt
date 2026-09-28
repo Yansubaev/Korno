@@ -119,13 +119,19 @@ class StopDetectionUseCase {
                 return@forEachIndexed
             }
 
-            // Окно расширяется на одну точку назад, если схлопнулось: длина окна в
-            // миллисекундах — способ набрать наблюдений, а не самоцель, и при разрежённом
-            // опросе двух точек достаточно.
-            val firstPosition = if (windowStartPosition < endPosition) {
-                windowStartPosition
+            // Окно расширяется на одну точку назад, если короче минимальной стоянки: длина
+            // окна в миллисекундах — способ набрать наблюдений, а не самоцель, и при
+            // разрежённом опросе двух точек достаточно. Раньше расширялось только
+            // схлопнутое до одной точки окно, и при шаге между половиной окна и минимальной
+            // стоянкой (7.8 с при 15 и 10) в окно влезали две точки, которых всегда было
+            // мало: неподвижный телефон не уходил в автопаузу никогда.
+            val windowTooShort = end.timestampEpochMillis -
+                result[validIndices[windowStartPosition]].timestampEpochMillis <
+                config.minimumStopDurationMillis
+            val firstPosition = if (windowTooShort) {
+                (windowStartPosition - 1).coerceAtLeast(0)
             } else {
-                (endPosition - 1).coerceAtLeast(0)
+                windowStartPosition
             }
             val windowIndices = validIndices.subList(firstPosition, endPosition + 1)
             val firstIndex = windowIndices.firstOrNull() ?: return@forEachIndexed
